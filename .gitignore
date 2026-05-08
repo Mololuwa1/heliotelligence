@@ -1,44 +1,11 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-.eggs/
-
-# Environment
 .env
-.env.*
-!.env.example
-
-# Site config (contains real credentials/coordinates)
-config/sites.yaml
-
-# Data drops
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
 data/
-
-# IDE
+*.log
+.DS_Store
 .vscode/
 .idea/
-*.swp
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Type checking
-.mypy_cache/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Alembic versions are committed, but don't commit auto-generated migration scripts
-# without review. Remove this line if you want full migration history tracked.
-# migrations/versions/
