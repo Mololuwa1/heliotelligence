@@ -1,0 +1,236 @@
+INFO:     Will watch for changes in these directories: ['/Users/mololuwaobafemimoses/heliotelligence']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [12054] using WatchFiles
+INFO:     Started server process [12057]
+INFO:     Waiting for application startup.
+2026-05-06 22:43:56,068 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-05-06 22:43:56,068 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:43:56,320 INFO sqlalchemy.engine.Engine select current_schema()
+2026-05-06 22:43:56,320 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:43:56,808 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-05-06 22:43:56,808 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:43:57,222 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-05-06 22:43:57,240 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:43:57,240 INFO sqlalchemy.engine.Engine [generated in 0.00048s] (UUID('5ab83b40-553c-5ddd-976f-71f6cb5d490f'), 'Norfolk Solar Farm Alpha', 'site-001', 52.6309, 1.2974, 'Europe/London', 5000.0, 32, None)
+2026-05-06 22:43:57,543 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:43:57,544 INFO sqlalchemy.engine.Engine [cached since 0.3047s ago] (UUID('ff6f1a31-30af-5734-9fb1-5801cfaa1e12'), 'Suffolk Solar Farm Beta', 'site-002', 52.1872, 0.9708, 'Europe/London', 2500.0, 32, None)
+2026-05-06 22:43:57,634 INFO sqlalchemy.engine.Engine COMMIT
+SOLCAST_API_KEY not set — Solcast job skipped for site site-001
+SOLCAST_API_KEY not set — Solcast job skipped for site site-002
+INFO:     Application startup complete.
+2026-05-06 22:48:58,390 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-05-06 22:48:58,407 INFO sqlalchemy.engine.Engine SELECT scada_field, db_column FROM instrument_column_map WHERE site_id = $1
+2026-05-06 22:48:58,408 INFO sqlalchemy.engine.Engine [generated in 0.00571s] ('5ab83b40-553c-5ddd-976f-71f6cb5d490f',)
+2026-05-06 22:48:58,671 INFO sqlalchemy.engine.Engine ROLLBACK
+WARNING:  WatchFiles detected changes in 'src/heliotelligence/collectors/scada_csv.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12057]
+INFO:     Started server process [14724]
+INFO:     Waiting for application startup.
+2026-05-06 22:57:38,703 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-05-06 22:57:38,703 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:38,952 INFO sqlalchemy.engine.Engine select current_schema()
+2026-05-06 22:57:38,952 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:39,280 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-05-06 22:57:39,280 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:39,528 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-05-06 22:57:39,531 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:57:39,531 INFO sqlalchemy.engine.Engine [generated in 0.00043s] (UUID('5ab83b40-553c-5ddd-976f-71f6cb5d490f'), 'Norfolk Solar Farm Alpha', 'site-001', 52.6309, 1.2974, 'Europe/London', 5000.0, 32, None)
+2026-05-06 22:57:39,784 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:57:39,784 INFO sqlalchemy.engine.Engine [cached since 0.2539s ago] (UUID('ff6f1a31-30af-5734-9fb1-5801cfaa1e12'), 'Suffolk Solar Farm Beta', 'site-002', 52.1872, 0.9708, 'Europe/London', 2500.0, 32, None)
+2026-05-06 22:57:39,867 INFO sqlalchemy.engine.Engine COMMIT
+SOLCAST_API_KEY not set — Solcast job skipped for site site-001
+SOLCAST_API_KEY not set — Solcast job skipped for site site-002
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/heliotelligence/collectors/scada_csv.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [14724]
+INFO:     Started server process [14746]
+INFO:     Waiting for application startup.
+2026-05-06 22:57:43,709 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-05-06 22:57:43,709 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:43,963 INFO sqlalchemy.engine.Engine select current_schema()
+2026-05-06 22:57:43,963 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:44,301 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-05-06 22:57:44,301 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-05-06 22:57:44,557 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-05-06 22:57:44,558 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:57:44,558 INFO sqlalchemy.engine.Engine [generated in 0.00036s] (UUID('5ab83b40-553c-5ddd-976f-71f6cb5d490f'), 'Norfolk Solar Farm Alpha', 'site-001', 52.6309, 1.2974, 'Europe/London', 5000.0, 32, None)
+2026-05-06 22:57:44,808 INFO sqlalchemy.engine.Engine 
+    INSERT INTO sites (
+        site_id,
+        site_name,
+        site_code,
+        latitude,
+        longitude,
+        timezone,
+        capacity_kwp,
+        strings_per_inv,
+        subsidy_type
+    ) VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    )
+    ON CONFLICT (site_code) DO UPDATE SET
+        site_name      = EXCLUDED.site_name,
+        latitude       = EXCLUDED.latitude,
+        longitude      = EXCLUDED.longitude,
+        timezone       = EXCLUDED.timezone,
+        capacity_kwp   = EXCLUDED.capacity_kwp
+    
+2026-05-06 22:57:44,808 INFO sqlalchemy.engine.Engine [cached since 0.2501s ago] (UUID('ff6f1a31-30af-5734-9fb1-5801cfaa1e12'), 'Suffolk Solar Farm Beta', 'site-002', 52.1872, 0.9708, 'Europe/London', 2500.0, 32, None)
+2026-05-06 22:57:44,891 INFO sqlalchemy.engine.Engine COMMIT
+SOLCAST_API_KEY not set — Solcast job skipped for site site-001
+SOLCAST_API_KEY not set — Solcast job skipped for site site-002
+INFO:     Application startup complete.

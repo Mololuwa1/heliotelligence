@@ -1,0 +1,156 @@
+"""APScheduler wiring for all periodic ingest jobs.
+
+Job registry
+────────────
+solcast:<site_id>      Hourly Solcast API fetch (skipped when SOLCAST_API_KEY is unset).
+scada_csv:<site_id>    Periodic SCADA CSV drop-folder poll.
+
+Status tracking
+───────────────
+Each job wrapper updates ``_job_status`` so that the /api/v1/ingest/status
+endpoint can return a lightweight health snapshot without touching the
+database.  Keys per job entry:
+
+  last_run        datetime (UTC) of most recent execution attempt, or None
+  last_success    datetime (UTC) of last successful run, or None
+  last_error      error string from last failure, or None
+  rows_upserted   (Solcast only) row count from last success
+  files_processed (SCADA only)  file count from last success
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from heliotelligence.config.settings import settings
+from heliotelligence.config.site import SiteConfig
+from heliotelligence.collectors.solcast import run_solcast_collector
+from heliotelligence.collectors.scada_csv import ScadaCsvCollector
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level scheduler (one instance per process)
+# ---------------------------------------------------------------------------
+
+scheduler = AsyncIOScheduler(timezone="UTC")
+
+# { "solcast:<site_id>" | "scada_csv:<site_id>": { ... } }
+_job_status: dict[str, dict[str, Any]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def get_scheduler() -> AsyncIOScheduler:
+    """Return the shared APScheduler instance."""
+    return scheduler
+
+
+def get_job_status() -> dict[str, dict[str, Any]]:
+    """Return a snapshot of every registered job's last-run metadata."""
+    return dict(_job_status)
+
+
+def configure_scheduler(sites: list[SiteConfig]) -> None:
+    """Register hourly Solcast and periodic SCADA CSV jobs for each site.
+
+    Safe to call multiple times; ``replace_existing=True`` ensures existing
+    jobs are updated rather than duplicated.
+    """
+    for site in sites:
+        _register_solcast_job(site)
+        _register_scada_job(site)
+
+
+# ---------------------------------------------------------------------------
+# Job registration helpers
+# ---------------------------------------------------------------------------
+
+def _register_solcast_job(site: SiteConfig) -> None:
+    if not settings.solcast_api_key:
+        log.warning(
+            "SOLCAST_API_KEY not set — Solcast job skipped for site %s", site.id
+        )
+        return
+
+    key = f"solcast:{site.id}"
+    scheduler.add_job(
+        _run_solcast_job,
+        trigger="interval",
+        minutes=settings.solcast_poll_interval_minutes,
+        args=[site],
+        id=f"solcast_{site.id}",
+        name=f"Solcast — {site.name}",
+        replace_existing=True,
+    )
+    _job_status.setdefault(key, {"last_run": None, "last_success": None, "last_error": None})
+    log.info(
+        "Scheduled Solcast job for %s every %d min",
+        site.name, settings.solcast_poll_interval_minutes,
+    )
+
+
+def _register_scada_job(site: SiteConfig) -> None:
+    if site.scada_csv_dir is None:
+        return
+
+    key = f"scada_csv:{site.id}"
+    scheduler.add_job(
+        _run_scada_job,
+        trigger="interval",
+        minutes=settings.scada_csv_poll_interval_minutes,
+        args=[site],
+        id=f"scada_csv_{site.id}",
+        name=f"SCADA CSV — {site.name}",
+        replace_existing=True,
+    )
+    _job_status.setdefault(key, {"last_run": None, "last_success": None, "last_error": None})
+    log.info(
+        "Scheduled SCADA CSV job for %s every %d min",
+        site.name, settings.scada_csv_poll_interval_minutes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Job wrapper functions (write to _job_status on every run)
+# ---------------------------------------------------------------------------
+
+async def _run_solcast_job(site: SiteConfig) -> None:
+    key = f"solcast:{site.id}"
+    try:
+        rows = await run_solcast_collector(site)
+        now = datetime.now(timezone.utc)
+        _job_status[key].update(
+            last_run=now,
+            last_success=now,
+            last_error=None,
+            rows_upserted=rows,
+        )
+    except Exception as exc:
+        now = datetime.now(timezone.utc)
+        _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
+        log.error("Solcast job failed for site %s: %s", site.id, exc)
+
+
+async def _run_scada_job(site: SiteConfig) -> None:
+    key = f"scada_csv:{site.id}"
+    try:
+        collector = ScadaCsvCollector(site)
+        files = await collector.poll()
+        now = datetime.now(timezone.utc)
+        _job_status[key].update(
+            last_run=now,
+            last_success=now,
+            last_error=None,
+            files_processed=files,
+        )
+    except Exception as exc:
+        now = datetime.now(timezone.utc)
+        _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
+        log.error("SCADA CSV job failed for site %s: %s", site.id, exc)
