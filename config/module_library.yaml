@@ -45,13 +45,14 @@ modules:
     date_added: "2026-05-17"
     notes: >
       Fitted from STC datasheet. CEC database preferred when available.
-      i_sc corrected to 14.43 A (consistent with JKM570N series FF and
-      i_sc/i_mp ratio); original spec had i_sc < i_mp which is impossible.
+      i_sc corrected to 14.45 A — the original spec value of 13.56 A was
+      physically inconsistent (i_sc < i_mp=13.77 A is impossible).
+      Confirmed value 14.45 A per proportional scaling from i_mp: 13.77 A.
     pnom_wp: 575.0
     v_mp: 41.77
     i_mp: 13.77
     v_oc: 50.73
-    i_sc: 14.43
+    i_sc: 14.45
     alpha_sc: 0.045
     beta_voc: -0.25
     gamma_pmp: -0.29
