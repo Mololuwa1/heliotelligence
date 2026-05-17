@@ -1,0 +1,56 @@
+# Site configuration — one entry per physical solar site.
+# azimuth_deg: PVsyst convention — 0 = South, negative = East, positive = West.
+# Use SiteConfig.pvlib_azimuth property in code for pvlib calls (0=North).
+
+sites:
+  - id: "site-001"
+    name: "Bracon Ash"
+    latitude: 52.56
+    longitude: 1.21
+    altitude_m: 47
+    timezone: "Europe/London"
+    capacity_kwp: 28524.0
+    tilt_deg: 15.0
+    azimuth_deg: -0.6        # 0 = South (PVsyst convention); -0.6 ≈ slightly East
+    gcr: 0.654
+    height_m: 0.70           # array bottom height above ground [m]
+    solcast_resource_id: "abcd-1234-efgh-5678"
+    scada_csv_dir: "data/scada/site-001/"
+    module:
+      local_module_name: "JKM570N-72HL4-BDV"
+      technology: "mono_si"
+      bifacial: true
+      bifaciality_factor: 0.80
+      u_c: 29.0
+      u_v: 0.0
+      soiling_loss_pct: 1.0
+      lid_loss_pct: 0.60
+      mismatch_loss_pct: 1.15
+      wiring_loss_dc_pct: 0.48
+      modules_per_string: 24
+      num_strings: 2076
+    inverter:
+      model: "Sungrow SG350HX-15A"
+      pvlib_model: "pvwatts"
+      pnom_kwac: 320.0
+      num_units: 66
+      eta_nom: 0.9842
+      wiring_loss_ac_pct: 1.70
+      grid_limit_kwac: 20000.0
+
+  - id: "site-002"
+    name: "Suffolk Solar Farm Beta"
+    latitude: 52.1872
+    longitude: 0.9708
+    altitude_m: 20
+    timezone: "Europe/London"
+    capacity_kwp: 2500.0
+    tilt_deg: 25.0
+    azimuth_deg: 0.0
+    solcast_resource_id: "ijkl-9012-mnop-3456"
+    scada_csv_dir: "data/scada/site-002/"
+    module:
+      technology: "mono_si"
+    inverter:
+      pvlib_model: "pvwatts"
+      eta_nom: 0.975

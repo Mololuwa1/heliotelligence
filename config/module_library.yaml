@@ -1,0 +1,63 @@
+# Local module library — site-specific or uncommonly-listed modules.
+# This file sits above the CEC database in the lookup hierarchy (Tier 3).
+# CEC database coefficients are preferred when available (Tier 1/2).
+#
+# source: 'datasheet_fit' means parameters were fitted from STC datasheet
+# values, not measured from a physical I-V tracer.  fit_quality 'low'
+# indicates that coefficients should be superseded by CEC entries if found.
+#
+# All temperature coefficients are in %/°C.
+
+modules:
+  JKM570N-72HL4-BDV:
+    manufacturer: "Jinkosolar"
+    model: "JKM570N-72HL4-BDV"
+    technology: "mono_si"
+    source: "datasheet_fit"
+    fit_quality: "low"
+    date_added: "2026-05-17"
+    notes: >
+      Fitted from STC datasheet. CEC database preferred when available.
+      i_sc corrected to 14.36 A (actual Jinko datasheet) — the original
+      spec value of 13.48 A was physically inconsistent (i_sc < i_mp=13.69 A
+      is impossible; the actual Jinko JKM570N-72HL4-BDV i_sc is 14.36 A).
+    pnom_wp: 570.0
+    v_mp: 41.64
+    i_mp: 13.69
+    v_oc: 50.60
+    i_sc: 14.36
+    alpha_sc: 0.045
+    beta_voc: -0.25
+    gamma_pmp: -0.29
+    cells_in_series: 144
+    bifacial: true
+    bifaciality_factor: 0.80
+    u_c: 29.0
+    u_v: 0.0
+    noct_c: 45.0
+
+  JKM575N-72HL4-BDV:
+    manufacturer: "Jinkosolar"
+    model: "JKM575N-72HL4-BDV"
+    technology: "mono_si"
+    source: "datasheet_fit"
+    fit_quality: "low"
+    date_added: "2026-05-17"
+    notes: >
+      Fitted from STC datasheet. CEC database preferred when available.
+      i_sc corrected to 14.43 A (consistent with JKM570N series FF and
+      i_sc/i_mp ratio); original spec had i_sc < i_mp which is impossible.
+    pnom_wp: 575.0
+    v_mp: 41.77
+    i_mp: 13.77
+    v_oc: 50.73
+    i_sc: 14.43
+    alpha_sc: 0.045
+    beta_voc: -0.25
+    gamma_pmp: -0.29
+    cells_in_series: 144
+    bifacial: true
+    bifaciality_factor: 0.80
+    u_c: 29.0
+    u_v: 0.0
+    noct_c: 45.0
