@@ -28,6 +28,7 @@ from heliotelligence.db.sync import sync_sites
 from heliotelligence.api.routers import health as health_router
 from heliotelligence.api.routers import ingest as ingest_router
 from heliotelligence.api.routers import expected_energy as expected_energy_router
+from heliotelligence.api.routers import benchmarking as benchmarking_router
 
 log = logging.getLogger(__name__)
 
@@ -78,3 +79,4 @@ app = FastAPI(
 app.include_router(health_router.router)
 app.include_router(ingest_router.router)
 app.include_router(expected_energy_router.router)
+app.include_router(benchmarking_router.router)
