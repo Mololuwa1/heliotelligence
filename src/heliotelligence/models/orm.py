@@ -41,6 +41,8 @@ class WeatherReading(Base):
 
     # Irradiance
     ghi_wm2: Mapped[float | None] = mapped_column(Double, nullable=True)   # SMP10-GHI-F
+    dhi_wm2: Mapped[float | None] = mapped_column(Double, nullable=True)   # diffuse horizontal (or Erbs-derived)
+    dni_wm2: Mapped[float | None] = mapped_column(Double, nullable=True)   # direct normal (or Erbs-derived)
     poa_wm2: Mapped[float | None] = mapped_column(Double, nullable=True)   # SMP10-POA-1
     poa2_wm2: Mapped[float | None] = mapped_column(Double, nullable=True)  # SMP10-RPOA-2
     ghi_b_wm2: Mapped[float | None] = mapped_column(Double, nullable=True) # SMP10-GHI-B

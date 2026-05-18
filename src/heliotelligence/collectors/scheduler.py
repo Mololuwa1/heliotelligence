@@ -30,6 +30,8 @@ from heliotelligence.config.settings import settings
 from heliotelligence.config.site import SiteConfig
 from heliotelligence.collectors.solcast import run_solcast_collector
 from heliotelligence.collectors.scada_csv import ScadaCsvCollector
+from heliotelligence.db.session import get_session_factory
+from heliotelligence.engine.pipeline import run_pipeline
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +60,7 @@ def get_job_status() -> dict[str, dict[str, Any]]:
 
 
 def configure_scheduler(sites: list[SiteConfig]) -> None:
-    """Register hourly Solcast and periodic SCADA CSV jobs for each site.
+    """Register Solcast, SCADA CSV, and physics pipeline jobs for each site.
 
     Safe to call multiple times; ``replace_existing=True`` ensures existing
     jobs are updated rather than duplicated.
@@ -66,6 +68,7 @@ def configure_scheduler(sites: list[SiteConfig]) -> None:
     for site in sites:
         _register_solcast_job(site)
         _register_scada_job(site)
+        _register_physics_job(site)
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +120,29 @@ def _register_scada_job(site: SiteConfig) -> None:
     )
 
 
+def _register_physics_job(site: SiteConfig) -> None:
+    key = f"physics:{site.id}"
+    scheduler.add_job(
+        _run_physics_job,
+        trigger="interval",
+        minutes=30,
+        args=[site],
+        id=f"physics_{site.id}",
+        name=f"Physics pipeline — {site.name}",
+        replace_existing=True,
+    )
+    _job_status.setdefault(key, {
+        "last_run": None,
+        "last_success": None,
+        "last_error": None,
+        "rows_upserted": None,
+        "chunks_run": None,
+    })
+    log.info(
+        "Scheduled physics pipeline for %s every 30 min", site.name
+    )
+
+
 # ---------------------------------------------------------------------------
 # Job wrapper functions (write to _job_status on every run)
 # ---------------------------------------------------------------------------
@@ -136,6 +162,27 @@ async def _run_solcast_job(site: SiteConfig) -> None:
         now = datetime.now(timezone.utc)
         _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
         log.error("Solcast job failed for site %s: %s", site.id, exc)
+
+
+async def _run_physics_job(site: SiteConfig) -> None:
+    key = f"physics:{site.id}"
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            result = await run_pipeline(site, session)
+            await session.commit()
+        now = datetime.now(timezone.utc)
+        _job_status[key].update(
+            last_run=now,
+            last_success=now,
+            last_error=None,
+            rows_upserted=result["rows_upserted"],
+            chunks_run=result["chunks_run"],
+        )
+    except Exception as exc:
+        now = datetime.now(timezone.utc)
+        _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
+        log.error("Physics pipeline failed for site %s: %s", site.id, exc)
 
 
 async def _run_scada_job(site: SiteConfig) -> None:
