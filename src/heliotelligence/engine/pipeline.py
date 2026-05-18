@@ -24,6 +24,7 @@ Physics chain (per chunk)
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -77,14 +78,14 @@ async def run_pipeline(
     # ------------------------------------------------------------------
     # Determine catch-up window
     # ------------------------------------------------------------------
-    latest_expected = await get_latest_expected_energy_time(site.id, session)
+    latest_expected = await get_latest_expected_energy_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
     catch_up_from = (
         latest_expected
         if latest_expected is not None
         else now_utc - timedelta(days=lookback_days)
     )
 
-    latest_weather = await get_latest_weather_time(site.id, session)
+    latest_weather = await get_latest_weather_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
     if latest_weather is None:
         logger.info(
             "Site %s: no weather_readings found — pipeline skipped.", site.id

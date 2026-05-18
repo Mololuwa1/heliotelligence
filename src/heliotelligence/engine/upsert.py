@@ -7,6 +7,7 @@ so that re-running the pipeline for the same window is idempotent.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import timezone
 
 import pandas as pd
@@ -54,7 +55,7 @@ async def upsert_expected_energy(
         rows.append(
             {
                 "time": ts,
-                "site_id": site.id,
+                "site_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)),
                 "source": _SOURCE,
                 "p_ac_kw": _float_or_none(row.get("p_ac_kw")),
                 "p_dc_kw": _float_or_none(row.get("p_dc_kw")),

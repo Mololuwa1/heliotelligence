@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
@@ -40,7 +41,7 @@ def _get_capacity_kwp(site_id: str) -> float | None:
     """Load capacity_kwp for a site from the YAML config."""
     sites = load_sites(settings.site_config_path)
     for site in sites:
-        if site.id == site_id:
+        if str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)) == site_id:
             return site.capacity_kwp
     return None
 

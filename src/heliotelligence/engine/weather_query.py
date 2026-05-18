@@ -20,6 +20,7 @@ i.e. 'good' rows only; gap-filled rows excluded).
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime
 
 import pandas as pd
@@ -84,7 +85,7 @@ async def fetch_weather(
     """
     stmt = (
         select(*_SELECT_COLS)
-        .where(WeatherReading.site_id == site.id)
+        .where(WeatherReading.site_id == str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)))
         .where(WeatherReading.time >= start)
         .where(WeatherReading.time < end)
         .where(WeatherReading.quality < max_quality)

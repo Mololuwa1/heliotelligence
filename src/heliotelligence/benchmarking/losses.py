@@ -22,6 +22,7 @@ and unaccounted_pct are returned as None.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 def _load_site_config(site_id: str) -> SiteConfig | None:
     sites = load_sites(settings.site_config_path)
     for site in sites:
-        if site.id == site_id:
+        if str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)) == site_id:
             return site
     return None
 
