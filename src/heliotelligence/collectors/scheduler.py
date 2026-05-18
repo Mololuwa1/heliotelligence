@@ -125,7 +125,7 @@ def _register_physics_job(site: SiteConfig) -> None:
     scheduler.add_job(
         _run_physics_job,
         trigger="interval",
-        minutes=30,
+        minutes=settings.physics_pipeline_interval_minutes,
         args=[site],
         id=f"physics_{site.id}",
         name=f"Physics pipeline — {site.name}",
@@ -139,7 +139,8 @@ def _register_physics_job(site: SiteConfig) -> None:
         "chunks_run": None,
     })
     log.info(
-        "Scheduled physics pipeline for %s every 30 min", site.name
+        "Scheduled physics pipeline for %s every %d min",
+        site.name, settings.physics_pipeline_interval_minutes,
     )
 
 

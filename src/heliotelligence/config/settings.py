@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # SCADA CSV watcher
     scada_csv_poll_interval_minutes: int = 5
 
+    # Physics pipeline
+    physics_pipeline_interval_minutes: int = 30
+
     @model_validator(mode="after")
     def normalise_database_url(self) -> "Settings":
         """Normalise scheme and extract sslmode for asyncpg compatibility.
