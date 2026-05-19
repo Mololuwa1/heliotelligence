@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,18 +73,9 @@ async def run_pipeline(
         start_time    datetime | None — earliest timestamp processed
         end_time      datetime | None — latest timestamp processed
     """
-    now_utc = datetime.now(timezone.utc)
-
     # ------------------------------------------------------------------
     # Determine catch-up window
     # ------------------------------------------------------------------
-    latest_expected = await get_latest_expected_energy_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
-    catch_up_from = (
-        latest_expected
-        if latest_expected is not None
-        else now_utc - timedelta(days=lookback_days)
-    )
-
     latest_weather = await get_latest_weather_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
     if latest_weather is None:
         logger.info(
@@ -93,6 +84,13 @@ async def run_pipeline(
         return _result(site.id, 0, 0, None, None)
 
     catch_up_to = latest_weather
+
+    latest_expected = await get_latest_expected_energy_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
+    catch_up_from = (
+        latest_expected
+        if latest_expected is not None
+        else catch_up_to - timedelta(days=lookback_days)
+    )
 
     if catch_up_from >= catch_up_to:
         logger.info(
