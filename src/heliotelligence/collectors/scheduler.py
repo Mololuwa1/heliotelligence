@@ -60,15 +60,17 @@ def get_job_status() -> dict[str, dict[str, Any]]:
 
 
 def configure_scheduler(sites: list[SiteConfig]) -> None:
-    """Register Solcast, SCADA CSV, and physics pipeline jobs for each site.
+    """Register Solcast, SCADA CSV, physics pipeline, and alerts jobs for each site.
 
     Safe to call multiple times; ``replace_existing=True`` ensures existing
     jobs are updated rather than duplicated.
     """
+    import uuid as _uuid
     for site in sites:
         _register_solcast_job(site)
         _register_scada_job(site)
         _register_physics_job(site)
+        _register_alerts_job(site, str(_uuid.uuid5(_uuid.NAMESPACE_DNS, site.id)))
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +120,26 @@ def _register_scada_job(site: SiteConfig) -> None:
         "Scheduled SCADA CSV job for %s every %d min",
         site.name, settings.scada_csv_poll_interval_minutes,
     )
+
+
+def _register_alerts_job(site: SiteConfig, site_uuid: str) -> None:
+    key = f"alerts:{site.id}"
+    scheduler.add_job(
+        _run_alerts_job,
+        trigger="interval",
+        minutes=15,
+        args=[site_uuid],
+        id=f"alerts_{site.id}",
+        name=f"Alerts — {site.name}",
+        replace_existing=True,
+    )
+    _job_status.setdefault(key, {
+        "last_run": None,
+        "last_success": None,
+        "last_error": None,
+        "alerts_fired": None,
+    })
+    log.info("Scheduled alerts job for %s every 15 min", site.name)
 
 
 def _register_physics_job(site: SiteConfig) -> None:
@@ -184,6 +206,29 @@ async def _run_physics_job(site: SiteConfig) -> None:
         now = datetime.now(timezone.utc)
         _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
         log.error("Physics pipeline failed for site %s: %s", site.id, exc)
+
+
+async def _run_alerts_job(site_uuid: str) -> None:
+    key = f"alerts:{site_uuid}"
+    try:
+        from heliotelligence.alerts.evaluator import evaluate_and_persist_alerts
+        factory = get_session_factory()
+        async with factory() as session:
+            fired = await evaluate_and_persist_alerts(site_uuid, session)
+            await session.commit()
+        now = datetime.now(timezone.utc)
+        _job_status.setdefault(key, {}).update(
+            last_run=now,
+            last_success=now,
+            last_error=None,
+            alerts_fired=len(fired),
+        )
+        if fired:
+            log.info("Alerts job fired %d alert(s) for site %s", len(fired), site_uuid)
+    except Exception as exc:
+        now = datetime.now(timezone.utc)
+        _job_status.setdefault(key, {}).update(last_run=now, last_error=str(exc))
+        log.error("Alerts job failed for site %s: %s", site_uuid, exc)
 
 
 async def _run_scada_job(site: SiteConfig) -> None:

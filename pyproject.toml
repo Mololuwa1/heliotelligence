@@ -39,6 +39,9 @@ dependencies = [
     # Utilities
     "pytz>=2024.1",
     "python-dateutil>=2.9.0",
+
+    # PDF generation
+    "reportlab>=4.0.0",
 ]
 
 [project.optional-dependencies]

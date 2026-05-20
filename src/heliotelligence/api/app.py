@@ -30,6 +30,8 @@ from heliotelligence.api.routers import ingest as ingest_router
 from heliotelligence.api.routers import expected_energy as expected_energy_router
 from heliotelligence.api.routers import benchmarking as benchmarking_router
 from heliotelligence.api.routers import analysis as analysis_router
+from heliotelligence.api.routers import reports as reports_router
+from heliotelligence.api.routers import alerts as alerts_router
 
 log = logging.getLogger(__name__)
 
@@ -82,3 +84,5 @@ app.include_router(ingest_router.router)
 app.include_router(expected_energy_router.router)
 app.include_router(benchmarking_router.router)
 app.include_router(analysis_router.router)
+app.include_router(reports_router.router)
+app.include_router(alerts_router.router)
