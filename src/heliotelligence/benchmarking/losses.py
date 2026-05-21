@@ -148,7 +148,17 @@ def _compute_losses(
     expected_df = expected_df.sort_index()
     intervals_h = _interval_hours(expected_df.index)
 
-    e_exp_stc_kwh = _integrate(expected_df["p_dc_stc_kw"], intervals_h)
+    if (
+        site is not None
+        and site.capacity_kwp is not None
+        and site.capacity_kwp > 0.0
+        and "poa_total_wm2" in expected_df.columns
+        and expected_df["poa_total_wm2"].notna().any()
+    ):
+        poa_kwm2 = expected_df["poa_total_wm2"].fillna(0.0) / 1000.0
+        e_exp_stc_kwh = float((poa_kwm2.values * site.capacity_kwp * intervals_h).sum())
+    else:
+        e_exp_stc_kwh = _integrate(expected_df["p_dc_stc_kw"], intervals_h)
     e_exp_dc_kwh = _integrate(expected_df["p_dc_kw"], intervals_h)
     e_exp_ac_kwh = _integrate(expected_df["p_ac_kw"], intervals_h)
     e_actual_kwh = _e_actual_from_meter(meter_df, expected_df.index, intervals_h)
@@ -271,7 +281,7 @@ async def _fetch_expected_df(
 ) -> pd.DataFrame:
     result = await session.execute(
         text("""
-            SELECT time, p_dc_stc_kw, p_dc_kw, p_ac_kw, t_cell_c
+            SELECT time, p_dc_stc_kw, p_dc_kw, p_ac_kw, t_cell_c, poa_total_wm2
             FROM expected_energy
             WHERE site_id = :site_id
               AND time >= :start
@@ -282,8 +292,8 @@ async def _fetch_expected_df(
     )
     rows = result.fetchall()
     if not rows:
-        return pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c"])
-    df = pd.DataFrame(rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c"])
+        return pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"])
+    df = pd.DataFrame(rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"])
     df["time"] = pd.to_datetime(df["time"], utc=True)
     return df.set_index("time").sort_index()
 
