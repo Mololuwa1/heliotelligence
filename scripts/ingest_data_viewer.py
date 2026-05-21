@@ -254,21 +254,37 @@ async def _run_upsert(
     get_engine(use_null_pool=True)
     factory = get_session_factory()
 
-    log.info("Upserting %d weather rows...", len(weather_rows))
-    async with factory() as session:
-        await upsert_weather(session, weather_rows)
-        await session.commit()
+    _WEATHER_BATCH = math.floor(32000 / 17)   # 1,882 — 17 columns
+    _METER_BATCH   = math.floor(32000 / 9)    # 3,555 — 9 columns
 
-    log.info("Upserting %d meter rows...", len(meter_rows))
-    async with factory() as session:
-        await upsert_meter(session, meter_rows)
-        await session.commit()
+    total_weather = len(weather_rows)
+    total_w_batches = math.ceil(total_weather / _WEATHER_BATCH)
+    log.info("Upserting %d weather rows in %d batches of %d...",
+             total_weather, total_w_batches, _WEATHER_BATCH)
+    for batch_num, offset in enumerate(range(0, total_weather, _WEATHER_BATCH), start=1):
+        batch = weather_rows[offset: offset + _WEATHER_BATCH]
+        async with factory() as session:
+            await upsert_weather(session, batch)
+            await session.commit()
+        if batch_num % 5 == 0 or batch_num == total_w_batches:
+            print(f"  Upserting weather batch {batch_num}/{total_w_batches}...", flush=True)
+
+    total_meter = len(meter_rows)
+    total_m_batches = math.ceil(total_meter / _METER_BATCH)
+    log.info("Upserting %d meter rows in %d batches of %d...",
+             total_meter, total_m_batches, _METER_BATCH)
+    for batch_num, offset in enumerate(range(0, total_meter, _METER_BATCH), start=1):
+        batch = meter_rows[offset: offset + _METER_BATCH]
+        async with factory() as session:
+            await upsert_meter(session, batch)
+            await session.commit()
+        if batch_num % 5 == 0 or batch_num == total_m_batches:
+            print(f"  Upserting meter batch {batch_num}/{total_m_batches}...", flush=True)
 
     total_inv = len(inverter_rows)
     total_batches = math.ceil(total_inv / batch_size)
     log.info("Upserting %d inverter rows in %d batches of %d...",
              total_inv, total_batches, batch_size)
-
     for batch_num, offset in enumerate(range(0, total_inv, batch_size), start=1):
         batch = inverter_rows[offset: offset + batch_size]
         async with factory() as session:
