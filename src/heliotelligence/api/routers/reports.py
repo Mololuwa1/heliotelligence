@@ -47,6 +47,14 @@ def _site_name(site_id: str) -> str:
     return site_id
 
 
+def _get_capacity_kwp(site_id: str) -> float | None:
+    sites = load_sites(settings.site_config_path)
+    for site in sites:
+        if str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)) == site_id:
+            return site.capacity_kwp
+    return None
+
+
 async def _safe_fetch(coro):
     """Run a metric coroutine, returning None on any error."""
     try:
@@ -103,7 +111,9 @@ async def generate_report(
 
     async def _yield():
         async with factory() as s:
-            return await _safe_fetch(calculate_yield(site_id, start, end, s))
+            return await _safe_fetch(
+                calculate_yield(site_id, start, end, s, capacity_kwp=_get_capacity_kwp(site_id))
+            )
 
     async def _deg():
         async with factory() as s:

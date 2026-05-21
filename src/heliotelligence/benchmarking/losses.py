@@ -40,6 +40,8 @@ from heliotelligence.benchmarking.availability import (
 
 logger = logging.getLogger(__name__)
 
+_GAMMA_PMP = -0.29  # %/°C — temperature coefficient of maximum power (Pmax)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -167,11 +169,19 @@ def _compute_losses(
         dc_losses_pct = None
 
     # ------------------------------------------------------------------
-    # Temperature: residual DC gap after removing known config losses
+    # Temperature: physics-correct formula using mean cell temperature.
+    # Loss = |gamma_pmp| × (t_cell - 25°C), clamped to 0 when t_cell ≤ 25°C.
     # ------------------------------------------------------------------
-    total_dc_gap_pct = (e_exp_stc_kwh - e_exp_dc_kwh) / e_exp_stc_kwh * 100.0
-    if optical_pct is not None and dc_losses_pct is not None:
-        temperature_pct = max(0.0, total_dc_gap_pct - optical_pct - dc_losses_pct)
+    if "t_cell_c" in expected_df.columns:
+        t_cell_valid = expected_df["t_cell_c"].dropna()
+        if len(t_cell_valid) > 0:
+            mean_t_cell = float(t_cell_valid.mean())
+            temperature_pct = max(
+                0.0,
+                (-_GAMMA_PMP / 100.0) * (mean_t_cell - 25.0) * 100.0,
+            )
+        else:
+            temperature_pct = None
     else:
         temperature_pct = None
 
@@ -261,7 +271,7 @@ async def _fetch_expected_df(
 ) -> pd.DataFrame:
     result = await session.execute(
         text("""
-            SELECT time, p_dc_stc_kw, p_dc_kw, p_ac_kw
+            SELECT time, p_dc_stc_kw, p_dc_kw, p_ac_kw, t_cell_c
             FROM expected_energy
             WHERE site_id = :site_id
               AND time >= :start
@@ -272,8 +282,8 @@ async def _fetch_expected_df(
     )
     rows = result.fetchall()
     if not rows:
-        return pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw"])
-    df = pd.DataFrame(rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw"])
+        return pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c"])
+    df = pd.DataFrame(rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c"])
     df["time"] = pd.to_datetime(df["time"], utc=True)
     return df.set_index("time").sort_index()
 

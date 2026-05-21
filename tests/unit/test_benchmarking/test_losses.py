@@ -69,6 +69,7 @@ def _expected_df(
     p_dc_stc_kw: float = 25.0,
     p_dc_kw: float = 23.5,
     p_ac_kw: float = 22.5,
+    t_cell_c: float = 45.0,
     n: int = 4,
 ) -> pd.DataFrame:
     """
@@ -76,6 +77,7 @@ def _expected_df(
       E_exp_stc = 100 kWh
       E_exp_dc  =  94 kWh  (DC gap = 6 %)
       E_exp_ac  =  90 kWh  (inv+clip gap = 4 %)
+      t_cell_c  =  45 °C  → temperature_pct = 0.29 × (45-25) = 5.8 %
     """
     idx = _idx(n)
     return pd.DataFrame(
@@ -83,6 +85,7 @@ def _expected_df(
             "p_dc_stc_kw": [p_dc_stc_kw] * n,
             "p_dc_kw": [p_dc_kw] * n,
             "p_ac_kw": [p_ac_kw] * n,
+            "t_cell_c": [t_cell_c] * n,
         },
         index=idx,
     )
@@ -177,7 +180,7 @@ def test_unaccounted_pct_present():
 
 def test_empty_expected_returns_none_buckets():
     """When expected_df is empty, all loss buckets must be None."""
-    exp_df = pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw"])
+    exp_df = pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c"])
     met_df = _meter_df()
     site = _site()
 

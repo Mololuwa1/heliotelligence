@@ -92,6 +92,7 @@ def _build_daily_pr_series(
     day.  Days with PR=None (coverage < 10%) are dropped.
     """
     daily_prs: dict[datetime, float] = {}
+    daily_exp_energy: dict[datetime, float] = {}
 
     day = start.replace(hour=0, minute=0, second=0, microsecond=0)
     while day < end:
@@ -107,8 +108,22 @@ def _build_daily_pr_series(
         result = _compute_pr(exp_day, met_day, day, day_end)
         if result["pr"] is not None:
             daily_prs[day] = result["pr"]
+            daily_exp_energy[day] = result["e_expected_kwh"] or 0.0
 
         day = day_end
+
+    if not daily_prs:
+        return pd.Series(dtype=float)
+
+    # Exclude low-irradiance days: remove days where expected energy < 20% of
+    # the maximum daily expected energy across the window.  This prevents
+    # seasonal variation (near-zero winter PR) from being mistaken for
+    # long-run degradation by the linear regression.
+    max_exp = max(daily_exp_energy.values()) if daily_exp_energy else 0.0
+    if max_exp > 0.0:
+        threshold = 0.20 * max_exp
+        daily_prs = {d: pr for d, pr in daily_prs.items()
+                     if daily_exp_energy.get(d, 0.0) >= threshold}
 
     if not daily_prs:
         return pd.Series(dtype=float)
