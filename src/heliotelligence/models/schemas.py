@@ -33,6 +33,9 @@ class WeatherReadingIn(BaseModel):
     wind_dir_deg: float | None = None
     precip_mm: float | None = None
 
+    dni_wm2: float | None = None
+    dhi_wm2: float | None = None
+
     ws_com_status: str | None = None
     source: str = "met_station"
 
