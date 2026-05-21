@@ -239,6 +239,15 @@ async def fetch_solcast_historic(
                     f"Solcast API key invalid or missing for site {site.id}"
                 )
 
+            if response.status_code == 402:
+                log.error(
+                    "Solcast historic 402 Payment Required for site %s"
+                    " — transaction limit exceeded", site.id
+                )
+                raise RuntimeError(
+                    "Solcast transaction limit exceeded — check your plan quota"
+                )
+
             wait = BASE_BACKOFF ** (attempt + 1)
             log.warning(
                 "Solcast historic HTTP %d for site %s (attempt %d/%d): %s"
