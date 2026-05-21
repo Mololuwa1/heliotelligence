@@ -79,6 +79,19 @@ class InverterConfig(BaseModel):
     grid_limit_kwac: float | None = None
 
 
+class InverterGroupConfig(BaseModel):
+    id: str
+    label: str
+    centre_lat: float
+    centre_lon: float
+    inverter_count: int
+    inverters: list[str] = []
+
+
+class SiteLayoutConfig(BaseModel):
+    inverter_groups: list[InverterGroupConfig] = []
+
+
 class SiteConfig(BaseModel):
     """Top-level site configuration.
 
@@ -114,6 +127,7 @@ class SiteConfig(BaseModel):
     # --- Nested configs -----------------------------------------------------
     module: ModuleConfig = Field(default_factory=ModuleConfig)
     inverter: InverterConfig = Field(default_factory=InverterConfig)
+    layout: SiteLayoutConfig | None = None
 
     # --- Derived property ---------------------------------------------------
     @property

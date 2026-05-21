@@ -37,6 +37,32 @@ sites:
       eta_nom: 0.9842
       wiring_loss_ac_pct: 1.70
       grid_limit_kwac: 20000.0
+    layout:
+      inverter_groups:
+        - id: "MQA11"
+          label: "Block MQA11 (TB101–TB116)"
+          centre_lat: 52.560587
+          centre_lon: 1.211691
+          inverter_count: 16
+          inverters: ["MQA11-TB101","MQA11-TB102","MQA11-TB103","MQA11-TB104","MQA11-TB105","MQA11-TB106","MQA11-TB107","MQA11-TB108","MQA11-TB109","MQA11-TB110","MQA11-TB111","MQA11-TB112","MQA11-TB113","MQA11-TB114","MQA11-TB115","MQA11-TB116"]
+        - id: "MQA21"
+          label: "Block MQA21 (TB101–TB116)"
+          centre_lat: 52.561961
+          centre_lon: 1.211977
+          inverter_count: 16
+          inverters: ["MQA21-TB101","MQA21-TB102","MQA21-TB103","MQA21-TB104","MQA21-TB105","MQA21-TB106","MQA21-TB107","MQA21-TB108","MQA21-TB109","MQA21-TB110","MQA21-TB111","MQA21-TB112","MQA21-TB113","MQA21-TB114","MQA21-TB115","MQA21-TB116"]
+        - id: "MQA22"
+          label: "Block MQA22 (TB201–TB217)"
+          centre_lat: 52.563893
+          centre_lon: 1.213153
+          inverter_count: 17
+          inverters: ["MQA22-TB201","MQA22-TB202","MQA22-TB203","MQA22-TB204","MQA22-TB205","MQA22-TB206","MQA22-TB207","MQA22-TB208","MQA22-TB209","MQA22-TB210","MQA22-TB211","MQA22-TB212","MQA22-TB213","MQA22-TB214","MQA22-TB215","MQA22-TB216","MQA22-TB217"]
+        - id: "MQA23"
+          label: "Block MQA23 (TB301–TB317)"
+          centre_lat: 52.563825
+          centre_lon: 1.216128
+          inverter_count: 17
+          inverters: ["MQA23-TB301","MQA23-TB302","MQA23-TB303","MQA23-TB304","MQA23-TB305","MQA23-TB306","MQA23-TB307","MQA23-TB308","MQA23-TB309","MQA23-TB310","MQA23-TB311","MQA23-TB312","MQA23-TB313","MQA23-TB314","MQA23-TB315","MQA23-TB316","MQA23-TB317"]
 
   - id: "site-002"
     name: "Suffolk Solar Farm Beta"
