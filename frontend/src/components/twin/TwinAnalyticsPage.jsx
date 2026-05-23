@@ -23,13 +23,17 @@ function ChartPanel({ title, children }) {
 export default function TwinAnalyticsPage({ siteId }) {
   const { start, end } = useTimeRange();
   const [siteName, setSiteName] = useState(null);
+  const [pvsystPrTarget, setPvsystPrTarget] = useState(null);
   const [benchmarking, setBenchmarking] = useState(null);
   const [degradation, setDegradation] = useState(null);
   const [anomalies, setAnomalies] = useState(null);
   const [inverterHealth, setInverterHealth] = useState(null);
 
   useEffect(() => {
-    getLayout(siteId).then(d => setSiteName(d?.site_name ?? null)).catch(() => {});
+    getLayout(siteId).then(d => {
+      setSiteName(d?.site_name ?? null);
+      setPvsystPrTarget(d?.pvsyst_pr_target_pct ?? null);
+    }).catch(() => {});
   }, [siteId]);
 
   const [loadingBench, setLoadingBench] = useState(true);
@@ -68,8 +72,8 @@ export default function TwinAnalyticsPage({ siteId }) {
 
       <div className="flex-1 overflow-y-auto p-5">
         <div className="grid grid-cols-2 grid-rows-2 gap-5 h-full min-h-[600px]">
-          <ChartPanel title="PR Trend — Daily vs Target 86.56%">
-            <PRTrendChart degradation={degradation} loading={loadingDeg} />
+          <ChartPanel title={`PR Trend — Daily vs Target${pvsystPrTarget != null ? ` ${pvsystPrTarget}%` : ''}`}>
+            <PRTrendChart degradation={degradation} loading={loadingDeg} targetPr={pvsystPrTarget} />
           </ChartPanel>
 
           <ChartPanel title="Loss Waterfall">

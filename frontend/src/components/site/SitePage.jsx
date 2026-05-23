@@ -31,6 +31,7 @@ export default function SitePage({ siteId }) {
   const { start, end } = useTimeRange();
 
   const [siteName, setSiteName] = useState(null);
+  const [pvsystPrTarget, setPvsystPrTarget] = useState(null);
   const [benchmarking, setBenchmarking] = useState(null);
   const [degradation, setDegradation] = useState(null);
   const [anomalies, setAnomalies] = useState(null);
@@ -44,7 +45,10 @@ export default function SitePage({ siteId }) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    getLayout(siteId).then(d => setSiteName(d?.site_name ?? null)).catch(() => {});
+    getLayout(siteId).then(d => {
+      setSiteName(d?.site_name ?? null);
+      setPvsystPrTarget(d?.pvsyst_pr_target_pct ?? null);
+    }).catch(() => {});
   }, [siteId]);
 
   const load = useCallback(() => {
@@ -97,7 +101,7 @@ export default function SitePage({ siteId }) {
         {/* Charts grid */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <Section title="Daily Performance Ratio">
-            <PRTrendChart degradation={degradation} loading={loadingDeg} />
+            <PRTrendChart degradation={degradation} loading={loadingDeg} targetPr={pvsystPrTarget} />
           </Section>
 
           <Section title="Loss Waterfall">

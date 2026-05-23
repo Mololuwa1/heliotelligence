@@ -147,6 +147,7 @@ def compute_site_geometry(
         "azimuth_deg": site.azimuth_deg,
         "row_pitch_m": row_pitch_m,
         "table_width_m": round(table_width_m, 3),
+        "num_strings": num_strings,
         "total_panels": num_strings * modules_per_string if num_strings else 0,
         "groups": result_groups,
     }

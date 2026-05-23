@@ -122,6 +122,7 @@ class SiteConfig(BaseModel):
     height_m: float = 1.0       # array bottom height above ground [m], for bifacial
     pitch_m: float | None = None  # row-to-row spacing [m]; if None → estimated as 2.3/gcr
     albedo: float = 0.25        # ground albedo for bifacial rear irradiance
+    pvsyst_pr_target_pct: float | None = None  # PVsyst-modelled PR target [%]
 
     # --- External data ------------------------------------------------------
     solcast_resource_id: str

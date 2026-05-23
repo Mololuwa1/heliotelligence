@@ -100,8 +100,11 @@ export default function TwinSettingsPage({ siteId }) {
             <Row label="Row Pitch"    value={geometry?.row_pitch_m != null ? `${geometry.row_pitch_m} m` : null} />
             <Row label="Table Width"  value={geometry?.table_width_m != null ? `${geometry.table_width_m} m` : null} />
             <Row label="Total Panels" value={geometry?.total_panels != null ? geometry.total_panels.toLocaleString() : null} />
+            <Row label="Total Strings" value={geometry?.num_strings?.toLocaleString() ?? null} />
             <Row label="Module Width" value={geometry?.module_width_m != null ? `${geometry.module_width_m} m` : null} />
             <Row label="Module Height" value={geometry?.module_height_m != null ? `${geometry.module_height_m} m` : null} />
+            <Row label="Target PR"    value={layout?.pvsyst_pr_target_pct != null ? `${layout.pvsyst_pr_target_pct}%` : null} />
+            <Row label="AC Grid Limit" value={layout?.grid_limit_kwac != null ? `${(layout.grid_limit_kwac / 1000).toFixed(1)} MWac` : null} />
           </Section>
 
           {/* Inverter Groups */}

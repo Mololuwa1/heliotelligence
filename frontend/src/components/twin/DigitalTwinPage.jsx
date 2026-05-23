@@ -55,6 +55,9 @@ function LeftPanel({ benchmarking, layout }) {
   const capacityMwp = layout?.capacity_kwp != null
     ? (layout.capacity_kwp / 1000).toFixed(1) + ' MWp'
     : '—';
+  const acCapacity = layout?.grid_limit_kwac != null
+    ? (layout.grid_limit_kwac / 1000).toFixed(1) + ' MWac'
+    : '—';
 
   const overallStatus = layout?.inverter_groups?.every(g => g.status === 'normal')
     ? 'normal' : 'degraded';
@@ -69,7 +72,7 @@ function LeftPanel({ benchmarking, layout }) {
         <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-3">Plant Overview</p>
         <MetricRow label="Total Capacity" value={capacityMwp} />
         <MetricRow label="DC Capacity" value={capacityMwp} />
-        <MetricRow label="AC Capacity" value="—" />
+        <MetricRow label="AC Capacity" value={acCapacity} />
         <MetricRow label="Annual Generation" value={eActualGwh} />
         <MetricRow label="Performance Ratio" value={pr} colour="#f59e0b" />
         <MetricRow label="Capacity Factor" value={cf} />
@@ -248,7 +251,7 @@ function RightPanel({ benchmarking, layout, geometry, alerts, siteId }) {
         {[
           { icon: '📦', label: 'PV Modules',        value: geometry?.total_panels?.toLocaleString() ?? '—' },
           { icon: '⚡', label: 'Inverters',          value: totalInverters || '—' },
-          { icon: '🔌', label: 'Strings',            value: '—' },
+          { icon: '🔌', label: 'Strings',            value: geometry?.num_strings?.toLocaleString() ?? '—' },
           { icon: '🌤', label: 'Weather Stations',   value: '—' },
         ].map(row => (
           <div key={row.label} className="flex items-center justify-between py-1.5 border-b border-[#1E2A3A] last:border-0">

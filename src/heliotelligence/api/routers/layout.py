@@ -177,5 +177,7 @@ async def get_site_layout(
         "tilt_deg": site.tilt_deg,
         "azimuth_deg": site.azimuth_deg,
         "capacity_kwp": site.capacity_kwp,
+        "grid_limit_kwac": site.inverter.grid_limit_kwac,
+        "pvsyst_pr_target_pct": site.pvsyst_pr_target_pct,
         "inverter_groups": inverter_groups,
     }

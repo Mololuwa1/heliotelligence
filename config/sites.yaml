@@ -14,6 +14,7 @@ sites:
     azimuth_deg: -0.6        # 0 = South (PVsyst convention); -0.6 ≈ slightly East
     gcr: 0.654
     height_m: 0.70           # array bottom height above ground [m]
+    pvsyst_pr_target_pct: 86.56
     solcast_resource_id: "abcd-1234-efgh-5678"
     scada_csv_dir: "data/scada/site-001/"
     module:
