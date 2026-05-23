@@ -1,87 +1,115 @@
-import StatusDot from '../shared/StatusDot.jsx';
-import { statusToRgb } from './InverterMarker.jsx';
+import { useRouter } from '../../router.jsx';
 
-export default function GroupDetailPanel({ group, onClose }) {
-  if (!group) {
-    return (
-      <div className="bg-[#0F1629] border-l border-[#2D3F55] w-72 flex flex-col p-6">
-        <p className="text-slate-500 text-sm text-center mt-16">
-          Click an inverter group on the map to see details.
-        </p>
-      </div>
-    );
-  }
+const STATUS_COLOURS = {
+  normal:   '#10b981',
+  degraded: '#f6ad55',
+  offline:  '#ef4444',
+  unknown:  '#94a3b8',
+};
 
-  const rgb = statusToRgb(group.status);
-  const pulseColor = `rgba(${rgb.join(',')}, 0.3)`;
+const STATUS_BG = {
+  normal:   'rgba(16,185,129,0.15)',
+  degraded: 'rgba(246,173,85,0.15)',
+  offline:  'rgba(239,68,68,0.15)',
+  unknown:  'rgba(148,163,184,0.15)',
+};
+
+function statusColour(s) { return STATUS_COLOURS[s] ?? STATUS_COLOURS.unknown; }
+function statusBg(s)     { return STATUS_BG[s] ?? STATUS_BG.unknown; }
+
+export default function GroupDetailPanel({ group, onClose, siteId }) {
+  const { navigate } = useRouter();
+
+  if (!group) return null;
+
+  const inverters = group.inverters ?? [];
 
   return (
-    <div className="bg-[#0F1629] border-l border-[#2D3F55] w-72 flex flex-col">
+    <div
+      className="absolute top-4 right-4 bottom-4 w-72 flex flex-col rounded-xl overflow-hidden z-10"
+      style={{ background: 'rgba(11,17,32,0.95)', border: '1px solid #1E2A3A', backdropFilter: 'blur(12px)' }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[#2D3F55]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E2A3A]">
         <div className="flex items-center gap-2">
-          <StatusDot status={group.status} />
-          <h3 className="text-white font-semibold text-sm">{group.id}</h3>
+          <span
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ background: statusColour(group.status) }}
+          />
+          <span className="text-white font-bold font-mono text-sm">{group.id}</span>
+          <span
+            className="text-xs px-2 py-0.5 rounded-full capitalize font-medium"
+            style={{ color: statusColour(group.status), background: statusBg(group.status) }}
+          >
+            {group.status}
+          </span>
         </div>
         <button
           onClick={onClose}
-          className="text-slate-500 hover:text-white transition-colors"
-          aria-label="Close panel"
+          className="text-slate-500 hover:text-white transition-colors text-lg leading-none"
+          aria-label="Close"
         >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          ×
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-auto p-5 space-y-5">
-        <p className="text-slate-400 text-xs">{group.label}</p>
-
-        {/* Status badge */}
-        <div
-          className="rounded-lg px-4 py-3"
-          style={{ backgroundColor: pulseColor, border: `1px solid rgba(${rgb.join(',')}, 0.4)` }}
-        >
-          <p className="text-xs font-medium uppercase tracking-wider mb-1"
-             style={{ color: `rgb(${rgb.join(',')})` }}>
-            {group.status}
-          </p>
-          {group.availability_pct != null && (
-            <p className="font-mono text-2xl font-bold text-white">
-              {group.availability_pct.toFixed(1)}
-              <span className="text-sm font-normal text-slate-400 ml-1">% avail.</span>
+      {/* Metrics grid */}
+      <div className="grid grid-cols-2 gap-2 p-3 border-b border-[#1E2A3A]">
+        {[
+          { label: 'Total Inverters', value: group.inverter_count },
+          { label: 'Active',          value: group.active_inverters,  colour: '#10b981' },
+          { label: 'Faulted',         value: group.fault_inverters,   colour: group.fault_inverters > 0 ? '#ef4444' : '#94a3b8' },
+          { label: 'Availability',    value: group.availability_pct != null ? `${group.availability_pct.toFixed(1)}%` : '—' },
+        ].map(stat => (
+          <div key={stat.label} className="bg-[#0F1629] border border-[#1E2A3A] rounded-lg p-3">
+            <p className="text-slate-500 text-xs mb-1">{stat.label}</p>
+            <p
+              className="font-mono font-bold text-lg"
+              style={{ color: stat.colour ?? '#ffffff' }}
+            >
+              {stat.value ?? '—'}
             </p>
-          )}
-        </div>
+          </div>
+        ))}
+      </div>
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Total Inverters', value: group.inverter_count },
-            { label: 'Active', value: group.active_inverters, colour: 'text-emerald-400' },
-            { label: 'Faulted', value: group.fault_inverters, colour: group.fault_inverters > 0 ? 'text-red-400' : 'text-white' },
-            { label: 'Availability', value: group.availability_pct != null ? `${group.availability_pct.toFixed(1)}%` : '—' },
-          ].map(stat => (
-            <div key={stat.label} className="bg-[#1E2A3A] border border-[#2D3F55] rounded-lg p-3">
-              <p className="text-slate-500 text-xs mb-1">{stat.label}</p>
-              <p className={`font-mono font-bold text-lg ${stat.colour ?? 'text-white'}`}>
-                {stat.value ?? '—'}
-              </p>
-            </div>
-          ))}
-        </div>
+      {/* Inverter list */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <p className="text-amber-400 text-xs font-medium uppercase tracking-wider mb-2">
+          Inverters ({inverters.length})
+        </p>
+        {inverters.length === 0 ? (
+          <p className="text-slate-500 text-xs">No inverter IDs configured.</p>
+        ) : (
+          <div className="space-y-1">
+            {inverters.map(invId => {
+              // Active if group is active and we infer proportionally
+              const isActive = group.active_inverters > 0;
+              return (
+                <div
+                  key={invId}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-[#0F1629] border border-[#1E2A3A]"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ background: isActive ? '#10b981' : '#ef4444' }}
+                  />
+                  <span className="text-slate-300 font-mono text-xs truncate">{invId}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-        {/* Coordinates */}
-        <div className="bg-[#1E2A3A] border border-[#2D3F55] rounded-lg p-3">
-          <p className="text-slate-500 text-xs mb-2">Centre Coordinates</p>
-          <p className="font-mono text-xs text-slate-300">
-            {group.centre_lat?.toFixed(6)}°N
-          </p>
-          <p className="font-mono text-xs text-slate-300">
-            {group.centre_lon?.toFixed(6)}°E
-          </p>
-        </div>
+      {/* Footer */}
+      <div className="p-3 border-t border-[#1E2A3A]">
+        <button
+          onClick={() => siteId && navigate(`/site/${siteId}`)}
+          className="w-full text-center text-xs text-amber-400 hover:text-amber-300 border border-amber-400/30 hover:border-amber-400/60 rounded-lg py-2 transition-colors"
+        >
+          View Analytics →
+        </button>
       </div>
     </div>
   );

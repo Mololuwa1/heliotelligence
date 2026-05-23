@@ -6,7 +6,7 @@ function iso(date) {
 }
 
 export function getLayout(siteId) {
-  return client.get(`/api/v1/sites/${siteId}/layout`).then(r => r.data);
+  return client.get(`/api/v1/sites/${siteId}/layout?demo_mode=true`).then(r => r.data);
 }
 
 export function getBenchmarking(siteId, start, end) {

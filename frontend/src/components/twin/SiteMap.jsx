@@ -1,156 +1,175 @@
-import { useEffect, useRef, useCallback } from 'react';
-import mapboxgl from 'mapbox-gl';
-import { Deck } from '@deck.gl/core';
-import { ScatterplotLayer, TextLayer } from '@deck.gl/layers';
-import { statusToRgb } from './InverterMarker.jsx';
+import { useMemo, useEffect, useState } from 'react';
+import DeckGL from '@deck.gl/react';
+import Map from 'react-map-gl/mapbox';
+import { ScatterplotLayer, TextLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
+import { PathStyleExtension } from '@deck.gl/extensions';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const BRACON_ASH = { lat: 52.5626, lon: 1.2132 };
-
-const INITIAL_VIEW_STATE = {
-  latitude: BRACON_ASH.lat,
-  longitude: BRACON_ASH.lon,
+const INITIAL_VIEW = {
+  longitude: 1.2132,
+  latitude: 52.5626,
   zoom: 15,
-  pitch: 45,
-  bearing: -17,
+  pitch: 55,
+  bearing: -20,
+  transitionDuration: 1000,
 };
 
+const STATUS_COLOURS = {
+  normal:   [16, 185, 129],
+  degraded: [246, 173, 85],
+  offline:  [239, 68, 68],
+  unknown:  [148, 163, 184],
+};
+
+function getColour(status) {
+  return STATUS_COLOURS[status] ?? STATUS_COLOURS.unknown;
+}
+
+const GROUP_ORDER = ['MQA11', 'MQA21', 'MQA22', 'MQA23'];
+
+function buildZonePolygon(centreLat, centreLon, widthM, heightM) {
+  const latPerM = 1 / 111320;
+  const lonPerM = 1 / (111320 * Math.cos(centreLat * Math.PI / 180));
+  const hw = widthM / 2;
+  const hh = heightM / 2;
+  return [
+    [centreLon - hw * lonPerM, centreLat - hh * latPerM],
+    [centreLon + hw * lonPerM, centreLat - hh * latPerM],
+    [centreLon + hw * lonPerM, centreLat + hh * latPerM],
+    [centreLon - hw * lonPerM, centreLat + hh * latPerM],
+  ];
+}
+
 export default function SiteMap({ layoutData, onGroupClick }) {
-  const containerRef = useRef(null);
-  const mapRef = useRef(null);
-  const deckRef = useRef(null);
-  const layersRef = useRef([]);
-  const rafRef = useRef(null);
+  const [animTick, setAnimTick] = useState(0);
 
-  // Build deck.gl layers from current data + animation tick
-  const buildLayers = useCallback((groups, tick) => {
-    if (!groups?.length) return [];
+  useEffect(() => {
+    const id = setInterval(() => setAnimTick(t => t + 1), 50);
+    return () => clearInterval(id);
+  }, []);
 
-    const radiusScale = 1.0 + 0.15 * Math.sin(tick / 500);
+  const groups = layoutData?.inverter_groups ?? [];
 
-    const scatter = new ScatterplotLayer({
-      id: 'groups-scatter',
+  const layers = useMemo(() => {
+    if (!groups.length) return [];
+
+    // Layer 0 — 3D panel zones (extruded rectangles, rendered beneath markers)
+    const panelZones = new PolygonLayer({
+      id: 'panel-zones',
+      data: groups.map(g => ({
+        ...g,
+        polygon: buildZonePolygon(g.centre_lat, g.centre_lon, 200, 150),
+      })),
+      getPolygon: d => d.polygon,
+      getFillColor: d => {
+        const base = STATUS_COLOURS[d.status] ?? STATUS_COLOURS.unknown;
+        return [...base, 60];
+      },
+      getLineColor: d => {
+        const base = STATUS_COLOURS[d.status] ?? STATUS_COLOURS.unknown;
+        return [...base, 180];
+      },
+      getElevation: 4,
+      extruded: true,
+      wireframe: true,
+      lineWidthMinPixels: 1,
+      pickable: false,
+    });
+
+    // Layer 1 — outer glow
+    const glowOuter = new ScatterplotLayer({
+      id: 'glow-outer',
       data: groups,
-      getPosition: d => [d.centre_lon, d.centre_lat, 0],
-      getFillColor: d => [...statusToRgb(d.status), 200],
+      getPosition: d => [d.centre_lon, d.centre_lat],
+      getRadius: d => 90 + 20 * Math.sin(animTick / 8 + GROUP_ORDER.indexOf(d.id)),
+      getFillColor: d => [...getColour(d.status), 30],
+      stroked: false,
+      radiusUnits: 'meters',
+    });
+
+    // Layer 2 — mid glow
+    const glowMid = new ScatterplotLayer({
+      id: 'glow-mid',
+      data: groups,
+      getPosition: d => [d.centre_lon, d.centre_lat],
+      getRadius: d => 60 + 10 * Math.sin(animTick / 8 + GROUP_ORDER.indexOf(d.id)),
+      getFillColor: d => [...getColour(d.status), 60],
+      stroked: false,
+      radiusUnits: 'meters',
+    });
+
+    // Layer 3 — core marker
+    const core = new ScatterplotLayer({
+      id: 'core',
+      data: groups,
+      getPosition: d => [d.centre_lon, d.centre_lat],
       getRadius: 40,
-      radiusScale,
+      getFillColor: d => [...getColour(d.status), 220],
+      stroked: true,
+      getLineColor: [255, 255, 255, 180],
+      lineWidthMinPixels: 2,
+      radiusUnits: 'meters',
       pickable: true,
       onClick: ({ object }) => object && onGroupClick?.(object),
     });
 
-    const text = new TextLayer({
-      id: 'groups-text',
-      data: groups,
-      getPosition: d => [d.centre_lon, d.centre_lat, 5],
-      getText: d => d.id,
-      getSize: 13,
-      getColor: [255, 255, 255, 230],
-      getTextAnchor: 'middle',
-      getAlignmentBaseline: 'bottom',
-      fontWeight: 600,
-      background: true,
-      getBackgroundColor: [15, 22, 41, 180],
-      backgroundPadding: [3, 1, 3, 1],
-    });
+    // Layer 4 — energy flow lines
+    const sortedGroups = GROUP_ORDER
+      .map(id => groups.find(g => g.id === id))
+      .filter(Boolean);
 
-    return [scatter, text];
-  }, [onGroupClick]);
-
-  // Initialise map + deck.gl on mount
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
-
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
-      center: [BRACON_ASH.lon, BRACON_ASH.lat],
-      zoom: INITIAL_VIEW_STATE.zoom,
-      pitch: INITIAL_VIEW_STATE.pitch,
-      bearing: INITIAL_VIEW_STATE.bearing,
-      antialias: true,
-    });
-    mapRef.current = map;
-
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-    map.on('load', () => {
-      // Add deck.gl as a Mapbox custom layer
-      const deckCustomLayer = {
-        id: 'deck-overlay',
-        type: 'custom',
-        renderingMode: '2d',
-
-        onAdd(m, gl) {
-          deckRef.current = new Deck({
-            gl,
-            initialViewState: INITIAL_VIEW_STATE,
-            controller: false,
-            layers: [],
-            // Prevent deck.gl from creating its own canvas
-            canvas: m.getCanvas(),
-            width: m.getCanvas().width,
-            height: m.getCanvas().height,
-            useDevicePixels: true,
-            _customRender: () => m.triggerRepaint(),
-          });
-        },
-
-        render(gl, args) {
-          if (!deckRef.current) return;
-
-          const m = mapRef.current;
-          if (!m) return;
-
-          deckRef.current.setProps({
-            viewState: {
-              latitude: m.getCenter().lat,
-              longitude: m.getCenter().lng,
-              zoom: m.getZoom(),
-              bearing: m.getBearing(),
-              pitch: m.getPitch(),
-              repeat: true,
-            },
-            layers: layersRef.current,
-          });
-
-          // Trigger deck to draw into mapbox's current WebGL state
-          deckRef.current._drawLayers('custom-layer', { clearCanvas: false });
-        },
-
-        onRemove() {
-          deckRef.current?.finalize();
-          deckRef.current = null;
-        },
-      };
-
-      map.addLayer(deckCustomLayer);
-    });
-
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      map.remove();
-      mapRef.current = null;
-    };
-  }, []);
-
-  // Animation loop — updates layers with pulsing radiusScale
-  useEffect(() => {
-    const groups = layoutData?.inverter_groups ?? [];
-
-    function animate() {
-      layersRef.current = buildLayers(groups, Date.now());
-      mapRef.current?.triggerRepaint();
-      rafRef.current = requestAnimationFrame(animate);
+    let energyFlow = null;
+    if (sortedGroups.length >= 2) {
+      const flowPath = [
+        ...sortedGroups.map(g => [g.centre_lon, g.centre_lat]),
+        [sortedGroups[0].centre_lon, sortedGroups[0].centre_lat],
+      ];
+      energyFlow = new PathLayer({
+        id: 'energy-flow',
+        data: [{ path: flowPath }],
+        getPath: d => d.path,
+        getColor: [251, 191, 36, 180],
+        getWidth: 3,
+        widthUnits: 'pixels',
+        getDashArray: [8, 4],
+        dashJustified: true,
+        dashGapPickable: false,
+        extensions: [new PathStyleExtension({ dash: true })],
+        currentTime: animTick,
+      });
     }
 
-    rafRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [layoutData, buildLayers]);
+    // Layer 5 — labels
+    const labels = new TextLayer({
+      id: 'labels',
+      data: groups,
+      getPosition: d => [d.centre_lon, d.centre_lat, 50],
+      getText: d => `${d.id}\n${d.active_inverters}/${d.inverter_count}`,
+      getSize: 13,
+      getColor: [255, 255, 255, 230],
+      getBackgroundColor: [15, 22, 41, 180],
+      background: true,
+      backgroundPadding: [6, 4],
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'bottom',
+      fontFamily: 'monospace',
+      multiline: true,
+    });
+
+    return [panelZones, glowOuter, glowMid, energyFlow, core, labels].filter(Boolean);
+  }, [groups, animTick, onGroupClick]);
 
   return (
-    <div ref={containerRef} className="w-full h-full rounded-xl overflow-hidden" />
+    <DeckGL
+      initialViewState={INITIAL_VIEW}
+      controller={true}
+      layers={layers}
+      style={{ position: 'absolute', inset: 0 }}
+    >
+      <Map
+        mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN}
+        mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+      />
+    </DeckGL>
   );
 }
