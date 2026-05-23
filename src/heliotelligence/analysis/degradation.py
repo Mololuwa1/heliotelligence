@@ -225,4 +225,9 @@ async def calculate_degradation(
     expected_full = await _fetch_expected_full(site_id, start, end, session)
     meter_full = await _fetch_meter_full(site_id, start, end, session)
     daily_pr = _build_daily_pr_series(expected_full, meter_full, start, end)
-    return _compute_degradation(daily_pr, start, end)
+    result = _compute_degradation(daily_pr, start, end)
+    result["daily_pr"] = [
+        {"date": d.date().isoformat(), "pr": round(float(v), 4)}
+        for d, v in daily_pr.items()
+    ]
+    return result

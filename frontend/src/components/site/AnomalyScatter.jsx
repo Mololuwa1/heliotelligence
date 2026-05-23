@@ -22,7 +22,7 @@ function CustomTooltip({ active, payload }) {
 export default function AnomalyScatter({ anomalies, loading }) {
   if (loading) return <LoadingSpinner />;
 
-  const items = anomalies?.anomalies ?? anomalies?.items ?? anomalies ?? [];
+  const items = anomalies?.flags ?? anomalies?.anomalies ?? anomalies?.items ?? [];
   if (!Array.isArray(items) || !items.length) {
     return <EmptyState title="No anomalies" message="No flagged intervals in this time window." />;
   }

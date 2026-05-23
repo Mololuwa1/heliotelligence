@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatISO } from 'date-fns';
 import TwinNavBar from './TwinNavBar.jsx';
-import { generateReport } from '../../api/sites.js';
+import { generateReport, getLayout } from '../../api/sites.js';
 import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 
 const SECTIONS = [
@@ -34,6 +34,11 @@ export default function TwinReportsPage({ siteId }) {
   const [endVal, setEndVal]     = useState(formatISO(ctxEnd,   { representation: 'date' }));
   const [sections, setSections] = useState(() => Object.fromEntries(SECTIONS.map(s => [s, true])));
   const [status, setStatus]     = useState('idle'); // idle | loading | success | error
+  const [layout, setLayout]     = useState(null);
+
+  useEffect(() => {
+    getLayout(siteId).then(setLayout).catch(() => {});
+  }, [siteId]);
 
   function toggleSection(s) {
     setSections(prev => ({ ...prev, [s]: !prev[s] }));
@@ -169,12 +174,12 @@ export default function TwinReportsPage({ siteId }) {
             {/* Metadata */}
             <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-8">
               {[
-                { label: 'Site',         value: 'Bracon Ash Solar Farm' },
-                { label: 'Site ID',      value: siteId.slice(0, 8) + '…' },
-                { label: 'Report From',  value: startVal },
-                { label: 'Report To',    value: endVal },
-                { label: 'Capacity',     value: '28.5 MWp' },
-                { label: 'Location',     value: '52.56°N, 1.21°E' },
+                { label: 'Site',        value: layout?.site_name ?? '—' },
+                { label: 'Site ID',     value: siteId.slice(0, 8) + '…' },
+                { label: 'Report From', value: startVal },
+                { label: 'Report To',   value: endVal },
+                { label: 'Capacity',    value: layout?.capacity_kwp != null ? `${(layout.capacity_kwp / 1000).toFixed(1)} MWp` : '—' },
+                { label: 'Location',    value: layout?.centre_lat != null && layout?.centre_lon != null ? `${layout.centre_lat.toFixed(4)}°N, ${layout.centre_lon.toFixed(4)}°E` : '—' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex flex-col gap-1">
                   <span className="text-slate-500 text-xs">{label}</span>

@@ -158,10 +158,40 @@ def _compute_inverter_health(
     # Sort chronologically
     all_events.sort(key=lambda e: (e["inverter_id"], e["start_time"]))
 
+    # Build per-inverter summary list
+    inverters_list: list[dict] = []
+    for inv_id, inv_df in df.groupby("inverter_id"):
+        inv_df = inv_df.copy()
+        inv_df["fault_type"] = inv_df.apply(_classify_fault, axis=1)
+        total_readings = len(inv_df)
+        fault_readings = int(inv_df["fault_type"].notna().sum())
+        availability_pct = round((1 - fault_readings / total_readings) * 100, 2) if total_readings > 0 else None
+        group_id = inv_id.rsplit("-TB", 1)[0] if "-TB" in inv_id else None
+        inv_events = [e for e in all_events if e["inverter_id"] == inv_id]
+        total_downtime_h = round(sum(e["duration_hours"] for e in inv_events), 3)
+        inverters_list.append({
+            "inverter_id": inv_id,
+            "group_id": group_id,
+            "fault_event_count": len(inv_events),
+            "total_downtime_h": total_downtime_h,
+            "availability_pct": availability_pct,
+            "fault_events": [
+                {
+                    "event_type": e["fault_type"],
+                    "start_time": e["start_time"].isoformat(),
+                    "end_time": e["end_time"].isoformat(),
+                    "duration_hours": e["duration_hours"],
+                }
+                for e in inv_events
+            ],
+        })
+    inverters_list.sort(key=lambda x: x["inverter_id"])
+
     return dict(
         inverter_count=inverter_count,
         fault_event_count=len(all_events),
         fault_events=all_events,
+        inverters=inverters_list,
         start=start,
         end=end,
     )

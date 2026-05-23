@@ -39,22 +39,33 @@ function CustomTooltip({ active, payload }) {
 export default function InverterTimeline({ inverterHealth, loading }) {
   if (loading) return <LoadingSpinner />;
 
-  const inverters = inverterHealth?.inverters ?? inverterHealth?.results ?? [];
-  if (!Array.isArray(inverters) || !inverters.length) {
+  // Support both the per-inverter list (inverters) and the flat fault_events list
+  const inverters = inverterHealth?.inverters ?? [];
+  const flatEvents = inverterHealth?.fault_events ?? [];
+  const hasData = inverters.length > 0 || flatEvents.length > 0;
+  if (!hasData) {
     return <EmptyState title="No inverter health data" message="No inverter health records in this window." />;
   }
 
-  // Aggregate by group
+  // Aggregate by group — works from either source
   const groupMap = {};
-  for (const inv of inverters) {
-    const group = inv.group_id ?? inv.group ?? (inv.inverter_id ?? '').split('-').slice(0, 1).join('');
-    if (!groupMap[group]) {
-      groupMap[group] = { faultCount: 0, availSum: 0, count: 0 };
+  if (inverters.length > 0) {
+    for (const inv of inverters) {
+      const group = inv.group_id ?? (inv.inverter_id ?? '').rsplit?.('-TB', 1)?.[0] ?? inv.inverter_id;
+      if (!groupMap[group]) groupMap[group] = { faultCount: 0, availSum: 0, count: 0 };
+      groupMap[group].faultCount += inv.fault_event_count ?? (inv.fault_events ?? []).length;
+      if (inv.availability_pct != null) {
+        groupMap[group].availSum += inv.availability_pct;
+        groupMap[group].count += 1;
+      }
     }
-    groupMap[group].faultCount += (inv.fault_events ?? []).length;
-    if (inv.availability_pct != null) {
-      groupMap[group].availSum += inv.availability_pct;
-      groupMap[group].count += 1;
+  } else {
+    // Build from flat fault_events: group_id = everything before last -TB
+    for (const ev of flatEvents) {
+      const invId = ev.inverter_id ?? '';
+      const group = invId.includes('-TB') ? invId.split('-TB')[0] : invId;
+      if (!groupMap[group]) groupMap[group] = { faultCount: 0, availSum: 0, count: 0 };
+      groupMap[group].faultCount += 1;
     }
   }
 
