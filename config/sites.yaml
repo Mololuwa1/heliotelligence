@@ -29,6 +29,9 @@ sites:
       wiring_loss_dc_pct: 0.48
       modules_per_string: 24
       num_strings: 2076
+      modules_per_table: 72      # 3P × 24 panels per mounting table
+      num_tables: 659            # total mounting tables from as-built
+      row_pitch_m: 6.6           # actual inter-row spacing from as-built drawing
     inverter:
       model: "Sungrow SG350HX-15A"
       pvlib_model: "pvwatts"

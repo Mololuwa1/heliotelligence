@@ -56,3 +56,11 @@ export function getGeometry(siteId, maxPanelsPerGroup = 200) {
     .get(`/api/v1/sites/${siteId}/geometry?max_panels_per_group=${maxPanelsPerGroup}`)
     .then(r => r.data);
 }
+
+export function generateReport(siteId, start, end) {
+  return client.post(
+    `/api/v1/reports/${siteId}`,
+    null,
+    { params: { start: iso(start), end: iso(end) }, responseType: 'blob' },
+  );
+}

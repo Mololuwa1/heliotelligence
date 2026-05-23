@@ -59,6 +59,9 @@ class ModuleConfig(BaseModel):
     # --- Array geometry -----------------------------------------------------
     modules_per_string: int = 24
     num_strings: int = 1
+    modules_per_table: int = 72
+    num_tables: int | None = None
+    row_pitch_m: float = 6.6
 
 
 class InverterConfig(BaseModel):

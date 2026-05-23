@@ -50,12 +50,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/sites", tags=["geometry"])
 
-# Standard module dimensions for utility-scale TOPCon panels.
-# TODO: read from SiteConfig.module when dimension fields are added.
-_MOD_W_M = 2.278   # panel width along row (landscape orientation)
-_MOD_H_M = 1.134   # panel height across row (tilt direction)
-_MODULE_KWP = 0.570  # JKM570N nameplate — used to estimate panel count
-
 
 def _find_site(site_id: str) -> SiteConfig | None:
     sites = load_sites(settings.site_config_path)
@@ -71,26 +65,29 @@ def compute_site_geometry(
 ) -> dict:
     """Compute panel centre positions for every inverter group in *site*.
 
-    All geometry is derived from SiteConfig fields — no DB access.
+    Uses as-built parameters from SiteConfig.module (row_pitch_m, modules_per_string).
+    All geometry is derived from config — no DB access.
     """
-    modules_per_string: int = site.module.modules_per_string
-    num_strings: int = site.module.num_strings
-    num_modules: int = round(site.capacity_kwp / _MODULE_KWP)
+    # Module dimensions (TOPCon landscape orientation)
+    MOD_W_M = 2.278   # panel width along row (E-W, landscape)
+    MOD_H_M = 1.134   # panel height across row (N-S, tilt direction)
 
-    # Row geometry
-    row_pitch_m: float = _MOD_H_M / site.gcr          # horizontal row-to-row spacing
-    row_length_m: float = modules_per_string * _MOD_W_M  # length of one string row
+    # From as-built or config
+    modules_per_string = site.module.modules_per_string  # 24
+    num_strings = site.module.num_strings                 # 2076
+    row_pitch_m = site.module.row_pitch_m                 # 6.6m actual inter-row spacing
 
-    # Azimuth convention: PVsyst 0=South, negative=East, positive=West.
-    # For a South-facing array (azimuth ≈ 0) rows run East-West.
-    # row_angle_rad: angle from East in standard math convention (CCW positive).
-    # azimuth=0  → rows due East-West → row_angle=0
-    # azimuth=-0.6 → tiny tilt toward East → row_angle=+0.6°
-    row_angle_rad: float = math.radians(-site.azimuth_deg)
+    # Table geometry: panels arranged in a 3-portrait × 24-landscape grid
+    table_width_m = modules_per_string * MOD_W_M   # E-W: 54.67m
+    table_depth_m = 3 * MOD_H_M                    # N-S panel area: 3.4m  # noqa: F841
 
-    # Unit vectors in (lon, lat) space
-    along_row   = (math.cos(row_angle_rad),  math.sin(row_angle_rad))   # East-West
-    across_row  = (-math.sin(row_angle_rad), math.cos(row_angle_rad))   # North-South
+    # Azimuth: PVsyst convention 0=South, -0.6 ≈ South (rows run E-W).
+    # For near-zero azimuth: along_row ≈ E-W (lon), across_row ≈ N-S (lat).
+    az_rad = math.radians(site.azimuth_deg)
+    along_row_lon = math.cos(az_rad)    # E-W component (dominant)
+    along_row_lat = math.sin(az_rad)    # N-S component (tiny for az≈0)
+    across_row_lon = -math.sin(az_rad)  # perpendicular E-W (tiny)
+    across_row_lat = math.cos(az_rad)   # perpendicular N-S (dominant)
 
     groups_cfg = site.layout.inverter_groups if site.layout else []
     total_inverters = sum(g.inverter_count for g in groups_cfg)
@@ -98,9 +95,6 @@ def compute_site_geometry(
     result_groups: list[dict] = []
 
     for group in groups_cfg:
-        # Strings allocated to this group proportional to inverter count
-        group_strings: int = round(num_strings * group.inverter_count / total_inverters)
-
         centre_lat: float = group.centre_lat
         centre_lon: float = group.centre_lon
 
@@ -108,26 +102,26 @@ def compute_site_geometry(
         lat_per_m: float = 1.0 / 111320.0
         lon_per_m: float = 1.0 / (111320.0 * math.cos(math.radians(centre_lat)))
 
-        # Cap rows to a realistic zone depth (~227m for 12.5 ha at 55m row length)
-        max_rows: int = min(group_strings, int(227.0 / row_pitch_m))
+        # Strings for this group (proportional to inverter count)
+        group_strings: int = round(num_strings * group.inverter_count / total_inverters)
 
-        # Generate panel centre positions
+        # Tables per E-W row: groups span full E-W width (~820m from as-built)
+        tables_per_ew_row: int = round(820 / table_width_m)  # ~15 tables
+        # Each mounting table has 3 string rows (3P portrait structure)
+        # Convert strings to tables before computing N-S row count
+        group_tables: int = math.ceil(group_strings / 3)
+        num_ns_rows: int = math.ceil(group_tables / tables_per_ew_row)
+
+        # Generate one point per table (represents a 54m × 3.4m mounting table)
         panels: list[list[float]] = []
-        half_rows = max_rows / 2.0
-
-        for row_i in range(max_rows):
-            row_offset = (row_i - half_rows + 0.5) * row_pitch_m
-            row_dx = row_offset * across_row[0]
-            row_dy = row_offset * across_row[1]
-
-            for col_i in range(modules_per_string):
-                col_offset = (col_i - modules_per_string / 2.0 + 0.5) * _MOD_W_M
-                panel_dx = row_dx + col_offset * along_row[0]
-                panel_dy = row_dy + col_offset * along_row[1]
-
-                panel_lon = centre_lon + panel_dx * lon_per_m
-                panel_lat = centre_lat + panel_dy * lat_per_m
-
+        for row_i in range(num_ns_rows):
+            row_offset_m = (row_i - num_ns_rows / 2.0 + 0.5) * row_pitch_m
+            for table_i in range(tables_per_ew_row):
+                table_offset_m = (table_i - tables_per_ew_row / 2.0 + 0.5) * table_width_m
+                dx = table_offset_m * along_row_lon + row_offset_m * across_row_lon
+                dy = table_offset_m * along_row_lat + row_offset_m * across_row_lat
+                panel_lon = centre_lon + dx * lon_per_m
+                panel_lat = centre_lat + dy * lat_per_m
                 panels.append([round(panel_lon, 7), round(panel_lat, 7)])
 
         # Downsample for frontend performance
@@ -140,18 +134,20 @@ def compute_site_geometry(
             "centre_lat": centre_lat,
             "centre_lon": centre_lon,
             "panel_count": len(panels),
+            "zone_ew_m": round(tables_per_ew_row * table_width_m, 1),
+            "zone_ns_m": round(num_ns_rows * row_pitch_m, 1),
             "panels": panels,
         })
 
     return {
-        "site_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)),
-        "module_width_m": _MOD_W_M,
-        "module_height_m": _MOD_H_M,
+        "site_id": str(site.id),
+        "module_width_m": MOD_W_M,
+        "module_height_m": MOD_H_M,
         "tilt_deg": site.tilt_deg,
         "azimuth_deg": site.azimuth_deg,
-        "row_pitch_m": round(row_pitch_m, 3),
-        "row_length_m": round(row_length_m, 3),
-        "total_panels": num_modules,
+        "row_pitch_m": row_pitch_m,
+        "table_width_m": round(table_width_m, 3),
+        "total_panels": num_strings * modules_per_string if num_strings else 0,
         "groups": result_groups,
     }
 
