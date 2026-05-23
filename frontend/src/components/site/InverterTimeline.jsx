@@ -5,8 +5,6 @@ import {
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
 import EmptyState from '../shared/EmptyState.jsx';
 
-const GROUP_ORDER = ['MQA11', 'MQA21', 'MQA22', 'MQA23'];
-
 function eventColour(type) {
   if (!type) return '#94a3b8';
   const t = type.toLowerCase();
@@ -69,7 +67,9 @@ export default function InverterTimeline({ inverterHealth, loading }) {
     }
   }
 
-  const data = GROUP_ORDER
+  const groupOrder = Object.keys(groupMap).sort();
+
+  const data = groupOrder
     .filter(g => groupMap[g])
     .map(g => {
       const entry = groupMap[g];

@@ -54,7 +54,7 @@ export default function TwinSettingsPage({ siteId }) {
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-        <TwinNavBar activePage="Settings" siteId={siteId} />
+        <TwinNavBar activePage="Settings" siteId={siteId} siteName={layout?.site_name} />
         <div className="flex-1 flex items-center justify-center">
           <LoadingSpinner label="Loading site configuration…" />
         </div>
@@ -65,7 +65,7 @@ export default function TwinSettingsPage({ siteId }) {
   if (error) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-        <TwinNavBar activePage="Settings" siteId={siteId} />
+        <TwinNavBar activePage="Settings" siteId={siteId} siteName={layout?.site_name} />
         <div className="flex-1 flex items-center justify-center">
           <p className="text-red-400 text-sm">{error}</p>
         </div>
@@ -77,7 +77,7 @@ export default function TwinSettingsPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Settings" siteId={siteId} />
+      <TwinNavBar activePage="Settings" siteId={siteId} siteName={layout?.site_name} />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto grid grid-cols-2 gap-5">

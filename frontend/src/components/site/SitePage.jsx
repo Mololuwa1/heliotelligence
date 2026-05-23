@@ -8,15 +8,12 @@ import InverterTimeline from './InverterTimeline.jsx';
 import { useRouter } from '../../router.jsx';
 import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 import {
+  getLayout,
   getBenchmarking,
   getDegradation,
   getAnomalies,
   getInverterHealth,
 } from '../../api/sites.js';
-
-const SITE_NAMES = {
-  '5ab83b40-553c-5ddd-976f-71f6cb5d490f': 'Bracon Ash',
-};
 
 function Section({ title, children }) {
   return (
@@ -33,6 +30,7 @@ export default function SitePage({ siteId }) {
   const { navigate } = useRouter();
   const { start, end } = useTimeRange();
 
+  const [siteName, setSiteName] = useState(null);
   const [benchmarking, setBenchmarking] = useState(null);
   const [degradation, setDegradation] = useState(null);
   const [anomalies, setAnomalies] = useState(null);
@@ -44,6 +42,10 @@ export default function SitePage({ siteId }) {
   const [loadingInv, setLoadingInv] = useState(true);
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    getLayout(siteId).then(d => setSiteName(d?.site_name ?? null)).catch(() => {});
+  }, [siteId]);
 
   const load = useCallback(() => {
     setLoadingBench(true);
@@ -74,11 +76,9 @@ export default function SitePage({ siteId }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const siteName = SITE_NAMES[siteId] ?? siteId;
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <TopBar title={siteName} onRefresh={() => setRefreshKey(k => k + 1)} />
+      <TopBar title={siteName ?? '—'} onRefresh={() => setRefreshKey(k => k + 1)} />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {/* Twin link */}

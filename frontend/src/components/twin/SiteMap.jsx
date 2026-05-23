@@ -6,15 +6,6 @@ import { PathStyleExtension } from '@deck.gl/extensions';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getGeometry } from '../../api/sites.js';
 
-const INITIAL_VIEW = {
-  longitude: 1.2132,
-  latitude: 52.5620,
-  zoom: 14.5,
-  pitch: 60,
-  bearing: -20,
-  transitionDuration: 1000,
-};
-
 const STATUS_COLOURS = {
   normal:   [16, 185, 129],
   degraded: [246, 173, 85],
@@ -26,12 +17,17 @@ function getColour(status) {
   return STATUS_COLOURS[status] ?? STATUS_COLOURS.unknown;
 }
 
-const GROUP_ORDER = ['MQA11', 'MQA21', 'MQA22', 'MQA23'];
-
 export default function SiteMap({ layoutData, onGroupClick }) {
   const [animTick, setAnimTick] = useState(0);
   const [geometry, setGeometry] = useState(null);
-  const [viewState, setViewState] = useState(INITIAL_VIEW);
+  const [viewState, setViewState] = useState(() => ({
+    longitude: layoutData?.centre_lon ?? 0,
+    latitude:  layoutData?.centre_lat ?? 0,
+    zoom: 14.5,
+    pitch: 60,
+    bearing: -20,
+    transitionDuration: 1000,
+  }));
 
   useEffect(() => {
     const id = setInterval(() => setAnimTick(t => t + 1), 50);
@@ -78,12 +74,14 @@ export default function SiteMap({ layoutData, onGroupClick }) {
         })
       : null;
 
+    const groupOrder = groups.map(g => g.id);
+
     // Layer 1 — outer glow
     const glowOuter = new ScatterplotLayer({
       id: 'glow-outer',
       data: groups,
       getPosition: d => [d.centre_lon, d.centre_lat],
-      getRadius: d => 90 + 20 * Math.sin(animTick / 8 + GROUP_ORDER.indexOf(d.id)),
+      getRadius: d => 90 + 20 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
       getFillColor: d => [...getColour(d.status), 30],
       stroked: false,
       radiusUnits: 'meters',
@@ -94,7 +92,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       id: 'glow-mid',
       data: groups,
       getPosition: d => [d.centre_lon, d.centre_lat],
-      getRadius: d => 60 + 10 * Math.sin(animTick / 8 + GROUP_ORDER.indexOf(d.id)),
+      getRadius: d => 60 + 10 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
       getFillColor: d => [...getColour(d.status), 60],
       stroked: false,
       radiusUnits: 'meters',
@@ -116,7 +114,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
     });
 
     // Layer 5 — energy flow lines
-    const sortedGroups = GROUP_ORDER
+    const sortedGroups = groupOrder
       .map(id => groups.find(g => g.id === id))
       .filter(Boolean);
 

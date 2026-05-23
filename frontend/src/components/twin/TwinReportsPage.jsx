@@ -66,7 +66,7 @@ export default function TwinReportsPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Reports" siteId={siteId} />
+      <TwinNavBar activePage="Reports" siteId={siteId} siteName={layout?.site_name} />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="flex gap-6 h-full">

@@ -6,28 +6,28 @@ import { format, parseISO } from 'date-fns';
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
 import EmptyState from '../shared/EmptyState.jsx';
 
-const TARGET_PR = 86.56;
-
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, targetPr }) {
   if (!active || !payload?.length) return null;
   const pr = payload.find(p => p.dataKey === 'pr_pct');
-  const delta = pr ? (pr.value - TARGET_PR).toFixed(2) : null;
+  const delta = pr && targetPr != null ? (pr.value - targetPr).toFixed(2) : null;
   return (
     <div className="bg-[#1E2A3A] border border-[#2D3F55] rounded-lg px-3 py-2 text-xs">
       <p className="text-slate-400 mb-1">{label}</p>
       {pr && (
         <p className="text-amber-400 font-mono font-semibold">
           PR: {pr.value.toFixed(2)}%
-          <span className={`ml-2 ${parseFloat(delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            ({parseFloat(delta) >= 0 ? '+' : ''}{delta})
-          </span>
+          {delta != null && (
+            <span className={`ml-2 ${parseFloat(delta) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              ({parseFloat(delta) >= 0 ? '+' : ''}{delta})
+            </span>
+          )}
         </p>
       )}
     </div>
   );
 }
 
-export default function PRTrendChart({ degradation, loading }) {
+export default function PRTrendChart({ degradation, loading, targetPr = null }) {
   if (loading) return <LoadingSpinner />;
 
   const raw = degradation?.daily_pr ?? [];
@@ -57,13 +57,15 @@ export default function PRTrendChart({ degradation, loading }) {
           tickLine={false}
           width={42}
         />
-        <Tooltip content={<CustomTooltip />} />
-        <ReferenceLine
-          y={TARGET_PR}
-          stroke="rgba(255,255,255,0.35)"
-          strokeDasharray="6 4"
-          label={{ value: `Target ${TARGET_PR}%`, position: 'right', fill: '#94a3b8', fontSize: 10 }}
-        />
+        <Tooltip content={<CustomTooltip targetPr={targetPr} />} />
+        {targetPr != null && (
+          <ReferenceLine
+            y={targetPr}
+            stroke="rgba(255,255,255,0.35)"
+            strokeDasharray="6 4"
+            label={{ value: `Target ${targetPr}%`, position: 'right', fill: '#94a3b8', fontSize: 10 }}
+          />
+        )}
         <Line
           type="monotone"
           dataKey="pr_pct"

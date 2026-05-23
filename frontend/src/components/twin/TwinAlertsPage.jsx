@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import TwinNavBar from './TwinNavBar.jsx';
 import AlertCard from '../alerts/AlertCard.jsx';
-import { getAlerts } from '../../api/sites.js';
+import { getLayout, getAlerts } from '../../api/sites.js';
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
 
 const SEVERITIES = ['critical', 'warning', 'info'];
@@ -19,12 +19,17 @@ function SummaryPill({ label, count, colour }) {
 }
 
 export default function TwinAlertsPage({ siteId }) {
+  const [siteName, setSiteName] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [severityFilter, setSeverityFilter] = useState('All');
   const [statusFilter, setStatusFilter]   = useState('All');
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    getLayout(siteId).then(d => setSiteName(d?.site_name ?? null)).catch(() => {});
+  }, [siteId]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -67,7 +72,7 @@ export default function TwinAlertsPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Alerts" siteId={siteId} />
+      <TwinNavBar activePage="Alerts" siteId={siteId} siteName={siteName} />
 
       <div className="flex-1 overflow-y-auto">
         {/* Summary strip */}

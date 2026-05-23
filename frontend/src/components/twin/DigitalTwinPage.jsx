@@ -8,7 +8,7 @@ import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 import SiteMap from './SiteMap.jsx';
 import GroupDetailPanel from './GroupDetailPanel.jsx';
 import TwinNavBar from './TwinNavBar.jsx';
-import { getLayout, getBenchmarking, getAlerts } from '../../api/sites.js';
+import { getLayout, getBenchmarking, getAlerts, getGeometry } from '../../api/sites.js';
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
 
 // ─── Design constants ──────────────────────────────────────────────────────────
@@ -19,8 +19,6 @@ const STATUS_COLOURS = {
   unknown:  '#94a3b8',
 };
 function statusColour(s) { return STATUS_COLOURS[s] ?? STATUS_COLOURS.unknown; }
-
-const BRACON_ASH_ID = '5ab83b40-553c-5ddd-976f-71f6cb5d490f';
 
 // ─── Synthetic day-profile data for AreaChart ──────────────────────────────────
 const DAY_PROFILE = Array.from({ length: 17 }, (_, i) => {
@@ -54,6 +52,10 @@ function LeftPanel({ benchmarking, layout }) {
   const eActualGwh = eActual != null ? (eActual / 1e6).toFixed(3) + ' GWh' : '—';
   const currentMw  = eActual != null ? (eActual / hours / 1000).toFixed(2) + ' MW' : '—';
 
+  const capacityMwp = layout?.capacity_kwp != null
+    ? (layout.capacity_kwp / 1000).toFixed(1) + ' MWp'
+    : '—';
+
   const overallStatus = layout?.inverter_groups?.every(g => g.status === 'normal')
     ? 'normal' : 'degraded';
 
@@ -65,9 +67,9 @@ function LeftPanel({ benchmarking, layout }) {
       {/* Plant Overview */}
       <div className="p-4 border-b border-[#1E2A3A]">
         <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-3">Plant Overview</p>
-        <MetricRow label="Total Capacity" value="28.5 MWp" />
-        <MetricRow label="DC Capacity" value="28.5 MWdc" />
-        <MetricRow label="AC Capacity" value="21.1 MWac" />
+        <MetricRow label="Total Capacity" value={capacityMwp} />
+        <MetricRow label="DC Capacity" value={capacityMwp} />
+        <MetricRow label="AC Capacity" value="—" />
         <MetricRow label="Annual Generation" value={eActualGwh} />
         <MetricRow label="Performance Ratio" value={pr} colour="#f59e0b" />
         <MetricRow label="Capacity Factor" value={cf} />
@@ -171,11 +173,12 @@ const SEVERITY_COLOURS = {
 
 const PIE_COLOURS = ['#10b981', '#f59e0b', '#ef4444'];
 
-function RightPanel({ benchmarking, layout, alerts, siteId }) {
+function RightPanel({ benchmarking, layout, geometry, alerts, siteId }) {
   const { navigate } = useRouter();
 
   // Donut data from layout groups
   const groups = layout?.inverter_groups ?? [];
+  const totalInverters = groups.reduce((s, g) => s + (g.inverter_count ?? 0), 0);
   const normalCount  = groups.filter(g => g.status === 'normal').length;
   const degradedCount = groups.filter(g => g.status === 'degraded').length;
   const offlineCount = groups.filter(g => g.status === 'offline' || g.status === 'unknown').length;
@@ -221,7 +224,7 @@ function RightPanel({ benchmarking, layout, alerts, siteId }) {
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-white font-mono font-bold text-xl">66</span>
+            <span className="text-white font-mono font-bold text-xl">{totalInverters || '—'}</span>
             <span className="text-slate-500 text-xs">Total Assets</span>
           </div>
         </div>
@@ -243,10 +246,10 @@ function RightPanel({ benchmarking, layout, alerts, siteId }) {
       <div className="p-4 border-b border-[#1E2A3A]">
         <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-3">Asset Breakdown</p>
         {[
-          { icon: '📦', label: 'PV Modules',        value: '49,824' },
-          { icon: '⚡', label: 'Inverters',          value: '66' },
-          { icon: '🔌', label: 'Strings',            value: '2,076' },
-          { icon: '🌤', label: 'Weather Stations',   value: '1' },
+          { icon: '📦', label: 'PV Modules',        value: geometry?.total_panels?.toLocaleString() ?? '—' },
+          { icon: '⚡', label: 'Inverters',          value: totalInverters || '—' },
+          { icon: '🔌', label: 'Strings',            value: '—' },
+          { icon: '🌤', label: 'Weather Stations',   value: '—' },
         ].map(row => (
           <div key={row.label} className="flex items-center justify-between py-1.5 border-b border-[#1E2A3A] last:border-0">
             <span className="text-slate-400 text-xs">{row.icon} {row.label}</span>
@@ -314,6 +317,7 @@ export default function DigitalTwinPage({ siteId }) {
   const { start, end } = useTimeRange();
 
   const [layout, setLayout] = useState(null);
+  const [geometry, setGeometry] = useState(null);
   const [benchmarking, setBenchmarking] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -326,6 +330,10 @@ export default function DigitalTwinPage({ siteId }) {
       .then(setLayout)
       .catch(() => setLayout(null))
       .finally(() => setLoading(false));
+
+    getGeometry(siteId, 1)
+      .then(setGeometry)
+      .catch(() => setGeometry(null));
 
     getBenchmarking(siteId, start, end)
       .then(setBenchmarking)
@@ -340,7 +348,7 @@ export default function DigitalTwinPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Overview" siteId={siteId} />
+      <TwinNavBar activePage="Overview" siteId={siteId} siteName={layout?.site_name} />
 
       <div className="flex flex-1 overflow-hidden">
         <LeftPanel benchmarking={benchmarking} layout={layout} />
@@ -372,6 +380,7 @@ export default function DigitalTwinPage({ siteId }) {
         <RightPanel
           benchmarking={benchmarking}
           layout={layout}
+          geometry={geometry}
           alerts={alerts}
           siteId={siteId}
         />

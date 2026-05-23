@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import TwinNavBar from './TwinNavBar.jsx';
-import { getInverterHealth } from '../../api/sites.js';
+import { getLayout, getInverterHealth } from '../../api/sites.js';
 import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
-
-const GROUPS = ['MQA11', 'MQA21', 'MQA22', 'MQA23'];
 
 function invStatus(availPct) {
   if (availPct == null) return 'unknown';
@@ -106,6 +104,8 @@ function DetailPanel({ inv, onClose }) {
 
 export default function TwinAssetsPage({ siteId }) {
   const { start, end } = useTimeRange();
+  const [siteName, setSiteName] = useState(null);
+  const [groupIds, setGroupIds] = useState([]);
   const [inverterHealth, setInverterHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -113,6 +113,15 @@ export default function TwinAssetsPage({ siteId }) {
   const [groupFilter, setGroupFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedInv, setSelectedInv] = useState(null);
+
+  useEffect(() => {
+    getLayout(siteId)
+      .then(d => {
+        setSiteName(d?.site_name ?? null);
+        setGroupIds((d?.inverter_groups ?? []).map(g => g.id));
+      })
+      .catch(() => {});
+  }, [siteId]);
 
   useEffect(() => {
     setLoading(true);
@@ -146,7 +155,7 @@ export default function TwinAssetsPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Assets" siteId={siteId} />
+      <TwinNavBar activePage="Assets" siteId={siteId} siteName={siteName} />
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -165,7 +174,7 @@ export default function TwinAssetsPage({ siteId }) {
               className="bg-[#0F1629] border border-[#1E2A3A] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400/50"
             >
               <option value="All">All Groups</option>
-              {GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+              {groupIds.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
             <select
               value={statusFilter}

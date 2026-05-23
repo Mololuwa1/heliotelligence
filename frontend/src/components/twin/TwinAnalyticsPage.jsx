@@ -4,7 +4,7 @@ import PRTrendChart from '../site/PRTrendChart.jsx';
 import LossWaterfall from '../site/LossWaterfall.jsx';
 import AnomalyScatter from '../site/AnomalyScatter.jsx';
 import InverterTimeline from '../site/InverterTimeline.jsx';
-import { getBenchmarking, getDegradation, getAnomalies, getInverterHealth } from '../../api/sites.js';
+import { getLayout, getBenchmarking, getDegradation, getAnomalies, getInverterHealth } from '../../api/sites.js';
 import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 
 function ChartPanel({ title, children }) {
@@ -22,10 +22,15 @@ function ChartPanel({ title, children }) {
 
 export default function TwinAnalyticsPage({ siteId }) {
   const { start, end } = useTimeRange();
+  const [siteName, setSiteName] = useState(null);
   const [benchmarking, setBenchmarking] = useState(null);
   const [degradation, setDegradation] = useState(null);
   const [anomalies, setAnomalies] = useState(null);
   const [inverterHealth, setInverterHealth] = useState(null);
+
+  useEffect(() => {
+    getLayout(siteId).then(d => setSiteName(d?.site_name ?? null)).catch(() => {});
+  }, [siteId]);
 
   const [loadingBench, setLoadingBench] = useState(true);
   const [loadingDeg,   setLoadingDeg]   = useState(true);
@@ -59,7 +64,7 @@ export default function TwinAnalyticsPage({ siteId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1120] overflow-hidden">
-      <TwinNavBar activePage="Analytics" siteId={siteId} />
+      <TwinNavBar activePage="Analytics" siteId={siteId} siteName={siteName} />
 
       <div className="flex-1 overflow-y-auto p-5">
         <div className="grid grid-cols-2 grid-rows-2 gap-5 h-full min-h-[600px]">
