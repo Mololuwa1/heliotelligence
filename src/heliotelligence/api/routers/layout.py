@@ -2,8 +2,8 @@
 
 GET /api/v1/sites/{site_id}/layout
     Returns the site's physical layout with current inverter group status.
-    Inverter availability is computed from the most recent reading per
-    inverter within the last 2 hours.
+    Inverter availability is derived from the most recent inv_p_ac_kw reading
+    per inverter (no time filter — uses last known reading).
 
 Response shape
 ──────────────
@@ -36,14 +36,13 @@ Status thresholds
   normal   — mean availability >= 95 %
   degraded — mean availability >= 50 %
   offline  — mean availability < 50 %
-  unknown  — no data in the last 2 hours
+  unknown  — no data found for this inverter
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
@@ -55,8 +54,6 @@ from heliotelligence.db.session import get_session_factory
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/sites", tags=["layout"])
-
-_LOOKBACK_HOURS = 2
 
 
 def _find_site(site_id: str) -> SiteConfig | None:
@@ -86,28 +83,26 @@ async def get_site_layout(site_id: str) -> dict:
             detail=f"Site {site_id} not found in configuration",
         )
 
-    two_hours_ago = datetime.now(timezone.utc) - timedelta(hours=_LOOKBACK_HOURS)
-
-    # Fetch latest inv_avail_pct per inverter in the last 2 hours
+    # Fetch latest inv_p_ac_kw per inverter (last known reading, no time filter).
+    # inv_avail_pct is NULL for all rows; availability is derived from AC power.
     factory = get_session_factory()
     async with factory() as session:
         result = await session.execute(
             text("""
                 SELECT DISTINCT ON (inverter_id)
                     inverter_id,
-                    inv_avail_pct
+                    inv_p_ac_kw
                 FROM inverter_readings
                 WHERE site_id = :site_id
-                  AND time >= :since
                 ORDER BY inverter_id, time DESC
             """),
-            {"site_id": site_id, "since": two_hours_ago},
+            {"site_id": site_id},
         )
         rows = result.fetchall()
 
-    # Build lookup: inverter_id → latest inv_avail_pct
-    avail_map: dict[str, float | None] = {
-        row.inverter_id: row.inv_avail_pct for row in rows
+    # Build lookup: inverter_id → latest inv_p_ac_kw (None if column is NULL)
+    power_map: dict[str, float | None] = {
+        row.inverter_id: row.inv_p_ac_kw for row in rows
     }
 
     # Compute site centre as mean of group centres
@@ -119,23 +114,24 @@ async def get_site_layout(site_id: str) -> dict:
         centre_lat = site.latitude
         centre_lon = site.longitude
 
-    # Assemble per-group status
+    # Assemble per-group status derived from inv_p_ac_kw.
+    # active   = inverters with inv_p_ac_kw > 0
+    # fault    = inverters with inv_p_ac_kw = 0 or NULL
+    # availability_pct = active / inverter_count × 100
     inverter_groups = []
     for group in groups_cfg:
-        readings = [
-            avail_map[inv_id]
-            for inv_id in group.inverters
-            if inv_id in avail_map and avail_map[inv_id] is not None
-        ]
+        known = [inv_id for inv_id in group.inverters if inv_id in power_map]
 
-        if readings:
-            mean_avail = sum(readings) / len(readings)
-            active = sum(1 for v in readings if v > 0)
-            fault = sum(1 for v in readings if v == 0)
+        if known:
+            active = sum(1 for inv_id in known if (power_map[inv_id] or 0) > 0)
+            fault = len(known) - active
+            availability_pct = round(active / group.inverter_count * 100, 2)
+            mean_avail = availability_pct
         else:
-            mean_avail = None
             active = 0
             fault = 0
+            availability_pct = None
+            mean_avail = None
 
         inverter_groups.append({
             "id": group.id,
@@ -145,7 +141,7 @@ async def get_site_layout(site_id: str) -> dict:
             "inverter_count": group.inverter_count,
             "active_inverters": active,
             "fault_inverters": fault,
-            "availability_pct": round(mean_avail, 2) if mean_avail is not None else None,
+            "availability_pct": availability_pct,
             "status": _group_status(mean_avail),
         })
 
