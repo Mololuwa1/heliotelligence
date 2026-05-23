@@ -44,7 +44,9 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from heliotelligence.config.settings import settings
@@ -74,8 +76,14 @@ def _group_status(mean_avail: float | None) -> str:
     return "offline"
 
 
+_DEMO_AT_TIME = datetime(2025, 8, 20, 14, 0, 0, tzinfo=timezone.utc)
+
 @router.get("/{site_id}/layout")
-async def get_site_layout(site_id: str) -> dict:
+async def get_site_layout(
+    site_id: str,
+    at_time: datetime | None = Query(default=None, description="Pin status to this UTC timestamp"),
+    demo_mode: bool = Query(default=False, description="Pin to 2025-08-20T14:00:00Z daytime snapshot"),
+) -> dict:
     site = _find_site(site_id)
     if site is None:
         raise HTTPException(
@@ -83,21 +91,37 @@ async def get_site_layout(site_id: str) -> dict:
             detail=f"Site {site_id} not found in configuration",
         )
 
-    # Fetch latest inv_p_ac_kw per inverter (last known reading, no time filter).
+    # Resolve effective timestamp: demo_mode overrides at_time.
     # inv_avail_pct is NULL for all rows; availability is derived from AC power.
+    effective_time = _DEMO_AT_TIME if demo_mode else at_time
+
     factory = get_session_factory()
     async with factory() as session:
-        result = await session.execute(
-            text("""
-                SELECT DISTINCT ON (inverter_id)
-                    inverter_id,
-                    inv_p_ac_kw
-                FROM inverter_readings
-                WHERE site_id = :site_id
-                ORDER BY inverter_id, time DESC
-            """),
-            {"site_id": site_id},
-        )
+        if effective_time is not None:
+            result = await session.execute(
+                text("""
+                    SELECT DISTINCT ON (inverter_id)
+                        inverter_id,
+                        inv_p_ac_kw
+                    FROM inverter_readings
+                    WHERE site_id = :site_id
+                      AND time <= :at_time
+                    ORDER BY inverter_id, time DESC
+                """),
+                {"site_id": site_id, "at_time": effective_time},
+            )
+        else:
+            result = await session.execute(
+                text("""
+                    SELECT DISTINCT ON (inverter_id)
+                        inverter_id,
+                        inv_p_ac_kw
+                    FROM inverter_readings
+                    WHERE site_id = :site_id
+                    ORDER BY inverter_id, time DESC
+                """),
+                {"site_id": site_id},
+            )
         rows = result.fetchall()
 
     # Build lookup: inverter_id → latest inv_p_ac_kw (None if column is NULL)
