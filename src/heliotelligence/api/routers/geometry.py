@@ -81,16 +81,16 @@ def compute_site_geometry(
     row_pitch_m: float = _MOD_H_M / site.gcr          # horizontal row-to-row spacing
     row_length_m: float = modules_per_string * _MOD_W_M  # length of one string row
 
-    # Azimuth conversion:
-    #   PVsyst: 0=South, -90=East, +90=West
-    #   pvlib:  pvlib_az = azimuth_deg + 180  (0=North, 90=East, 180=South)
-    #   math:   az_rad = 90° - pvlib_az  (0=East, CCW positive)
-    pvlib_az: float = site.azimuth_deg + 180.0
-    az_rad: float = math.radians(90.0 - pvlib_az)
+    # Azimuth convention: PVsyst 0=South, negative=East, positive=West.
+    # For a South-facing array (azimuth ≈ 0) rows run East-West.
+    # row_angle_rad: angle from East in standard math convention (CCW positive).
+    # azimuth=0  → rows due East-West → row_angle=0
+    # azimuth=-0.6 → tiny tilt toward East → row_angle=+0.6°
+    row_angle_rad: float = math.radians(-site.azimuth_deg)
 
-    # Unit vectors in the horizontal plane
-    along_row   = (math.cos(az_rad),  math.sin(az_rad))   # parallel to panel strings
-    across_row  = (-math.sin(az_rad), math.cos(az_rad))   # row-to-row direction
+    # Unit vectors in (lon, lat) space
+    along_row   = (math.cos(row_angle_rad),  math.sin(row_angle_rad))   # East-West
+    across_row  = (-math.sin(row_angle_rad), math.cos(row_angle_rad))   # North-South
 
     groups_cfg = site.layout.inverter_groups if site.layout else []
     total_inverters = sum(g.inverter_count for g in groups_cfg)
@@ -108,11 +108,14 @@ def compute_site_geometry(
         lat_per_m: float = 1.0 / 111320.0
         lon_per_m: float = 1.0 / (111320.0 * math.cos(math.radians(centre_lat)))
 
+        # Cap rows to a realistic zone depth (~227m for 12.5 ha at 55m row length)
+        max_rows: int = min(group_strings, int(227.0 / row_pitch_m))
+
         # Generate panel centre positions
         panels: list[list[float]] = []
-        half_rows = group_strings / 2.0
+        half_rows = max_rows / 2.0
 
-        for row_i in range(group_strings):
+        for row_i in range(max_rows):
             row_offset = (row_i - half_rows + 0.5) * row_pitch_m
             row_dx = row_offset * across_row[0]
             row_dy = row_offset * across_row[1]

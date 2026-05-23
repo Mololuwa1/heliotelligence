@@ -50,3 +50,9 @@ export function getAlerts(siteId, { unacknowledgedOnly = false, limit = 50 } = {
 export function acknowledgeAlert(alertId) {
   return client.post(`/api/v1/alerts/${alertId}/acknowledge`).then(r => r.data);
 }
+
+export function getGeometry(siteId, maxPanelsPerGroup = 200) {
+  return client
+    .get(`/api/v1/sites/${siteId}/geometry?max_panels_per_group=${maxPanelsPerGroup}`)
+    .then(r => r.data);
+}

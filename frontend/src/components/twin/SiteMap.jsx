@@ -1,15 +1,16 @@
 import { useMemo, useEffect, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import Map from 'react-map-gl/mapbox';
-import { ScatterplotLayer, TextLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, TextLayer, PathLayer } from '@deck.gl/layers';
 import { PathStyleExtension } from '@deck.gl/extensions';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { getGeometry } from '../../api/sites.js';
 
 const INITIAL_VIEW = {
   longitude: 1.2132,
-  latitude: 52.5626,
-  zoom: 15,
-  pitch: 55,
+  latitude: 52.5620,
+  zoom: 14.5,
+  pitch: 60,
   bearing: -20,
   transitionDuration: 1000,
 };
@@ -27,54 +28,55 @@ function getColour(status) {
 
 const GROUP_ORDER = ['MQA11', 'MQA21', 'MQA22', 'MQA23'];
 
-function buildZonePolygon(centreLat, centreLon, widthM, heightM) {
-  const latPerM = 1 / 111320;
-  const lonPerM = 1 / (111320 * Math.cos(centreLat * Math.PI / 180));
-  const hw = widthM / 2;
-  const hh = heightM / 2;
-  return [
-    [centreLon - hw * lonPerM, centreLat - hh * latPerM],
-    [centreLon + hw * lonPerM, centreLat - hh * latPerM],
-    [centreLon + hw * lonPerM, centreLat + hh * latPerM],
-    [centreLon - hw * lonPerM, centreLat + hh * latPerM],
-  ];
-}
-
 export default function SiteMap({ layoutData, onGroupClick }) {
   const [animTick, setAnimTick] = useState(0);
+  const [geometry, setGeometry] = useState(null);
+  const [viewState, setViewState] = useState(INITIAL_VIEW);
 
   useEffect(() => {
     const id = setInterval(() => setAnimTick(t => t + 1), 50);
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const siteId = layoutData?.site_id;
+    if (!siteId) return;
+    getGeometry(siteId, 300).then(setGeometry).catch(() => {});
+  }, [layoutData?.site_id]);
+
   const groups = layoutData?.inverter_groups ?? [];
+
+  // Flatten all panel positions with group status colour for rendering
+  const panelPoints = useMemo(() => {
+    if (!geometry?.groups) return [];
+    const groupStatusMap = Object.fromEntries(groups.map(g => [g.id, g.status]));
+    return geometry.groups.flatMap(g => {
+      const status = groupStatusMap[g.id] ?? 'unknown';
+      const colour = STATUS_COLOURS[status] ?? STATUS_COLOURS.unknown;
+      return g.panels.map(([lon, lat]) => ({ position: [lon, lat], colour }));
+    });
+  }, [geometry, groups]);
 
   const layers = useMemo(() => {
     if (!groups.length) return [];
 
-    // Layer 0 — 3D panel zones (extruded rectangles, rendered beneath markers)
-    const panelZones = new PolygonLayer({
-      id: 'panel-zones',
-      data: groups.map(g => ({
-        ...g,
-        polygon: buildZonePolygon(g.centre_lat, g.centre_lon, 200, 150),
-      })),
-      getPolygon: d => d.polygon,
-      getFillColor: d => {
-        const base = STATUS_COLOURS[d.status] ?? STATUS_COLOURS.unknown;
-        return [...base, 60];
-      },
-      getLineColor: d => {
-        const base = STATUS_COLOURS[d.status] ?? STATUS_COLOURS.unknown;
-        return [...base, 180];
-      },
-      getElevation: 4,
-      extruded: true,
-      wireframe: true,
-      lineWidthMinPixels: 1,
-      pickable: false,
-    });
+    // Layer 0 — individual panel dots (zoom-gated, rendered beneath everything)
+    const showPanels = viewState.zoom > 13.5;
+    const panelLayer = showPanels && panelPoints.length > 0
+      ? new ScatterplotLayer({
+          id: 'panels',
+          data: panelPoints,
+          getPosition: d => d.position,
+          getFillColor: [45, 85, 130, 220],
+          getLineColor: [100, 150, 200, 150],
+          getRadius: 1.5,
+          radiusMinPixels: 1.5,
+          radiusMaxPixels: 4,
+          radiusUnits: 'meters',
+          stroked: false,
+          pickable: false,
+        })
+      : null;
 
     // Layer 1 — outer glow
     const glowOuter = new ScatterplotLayer({
@@ -87,7 +89,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       radiusUnits: 'meters',
     });
 
-    // Layer 2 — mid glow
+    // Layer 3 — mid glow
     const glowMid = new ScatterplotLayer({
       id: 'glow-mid',
       data: groups,
@@ -98,7 +100,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       radiusUnits: 'meters',
     });
 
-    // Layer 3 — core marker
+    // Layer 4 — core marker
     const core = new ScatterplotLayer({
       id: 'core',
       data: groups,
@@ -113,7 +115,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       onClick: ({ object }) => object && onGroupClick?.(object),
     });
 
-    // Layer 4 — energy flow lines
+    // Layer 5 — energy flow lines
     const sortedGroups = GROUP_ORDER
       .map(id => groups.find(g => g.id === id))
       .filter(Boolean);
@@ -139,7 +141,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       });
     }
 
-    // Layer 5 — labels
+    // Layer 6 — labels
     const labels = new TextLayer({
       id: 'labels',
       data: groups,
@@ -156,12 +158,13 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       multiline: true,
     });
 
-    return [panelZones, glowOuter, glowMid, energyFlow, core, labels].filter(Boolean);
-  }, [groups, animTick, onGroupClick]);
+    return [panelLayer, glowOuter, glowMid, energyFlow, core, labels].filter(Boolean);
+  }, [groups, animTick, onGroupClick, panelPoints, viewState.zoom]);
 
   return (
     <DeckGL
-      initialViewState={INITIAL_VIEW}
+      viewState={viewState}
+      onViewStateChange={({ viewState: vs }) => setViewState(vs)}
       controller={true}
       layers={layers}
       style={{ position: 'absolute', inset: 0 }}
