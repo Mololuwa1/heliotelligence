@@ -33,10 +33,12 @@ export default function PRTrendChart({ degradation, loading, targetPr = null }) 
   const raw = degradation?.daily_pr ?? [];
   if (!raw.length) return <EmptyState title="No PR data" message="No daily PR records in this window." />;
 
-  const data = raw.map(d => ({
-    date: format(parseISO(d.date ?? d.time ?? d.day), 'MMM d'),
-    pr_pct: d.pr != null ? parseFloat((d.pr * 100).toFixed(2)) : d.pr_pct ?? null,
-  }));
+  const data = raw
+    .filter(d => d.pr != null && d.pr > 0.05 && d.pr <= 1.0)
+    .map(d => ({
+      date: format(parseISO(d.date ?? d.time ?? d.day), 'MMM d'),
+      pr_pct: parseFloat((d.pr * 100).toFixed(2)),
+    }));
 
   return (
     <ResponsiveContainer width="100%" height={260}>
@@ -50,7 +52,10 @@ export default function PRTrendChart({ degradation, loading, targetPr = null }) 
           interval="preserveStartEnd"
         />
         <YAxis
-          domain={[60, 100]}
+          domain={[
+            dataMin => Math.max(0, Math.floor(dataMin * 0.95)),
+            dataMax => Math.min(100, Math.ceil(dataMax * 1.05))
+          ]}
           tickFormatter={v => `${v}%`}
           tick={{ fill: '#94a3b8', fontSize: 11 }}
           axisLine={false}
