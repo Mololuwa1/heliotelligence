@@ -27,7 +27,7 @@ jobs:
         working-directory: frontend
         env:
           VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
-          VITE_API_BASE_URL: https://api.heliotelligence.com
+          VITE_API_BASE_URL: https://heliotelligence-api-nokkigdtdq-nw.a.run.app
         run: npm run build
 
       - name: Deploy to Firebase
