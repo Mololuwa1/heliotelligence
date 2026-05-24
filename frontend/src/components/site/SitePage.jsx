@@ -96,7 +96,7 @@ export default function SitePage({ siteId }) {
         </div>
 
         {/* KPI Strip */}
-        <KPIStrip benchmarking={benchmarking} degradation={degradation} />
+        <KPIStrip benchmarking={benchmarking} degradation={degradation} targetPr={pvsystPrTarget} />
 
         {/* Charts grid */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

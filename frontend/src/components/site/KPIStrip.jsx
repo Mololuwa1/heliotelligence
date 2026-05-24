@@ -9,18 +9,18 @@ function KPICard({ label, children }) {
   );
 }
 
-export default function KPIStrip({ benchmarking, degradation }) {
+export default function KPIStrip({ benchmarking, degradation, targetPr = null }) {
   const b = benchmarking ?? {};
-  const pr = b.performance_ratio ?? null;
-  const eActual = b.e_actual_kwh ?? null;
-  const availability = b.availability_pct ?? b.avail_pct ?? null;
+  const pr = b.performance_ratio?.pr ?? null;
+  const eActual = b.yield_metrics?.e_actual_kwh ?? null;
+  const availability = b.availability?.availability_pct ?? null;
   const unaccounted = b.losses?.unaccounted_pct ?? b.unaccounted_pct ?? null;
   const degRate = degradation?.rate_pct_per_year ?? null;
 
   return (
     <div className="flex gap-4 overflow-x-auto pb-1">
       <KPICard label="Performance Ratio">
-        <PRChip value={pr} showDelta />
+        <PRChip value={pr} showDelta targetPr={targetPr} />
       </KPICard>
 
       <KPICard label="Energy">
