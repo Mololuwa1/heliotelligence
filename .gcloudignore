@@ -1,0 +1,12 @@
+.git/
+.venv/
+frontend/node_modules/
+frontend/dist/
+data/
+*.pyc
+__pycache__/
+.coverage
+htmlcov/
+*.pdf
+screenshots/
+.env

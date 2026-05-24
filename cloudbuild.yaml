@@ -1,0 +1,60 @@
+steps:
+  # Run tests
+  - name: 'python:3.13-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install -e ".[dev]" -q
+        python -m pytest tests/unit/ -q --no-header --no-cov
+    env:
+      - 'DATABASE_URL=postgresql://test:test@localhost/test'
+    id: 'test'
+
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:$SHORT_SHA'
+      - '-t'
+      - 'europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:latest'
+      - '.'
+    id: 'build'
+    waitFor: ['test']
+
+  # Push image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api'
+    id: 'push'
+    waitFor: ['build']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'heliotelligence-api'
+      - '--image=europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:latest'
+      - '--region=europe-west2'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--min-instances=1'
+      - '--max-instances=10'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest'
+      - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,ENVIRONMENT=production'
+    id: 'deploy'
+    waitFor: ['push']
+
+images:
+  - 'europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:$SHORT_SHA'
+  - 'europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
