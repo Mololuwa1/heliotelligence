@@ -3,7 +3,7 @@ import TopBar from '../layout/TopBar.jsx';
 import FleetKPICard from './FleetKPICard.jsx';
 import SiteRow from './SiteRow.jsx';
 import LoadingSpinner from '../shared/LoadingSpinner.jsx';
-import { getBenchmarking } from '../../api/sites.js';
+import { getBenchmarking, getLayout } from '../../api/sites.js';
 import { useTimeRange } from '../../contexts/TimeRangeContext.jsx';
 
 const SITES = [
@@ -17,19 +17,26 @@ const SITES = [
 export default function PortfolioPage() {
   const { start, end } = useTimeRange();
   const [benchmarkingMap, setBenchmarkingMap] = useState({});
+  const [layoutMap, setLayoutMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const results = await Promise.allSettled(
-      SITES.map(site => getBenchmarking(site.id, start, end))
-    );
-    const map = {};
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled') map[SITES[i].id] = r.value;
+    const [benchResults, layoutResults] = await Promise.all([
+      Promise.allSettled(SITES.map(site => getBenchmarking(site.id, start, end))),
+      Promise.allSettled(SITES.map(site => getLayout(site.id))),
+    ]);
+    const bMap = {};
+    benchResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') bMap[SITES[i].id] = r.value;
     });
-    setBenchmarkingMap(map);
+    const lMap = {};
+    layoutResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') lMap[SITES[i].id] = r.value;
+    });
+    setBenchmarkingMap(bMap);
+    setLayoutMap(lMap);
     setLoading(false);
   }, [start, end, refreshKey]);
 
@@ -40,12 +47,12 @@ export default function PortfolioPage() {
   const totalCapacity = SITES.reduce((s, site) => s + site.capacity_kwp, 0);
   const avgPR =
     allBench.length > 0
-      ? allBench.reduce((s, b) => s + (b.performance_ratio ?? 0), 0) / allBench.length
+      ? allBench.reduce((s, b) => s + (b.performance_ratio?.pr ?? 0), 0) / allBench.length
       : null;
-  const totalEnergy = allBench.reduce((s, b) => s + (b.e_actual_kwh ?? 0), 0);
+  const totalEnergy = allBench.reduce((s, b) => s + (b.yield_metrics?.e_actual_kwh ?? 0), 0);
   const avgAvail =
     allBench.length > 0
-      ? allBench.reduce((s, b) => s + (b.availability_pct ?? b.avail_pct ?? 0), 0) / allBench.length
+      ? allBench.reduce((s, b) => s + (b.availability?.availability_pct ?? 0), 0) / allBench.length
       : null;
 
   return (
@@ -105,6 +112,7 @@ export default function PortfolioPage() {
                       key={site.id}
                       site={site}
                       benchmarking={benchmarkingMap[site.id]}
+                      targetPr={layoutMap[site.id]?.pvsyst_pr_target_pct ?? null}
                     />
                   ))}
                 </tbody>

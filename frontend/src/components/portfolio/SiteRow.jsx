@@ -2,12 +2,12 @@ import { useRouter } from '../../router.jsx';
 import StatusDot from '../shared/StatusDot.jsx';
 import PRChip from '../shared/PRChip.jsx';
 
-export default function SiteRow({ site, benchmarking }) {
+export default function SiteRow({ site, benchmarking, targetPr = null }) {
   const { navigate } = useRouter();
 
-  const availability = benchmarking?.availability_pct ?? benchmarking?.avail_pct ?? null;
-  const pr = benchmarking?.performance_ratio ?? null;
-  const eActual = benchmarking?.e_actual_kwh ?? null;
+  const availability = benchmarking?.availability?.availability_pct ?? null;
+  const pr = benchmarking?.performance_ratio?.pr ?? null;
+  const eActual = benchmarking?.yield_metrics?.e_actual_kwh ?? null;
 
   const status =
     availability == null ? 'unknown'
@@ -30,7 +30,7 @@ export default function SiteRow({ site, benchmarking }) {
         {site.capacity_kwp?.toLocaleString()} kWp
       </td>
       <td className="px-5 py-4">
-        <PRChip value={pr} showDelta />
+        <PRChip value={pr} showDelta targetPr={targetPr} />
       </td>
       <td className="px-5 py-4 text-slate-400 font-mono text-sm">
         {availability != null ? `${availability.toFixed(1)}%` : '—'}
