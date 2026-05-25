@@ -47,7 +47,7 @@ steps:
       - '--cpu=2'
       - '--min-instances=1'
       - '--max-instances=10'
-      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest'
       - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,ENVIRONMENT=production'
     id: 'deploy'
     waitFor: ['push']

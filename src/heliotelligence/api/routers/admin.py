@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from heliotelligence.config.settings import settings
@@ -26,6 +26,13 @@ from heliotelligence.ingest.upsert import upsert_all
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+async def require_admin_key(x_admin_key: str = Header(default="")):
+    import os
+    expected = os.environ.get("ADMIN_API_KEY", "")
+    if not expected or x_admin_key != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +105,7 @@ def _find_site_by_uuid(site_id: str):
 # GET /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.get("/sites")
+@router.get("/sites", dependencies=[Depends(require_admin_key)])
 async def list_sites() -> list[dict]:
     sites = load_sites(settings.site_config_path)
     return [
@@ -123,7 +130,7 @@ async def list_sites() -> list[dict]:
 # POST /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.post("/sites", status_code=201)
+@router.post("/sites", status_code=201, dependencies=[Depends(require_admin_key)])
 async def create_site(req: NewSiteRequest) -> dict:
     # Generate slug from name
     slug = re.sub(r"[^a-z0-9]+", "-", req.name.lower()).strip("-")
@@ -218,7 +225,7 @@ async def create_site(req: NewSiteRequest) -> dict:
 # POST /api/v1/admin/sites/{site_id}/upload
 # ---------------------------------------------------------------------------
 
-@router.post("/sites/{site_id}/upload")
+@router.post("/sites/{site_id}/upload", dependencies=[Depends(require_admin_key)])
 async def upload_scada(
     site_id: str,
     file: UploadFile = File(...),
