@@ -64,3 +64,20 @@ export function generateReport(siteId, start, end) {
     { params: { start: iso(start), end: iso(end) }, responseType: 'blob' },
   );
 }
+
+export function getAdminSites() {
+  return client.get('/api/v1/admin/sites').then(r => r.data)
+}
+
+export function createSite(data) {
+  return client.post('/api/v1/admin/sites', data).then(r => r.data)
+}
+
+export function uploadScada(siteId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  return client.post(`/api/v1/admin/sites/${siteId}/upload`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+  }).then(r => r.data)
+}

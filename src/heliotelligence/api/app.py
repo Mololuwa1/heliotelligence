@@ -36,6 +36,7 @@ from heliotelligence.api.routers import alerts as alerts_router
 from heliotelligence.api.routers import backfill as backfill_router
 from heliotelligence.api.routers import layout as layout_router
 from heliotelligence.api.routers import geometry as geometry_router
+from heliotelligence.api.routers import admin as admin_router
 
 log = logging.getLogger(__name__)
 
@@ -106,3 +107,4 @@ app.include_router(alerts_router.router)
 app.include_router(backfill_router.router)
 app.include_router(layout_router.router)
 app.include_router(geometry_router.router)
+app.include_router(admin_router.router)

@@ -10,6 +10,8 @@ import TwinAlerts from './pages/TwinAlerts.jsx';
 import TwinReports from './pages/TwinReports.jsx';
 import TwinSettings from './pages/TwinSettings.jsx';
 import Alerts from './pages/Alerts.jsx';
+import Admin from './pages/Admin.jsx';
+import AdminOnboard from './pages/AdminOnboard.jsx';
 
 export default function App() {
   return (
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="/site/:siteId/twin/reports" element={<TwinReports />} />
             <Route path="/site/:siteId/twin/settings" element={<TwinSettings />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/onboard" element={<AdminOnboard />} />
           </main>
         </div>
       </TimeRangeProvider>

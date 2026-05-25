@@ -13,6 +13,12 @@ import heliotelligence.models.orm  # noqa: F401
 from heliotelligence.db.base import metadata as target_metadata
 
 config = context.config
+
+# Override sqlalchemy.url from application settings so the %(DATABASE_URL)s
+# placeholder in alembic.ini is never evaluated by configparser.
+from heliotelligence.config.settings import settings as _settings  # noqa: E402
+config.set_main_option("sqlalchemy.url", _settings.database_url)
+
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
