@@ -1,17 +1,31 @@
 import { useState } from 'react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../../firebase.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 export default function LoginPage() {
+  const { loginWithEmail, loginWithGoogle } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  async function handleEmailSignIn(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await loginWithEmail(email, password);
+    } catch (err) {
+      setError(err.message ?? 'Sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleGoogleSignIn() {
     setError(null);
     setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
-      // onAuthStateChanged in AuthContext will handle the redirect
+      await loginWithGoogle();
     } catch (err) {
       setError(err.message ?? 'Sign-in failed. Please try again.');
     } finally {
@@ -34,7 +48,7 @@ export default function LoginPage() {
 
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-2xl">
           <h1 className="text-white font-semibold text-lg mb-1">Sign in</h1>
-          <p className="text-gray-400 text-sm mb-6">Use your authorised Google account to access your sites.</p>
+          <p className="text-gray-400 text-sm mb-5">Access is granted by your site administrator.</p>
 
           {error && (
             <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 mb-4">
@@ -42,10 +56,47 @@ export default function LoginPage() {
             </div>
           )}
 
+          {/* Email / password form */}
+          <form onSubmit={handleEmailSignIn} className="space-y-3 mb-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              disabled={loading}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400 disabled:opacity-50"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              disabled={loading}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400 disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-amber-400 hover:bg-amber-300 disabled:opacity-50 disabled:cursor-not-allowed text-gray-900 font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 h-px bg-gray-700" />
+            <span className="text-gray-500 text-xs">or</span>
+            <div className="flex-1 h-px bg-gray-700" />
+          </div>
+
+          {/* Google sign-in */}
           <button
             onClick={handleGoogleSignIn}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 font-medium rounded-lg px-4 py-3 transition-colors"
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
           >
             <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -56,10 +107,6 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Continue with Google'}
           </button>
         </div>
-
-        <p className="text-center text-gray-600 text-xs mt-6">
-          Access is granted by your site administrator.
-        </p>
       </div>
     </div>
   );
