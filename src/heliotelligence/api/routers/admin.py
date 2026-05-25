@@ -14,9 +14,11 @@ import uuid
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
+from sqlalchemy import text
 
+from heliotelligence.api.auth import get_admin_user, get_current_user
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import load_sites
 from heliotelligence.db.session import get_session_factory
@@ -26,13 +28,6 @@ from heliotelligence.ingest.upsert import upsert_all
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
-
-
-async def require_admin_key(x_admin_key: str = Header(default="")):
-    import os
-    expected = os.environ.get("ADMIN_API_KEY", "")
-    if not expected or x_admin_key != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +100,7 @@ def _find_site_by_uuid(site_id: str):
 # GET /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.get("/sites", dependencies=[Depends(require_admin_key)])
+@router.get("/sites", dependencies=[Depends(get_admin_user)])
 async def list_sites() -> list[dict]:
     sites = load_sites(settings.site_config_path)
     return [
@@ -130,7 +125,7 @@ async def list_sites() -> list[dict]:
 # POST /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.post("/sites", status_code=201, dependencies=[Depends(require_admin_key)])
+@router.post("/sites", status_code=201, dependencies=[Depends(get_admin_user)])
 async def create_site(req: NewSiteRequest) -> dict:
     # Generate slug from name
     slug = re.sub(r"[^a-z0-9]+", "-", req.name.lower()).strip("-")
@@ -225,7 +220,7 @@ async def create_site(req: NewSiteRequest) -> dict:
 # POST /api/v1/admin/sites/{site_id}/upload
 # ---------------------------------------------------------------------------
 
-@router.post("/sites/{site_id}/upload", dependencies=[Depends(require_admin_key)])
+@router.post("/sites/{site_id}/upload", dependencies=[Depends(get_admin_user)])
 async def upload_scada(
     site_id: str,
     file: UploadFile = File(...),
@@ -268,3 +263,43 @@ async def upload_scada(
         }
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/admin/me  — who am I?
+# ---------------------------------------------------------------------------
+
+@router.get("/me")
+async def get_me(user: dict = Depends(get_current_user)) -> dict:
+    """Return the current authenticated user's uid and email."""
+    return {"uid": user["uid"], "email": user.get("email")}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/admin/sites/{site_id}/access  — grant user access to a site
+# ---------------------------------------------------------------------------
+
+class GrantAccessRequest(BaseModel):
+    uid: str
+    role: str = "viewer"  # viewer | admin
+
+
+@router.post("/sites/{site_id}/access", dependencies=[Depends(get_admin_user)])
+async def grant_site_access(site_id: str, req: GrantAccessRequest) -> dict:
+    """Grant a Firebase user access to a site."""
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO user_site_access (uid, site_id, role)
+                VALUES (:uid, :site_id, :role)
+                ON CONFLICT (uid, site_id) DO UPDATE SET role = EXCLUDED.role
+                """
+            ),
+            {"uid": req.uid, "site_id": site_id, "role": req.role},
+        )
+        await session.commit()
+
+    log.info("Granted %s access to site %s for uid %s", req.role, site_id, req.uid)
+    return {"uid": req.uid, "site_id": site_id, "role": req.role}

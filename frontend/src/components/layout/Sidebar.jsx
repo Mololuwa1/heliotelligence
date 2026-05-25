@@ -1,4 +1,5 @@
 import { useRouter } from '../../router.jsx';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 import StatusDot from '../shared/StatusDot.jsx';
 
 const BRACON_ASH = {
@@ -33,6 +34,7 @@ const NAV = [
 
 export default function Sidebar() {
   const { path, navigate } = useRouter();
+  const { user, logout } = useAuth();
 
   function isActive(href) {
     if (href === '/') return path === '/';
@@ -137,7 +139,21 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[#2D3F55]">
+      <div className="px-4 py-3 border-t border-[#2D3F55] space-y-2">
+        {user && (
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-slate-500 truncate">{user.email ?? user.uid}</p>
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="text-slate-600 hover:text-slate-300 transition-colors shrink-0"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+              </svg>
+            </button>
+          </div>
+        )}
         <p className="text-xs text-slate-600">v0.1.0 · {BRACON_ASH.capacity_kwp.toLocaleString()} kWp</p>
       </div>
     </aside>
