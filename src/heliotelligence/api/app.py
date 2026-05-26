@@ -18,7 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from heliotelligence.config.settings import settings
@@ -37,6 +37,7 @@ from heliotelligence.api.routers import backfill as backfill_router
 from heliotelligence.api.routers import layout as layout_router
 from heliotelligence.api.routers import geometry as geometry_router
 from heliotelligence.api.routers import admin as admin_router
+from heliotelligence.api.auth import get_current_user
 
 log = logging.getLogger(__name__)
 
@@ -97,14 +98,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health_router.router)
-app.include_router(ingest_router.router)
-app.include_router(expected_energy_router.router)
-app.include_router(benchmarking_router.router)
-app.include_router(analysis_router.router)
-app.include_router(reports_router.router)
-app.include_router(alerts_router.router)
-app.include_router(backfill_router.router)
-app.include_router(layout_router.router)
-app.include_router(geometry_router.router)
-app.include_router(admin_router.router)
+app.include_router(health_router.router)                                                              # public
+app.include_router(admin_router.router)                                                               # has own auth
+app.include_router(ingest_router.router,          dependencies=[Depends(get_current_user)])
+app.include_router(expected_energy_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(benchmarking_router.router,    dependencies=[Depends(get_current_user)])
+app.include_router(analysis_router.router,        dependencies=[Depends(get_current_user)])
+app.include_router(reports_router.router,         dependencies=[Depends(get_current_user)])
+app.include_router(alerts_router.router,          dependencies=[Depends(get_current_user)])
+app.include_router(backfill_router.router,        dependencies=[Depends(get_current_user)])
+app.include_router(layout_router.router,          dependencies=[Depends(get_current_user)])
+app.include_router(geometry_router.router,        dependencies=[Depends(get_current_user)])
