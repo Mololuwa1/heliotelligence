@@ -86,7 +86,7 @@ async def get_expected_energy(
     elif resolution == Resolution.hourly:
         stmt = text("""
             SELECT
-                time_bucket('1 hour', time) AS time,
+                date_trunc('hour', time) AS time,
                 AVG(p_ac_kw)       AS p_ac_kw,
                 AVG(p_dc_kw)       AS p_dc_kw,
                 AVG(p_dc_stc_kw)   AS p_dc_stc_kw,
@@ -105,7 +105,7 @@ async def get_expected_energy(
     else:  # daily
         stmt = text("""
             SELECT
-                time_bucket('1 day', time) AS time,
+                date_trunc('day', time) AS time,
                 AVG(p_ac_kw)       AS p_ac_kw,
                 AVG(p_dc_kw)       AS p_dc_kw,
                 AVG(p_dc_stc_kw)   AS p_dc_stc_kw,

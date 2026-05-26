@@ -1,10 +1,11 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import DeckGL from '@deck.gl/react';
 import Map from 'react-map-gl/mapbox';
 import { ScatterplotLayer, TextLayer, PathLayer } from '@deck.gl/layers';
 import { PathStyleExtension } from '@deck.gl/extensions';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getGeometry } from '../../api/sites.js';
+import { createSolarLayer } from './SolarThreeLayer.js';
 
 const STATUS_COLOURS = {
   normal:   [16, 185, 129],
@@ -39,6 +40,28 @@ export default function SiteMap({ layoutData, onGroupClick }) {
     if (!siteId) return;
     getGeometry(siteId, 300).then(setGeometry).catch(() => {});
   }, [layoutData?.site_id]);
+
+  const mapRef   = useRef(null);
+  const layerRef = useRef(null);
+
+  const handleMapLoad = useCallback(() => {
+    const mbMap = mapRef.current?.getMap();
+    if (!mbMap || !layoutData || !geometry) return;
+    // Remove stale layer if remounting with new data
+    try {
+      if (mbMap.getLayer('solar-twin-3d')) mbMap.removeLayer('solar-twin-3d');
+    } catch (_) {}
+    const layer = createSolarLayer(layoutData, geometry);
+    if (!layer) return;
+    layerRef.current = layer;
+    mbMap.addLayer(layer);
+  }, [layoutData, geometry]);
+
+  useEffect(() => {
+    const mbMap = mapRef.current?.getMap();
+    if (!mbMap) return;
+    if (mbMap.loaded()) handleMapLoad();
+  }, [layoutData, geometry, handleMapLoad]);
 
   const groups = layoutData?.inverter_groups ?? [];
 
@@ -168,6 +191,8 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       style={{ position: 'absolute', inset: 0 }}
     >
       <Map
+        ref={mapRef}
+        onLoad={handleMapLoad}
         mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN}
         mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
       />

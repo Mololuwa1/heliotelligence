@@ -57,9 +57,7 @@ def upgrade() -> None:
         )
     """))
 
-    op.execute(sa.text(
-        "SELECT create_hypertable('weather_readings', 'ts', if_not_exists => TRUE)"
-    ))
+    # Removed: TimescaleDB create_hypertable — migrated to plain PostgreSQL (Cloud SQL)
 
     op.execute(sa.text(
         "CREATE INDEX IF NOT EXISTS ix_weather_readings_site_ts "
@@ -85,9 +83,7 @@ def upgrade() -> None:
         )
     """))
 
-    op.execute(sa.text(
-        "SELECT create_hypertable('meter_readings', 'ts', if_not_exists => TRUE)"
-    ))
+    # Removed: TimescaleDB create_hypertable — migrated to plain PostgreSQL (Cloud SQL)
 
     op.execute(sa.text(
         "CREATE INDEX IF NOT EXISTS ix_meter_readings_site_ts "
@@ -115,9 +111,7 @@ def upgrade() -> None:
         )
     """))
 
-    op.execute(sa.text(
-        "SELECT create_hypertable('inverter_readings', 'ts', if_not_exists => TRUE)"
-    ))
+    # Removed: TimescaleDB create_hypertable — migrated to plain PostgreSQL (Cloud SQL)
 
     op.execute(sa.text(
         "CREATE INDEX IF NOT EXISTS ix_inverter_readings_site_inv_ts "
@@ -144,9 +138,7 @@ def upgrade() -> None:
         )
     """))
 
-    op.execute(sa.text(
-        "SELECT create_hypertable('string_readings', 'ts', if_not_exists => TRUE)"
-    ))
+    # Removed: TimescaleDB create_hypertable — migrated to plain PostgreSQL (Cloud SQL)
 
     op.execute(sa.text(
         "CREATE INDEX IF NOT EXISTS ix_string_readings_site_inv_str_ts "

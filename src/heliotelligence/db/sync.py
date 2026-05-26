@@ -77,7 +77,7 @@ async def sync_sites(
 
     for site in sites:
         params = {
-            "site_id": uuid.uuid5(uuid.NAMESPACE_DNS, site.id),  # deterministic UUID from text id
+            "site_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)),  # deterministic UUID from text id
             "site_name": site.name,
             "site_code": site.id,          # plain text id; conflict target via sites_site_code_key
             "latitude": site.latitude,
