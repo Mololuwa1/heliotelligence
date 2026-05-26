@@ -92,8 +92,8 @@ async def test_sync_sites_first_site_params():
     # execute is called as: session.execute(sql_text, params_dict)
     first_call_params = session.execute.call_args_list[0][0][1]
 
-    assert first_call_params["site_id"] == uuid.uuid5(uuid.NAMESPACE_DNS, "bracon-ash-001")
-    assert isinstance(first_call_params["site_id"], uuid.UUID)
+    assert first_call_params["site_id"] == str(uuid.uuid5(uuid.NAMESPACE_DNS, "bracon-ash-001"))
+    assert isinstance(first_call_params["site_id"], str)
     assert first_call_params["site_name"] == "Bracon Ash"
     assert first_call_params["site_code"] == "bracon-ash-001"   # plain text id; conflict target
     assert first_call_params["latitude"] == pytest.approx(52.5612)
@@ -112,8 +112,8 @@ async def test_sync_sites_second_site_params():
 
     second_call_params = session.execute.call_args_list[1][0][1]
 
-    assert second_call_params["site_id"] == uuid.uuid5(uuid.NAMESPACE_DNS, "norfolk-south-002")
-    assert isinstance(second_call_params["site_id"], uuid.UUID)
+    assert second_call_params["site_id"] == str(uuid.uuid5(uuid.NAMESPACE_DNS, "norfolk-south-002"))
+    assert isinstance(second_call_params["site_id"], str)
     assert second_call_params["site_name"] == "Norfolk South"
     assert second_call_params["site_code"] == "norfolk-south-002"
     assert second_call_params["latitude"] == pytest.approx(52.6101)
@@ -171,7 +171,7 @@ async def test_sync_sites_uuid_version_is_5():
     session = AsyncMock()
     await sync_sites(_make_sites(), session)
     for c in session.execute.call_args_list:
-        assert c[0][1]["site_id"].version == 5
+        assert uuid.UUID(c[0][1]["site_id"]).version == 5
 
 
 # ---------------------------------------------------------------------------
