@@ -1,0 +1,4 @@
+site_id,site_name,site_code,latitude,longitude,timezone,capacity_kwp,capacity_kw_ac,num_inverters,strings_per_inv,commissioning_date,country,subsidy_type,notes,created_at,updated_at,config_json
+9bf5ca74-bad7-4e0b-a555-ebd5b93d0de8,Bracon Ash,BRACON_ASH,52.5729,1.184,Europe/London,,,,32,,GB,CFD,,2026-05-04 17:46:24.637012+00,2026-05-04 17:46:24.637012+00,
+5ab83b40-553c-5ddd-976f-71f6cb5d490f,Bracon Ash,site-001,52.56,1.21,Europe/London,28524,,,32,,GB,,,2026-05-06 20:44:15.201173+00,2026-05-06 20:44:15.201173+00,
+ff6f1a31-30af-5734-9fb1-5801cfaa1e12,Suffolk Solar Farm Beta,site-002,52.1872,0.9708,Europe/London,2500,,,32,,GB,,,2026-05-06 20:44:15.201173+00,2026-05-06 20:44:15.201173+00,

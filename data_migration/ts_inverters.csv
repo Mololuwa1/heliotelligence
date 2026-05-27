@@ -1,0 +1,2 @@
+inverter_pk,site_id,inverter_id,manufacturer,model,serial_number,pdc0_kw,pac0_kw,dc_voltage_max_v,dc_voltage_mppt_min_v,dc_voltage_mppt_max_v,eta_nom,num_mppt,num_strings,strings_per_mppt,modules_per_string,inverter_type,comms_protocol,comms_address,poll_interval_s,commissioned_date,decommissioned_date,is_active,pvlib_model_type,pvlib_model_name,notes,created_at,updated_at
+92dcc138-d838-4c15-a52c-d565f406bc40,9bf5ca74-bad7-4e0b-a555-ebd5b93d0de8,MQA11-TB101,TBC,TBC,,,,,,,,,32,,,central,csv_export,,300,,,t,pvwatts,,,2026-05-04 17:59:01.95156+00,2026-05-04 17:59:01.95156+00
