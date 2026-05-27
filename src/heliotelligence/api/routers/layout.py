@@ -105,8 +105,8 @@ async def get_site_layout(
                         inv_p_ac_kw
                     FROM inverter_readings
                     WHERE site_id = :site_id
-                      AND time <= :at_time
-                    ORDER BY inverter_id, time DESC
+                      AND ts <= :at_time
+                    ORDER BY inverter_id, ts DESC
                 """),
                 {"site_id": site_id, "at_time": effective_time},
             )
@@ -118,7 +118,7 @@ async def get_site_layout(
                         inv_p_ac_kw
                     FROM inverter_readings
                     WHERE site_id = :site_id
-                    ORDER BY inverter_id, time DESC
+                    ORDER BY inverter_id, ts DESC
                 """),
                 {"site_id": site_id},
             )

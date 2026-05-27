@@ -35,9 +35,12 @@ def _get_firebase_app() -> firebase_admin.App:
     Falls back to Application Default Credentials for local dev.
     """
     sa_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT", "")
+    sa_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     if sa_json:
         import json
         cred = credentials.Certificate(json.loads(sa_json))
+    elif sa_path:
+        cred = credentials.Certificate(sa_path)
     else:
         # Local dev: uses gcloud application-default credentials
         cred = credentials.ApplicationDefault()

@@ -43,7 +43,7 @@ async def _fetch_joined(
             FROM expected_energy ee
             LEFT JOIN meter_readings mr
                 ON mr.site_id = ee.site_id
-               AND mr.time    = ee.time
+               AND mr.ts      = ee.time
             WHERE ee.site_id = :site_id
               AND ee.time >= :start
               AND ee.time < :end

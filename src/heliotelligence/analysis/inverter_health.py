@@ -33,12 +33,12 @@ async def _fetch_inverter_data(
 ) -> pd.DataFrame:
     result = await session.execute(
         text("""
-            SELECT time, inverter_id, inv_avail_pct, inv_coms_status
+            SELECT ts AS time, inverter_id, inv_avail_pct, inv_coms_status
             FROM inverter_readings
             WHERE site_id = :site_id
-              AND time >= :start
-              AND time < :end
-            ORDER BY inverter_id ASC, time ASC
+              AND ts >= :start
+              AND ts < :end
+            ORDER BY inverter_id ASC, ts ASC
         """),
         {"site_id": site_id, "start": start, "end": end},
     )

@@ -59,12 +59,12 @@ async def _fetch_meter_full(
 ) -> pd.DataFrame:
     result = await session.execute(
         text("""
-            SELECT time, p_ac_kw, e_exported_kwh
+            SELECT ts AS time, p_ac_kw, e_exported_kwh
             FROM meter_readings
             WHERE site_id = :site_id
-              AND time >= :start
-              AND time < :end
-            ORDER BY time ASC
+              AND ts >= :start
+              AND ts < :end
+            ORDER BY ts ASC
         """),
         {"site_id": site_id, "start": start, "end": end},
     )

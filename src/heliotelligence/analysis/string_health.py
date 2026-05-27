@@ -34,17 +34,17 @@ async def _fetch_string_data(
     """Fetch string current data filtered to irradiance > threshold."""
     result = await session.execute(
         text("""
-            SELECT sr.time, sr.inverter_id, sr.string_id, sr.str_current_a
+            SELECT sr.ts AS time, sr.inverter_id, sr.string_id, sr.str_current_a
             FROM string_readings sr
             JOIN weather_readings wr
                 ON wr.site_id = sr.site_id
-               AND wr.time    = sr.time
+               AND wr.ts      = sr.ts
             WHERE sr.site_id = :site_id
-              AND sr.time >= :start
-              AND sr.time < :end
+              AND sr.ts >= :start
+              AND sr.ts < :end
               AND sr.str_current_a IS NOT NULL
               AND wr.poa_wm2 > :min_poa
-            ORDER BY sr.time ASC
+            ORDER BY sr.ts ASC
         """),
         {
             "site_id": site_id,

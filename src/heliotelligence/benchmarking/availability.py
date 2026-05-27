@@ -114,13 +114,13 @@ async def _fetch_avail_df(
 ) -> pd.DataFrame:
     result = await session.execute(
         text("""
-            SELECT time, inverter_id, inv_avail_pct
+            SELECT ts AS time, inverter_id, inv_avail_pct
             FROM inverter_readings
             WHERE site_id = :site_id
-              AND time >= :start
-              AND time < :end
+              AND ts >= :start
+              AND ts < :end
               AND inv_avail_pct IS NOT NULL
-            ORDER BY time ASC
+            ORDER BY ts ASC
         """),
         {"site_id": site_id, "start": start, "end": end},
     )
