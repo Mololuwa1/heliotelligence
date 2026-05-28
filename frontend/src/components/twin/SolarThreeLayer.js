@@ -67,12 +67,12 @@ export function createSolarLayer(layoutData, geometryData) {
         canvas: map.getCanvas(),
         context: gl,
         antialias: true,
+        powerPreference: 'high-performance',
       })
       renderer.autoClear = false
       renderer.toneMapping = THREE.ACESFilmicToneMapping
       renderer.toneMappingExposure = 1.1
-      renderer.shadowMap.enabled = true
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap
+      renderer.shadowMap.enabled = false
 
       scene = new THREE.Scene()
       camera = new THREE.Camera()
@@ -186,24 +186,7 @@ export function createSolarLayer(layoutData, geometryData) {
       }
     },
 
-    render(gl, args) {
-      // One-time diagnostic: log available keys on defaultProjectionData
-      if (!this._matrixLogged) {
-        console.log('solar-twin-3d matrix args keys:', JSON.stringify(Object.keys(args?.defaultProjectionData ?? {})))
-        console.log('solar-twin-3d top-level args keys:', JSON.stringify(Object.keys(args ?? {})))
-        this._matrixLogged = true
-      }
-
-      // mapbox-gl v3 passes a CustomLayerRenderParameters object as second arg;
-      // the projection matrix lives at args.defaultProjectionData.mainMatrix
-      // (falls back to args itself for legacy environments where it was a raw array)
-      const rawMatrix =
-        args?.defaultProjectionData?.mainMatrix ??
-        args?.defaultProjectionData?.projectionMatrix ??
-        (Array.isArray(args) ? args : null)
-
-      if (!rawMatrix) return
-
+    render(gl, matrix) {
       // Animate inverter box pulse
       const t = Date.now() / 1000
       for (const mesh of pulseMeshes) {
@@ -213,12 +196,13 @@ export function createSolarLayer(layoutData, geometryData) {
           : 0.2 + pulse * 0.2
       }
 
-      // Apply Mapbox camera matrix to Three.js camera
-      // Mapbox uses Y-up Mercator; compensate with a 90° X rotation
+      // Mapbox v3 passes the 16-element projection matrix as the second arg directly
+      // (not nested under defaultProjectionData)
+      const m = new THREE.Matrix4().fromArray(matrix)
       const rotX = new THREE.Matrix4().makeRotationAxis(
         new THREE.Vector3(1, 0, 0), Math.PI / 2
       )
-      const m = new THREE.Matrix4().fromArray(rawMatrix).multiply(rotX)
+      m.multiply(rotX)
       camera.projectionMatrix = m
       camera.projectionMatrixInverse.copy(m).invert()
 

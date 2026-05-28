@@ -149,6 +149,9 @@ def compute_site_geometry(
         "table_width_m": round(table_width_m, 3),
         "num_strings": num_strings,
         "total_panels": num_strings * modules_per_string if num_strings else 0,
+        "height_m": site.height_m,
+        "modules_per_table": site.module.modules_per_table,
+        "bifacial": site.module.bifacial,
         "groups": result_groups,
     }
 
