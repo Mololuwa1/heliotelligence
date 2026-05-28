@@ -180,12 +180,19 @@ export default function SolarThreeOverlay({ map, layoutData, geometryData }) {
       renderingMode: '3d',
       onAdd() {},
       render(gl, args) {
-        // Mapbox v3 passes a Float64Array directly as the second render() argument
-        // Float64Array has numeric indices so Array.isArray returns false —
-        // check for it explicitly
-        currentMatrix = (args instanceof Float64Array || ArrayBuffer.isView(args))
-          ? args
-          : (args?.defaultProjectionData?.mainMatrix ?? null)
+        // Mapbox v3 CustomLayerRenderParameters — matrix values are at numeric
+        // indices 0-15 on the args object (Float64Array-like but not instanceof)
+        // Extract into a regular Array that THREE.Matrix4.fromArray() can use
+        if (args && typeof args === 'object') {
+          // Check if it has numeric indices 0-15 (the projection matrix)
+          if (args[0] !== undefined && args[15] !== undefined) {
+            currentMatrix = Array.from({ length: 16 }, (_, i) => args[i])
+          } else if (args.defaultProjectionData?.mainMatrix) {
+            currentMatrix = args.defaultProjectionData.mainMatrix
+          }
+        } else if (args instanceof Float64Array || ArrayBuffer.isView(args)) {
+          currentMatrix = Array.from(args)
+        }
       }
     }
 
