@@ -180,22 +180,12 @@ export default function SolarThreeOverlay({ map, layoutData, geometryData }) {
       renderingMode: '3d',
       onAdd() {},
       render(gl, args) {
-        if (!this._logged) {
-          console.log('solar-matrix-sync args keys:', Object.keys(args))
-          console.log('solar-matrix-sync args:', JSON.stringify(
-            Object.fromEntries(
-              Object.entries(args).map(([k,v]) => [k, Array.isArray(v) ? `Array(${v.length})` : (v && typeof v === 'object' ? Object.keys(v) : v)])
-            )
-          ))
-          this._logged = true
-        }
-        // Try all known Mapbox v3 matrix locations
-        currentMatrix =
-          args?.defaultProjectionData?.mainMatrix ??
-          args?.defaultProjectionData?.projectionMatrix ??
-          args?.projectionMatrix ??
-          args?.transform?.projectionMatrix ??
-          (Array.isArray(args) ? args : null)
+        // Mapbox v3 passes a Float64Array directly as the second render() argument
+        // Float64Array has numeric indices so Array.isArray returns false —
+        // check for it explicitly
+        currentMatrix = (args instanceof Float64Array || ArrayBuffer.isView(args))
+          ? args
+          : (args?.defaultProjectionData?.mainMatrix ?? null)
       }
     }
 
