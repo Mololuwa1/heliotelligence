@@ -60,7 +60,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
 
     // Layer 0 — individual panel dots (zoom-gated, rendered beneath everything)
     const showPanels = viewState.zoom > 13.5;
-    const panelLayer = showPanels && panelPoints.length > 0
+    const panelLayer = showPanels && !mbMap && panelPoints.length > 0
       ? new ScatterplotLayer({
           id: 'panels',
           data: panelPoints,
