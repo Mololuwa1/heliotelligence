@@ -22,6 +22,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
   const [animTick, setAnimTick] = useState(0);
   const [geometry, setGeometry] = useState(null);
   const [mbMap, setMbMap] = useState(null);
+  const handleMapLoad = useCallback(e => setMbMap(e.target), []);
   const [viewState, setViewState] = useState(() => ({
     longitude: layoutData?.centre_lon ?? 0,
     latitude:  layoutData?.centre_lat ?? 0,
@@ -162,25 +163,28 @@ export default function SiteMap({ layoutData, onGroupClick }) {
   }, [groups, animTick, onGroupClick, panelPoints, viewState.zoom]);
 
   return (
-    <DeckGL
-      viewState={viewState}
-      onViewStateChange={({ viewState: vs }) => setViewState(vs)}
-      controller={true}
-      layers={layers}
-      style={{ position: 'absolute', inset: 0 }}
-    >
-      <Map
-        onLoad={e => setMbMap(e.target)}
-        mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN}
-        mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
-      />
-      {mbMap && geometry && (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <DeckGL
+        viewState={viewState}
+        onViewStateChange={({ viewState: vs }) => setViewState(vs)}
+        controller={true}
+        layers={layers}
+        style={{ position: 'absolute', inset: 0 }}
+      >
+        <Map
+          onLoad={handleMapLoad}
+          mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN}
+          mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+        />
+      </DeckGL>
+      {console.log('SiteMap render — mbMap:', mbMap ? 'SET' : 'NULL', 'geometry:', geometry ? `${geometry.groups?.length} groups` : 'NULL')}
+      {useMemo(() => mbMap && geometry ? (
         <SolarThreeOverlay
           map={mbMap}
           layoutData={layoutData}
           geometryData={geometry}
         />
-      )}
-    </DeckGL>
+      ) : null, [mbMap, geometry, layoutData])}
+    </div>
   );
 }

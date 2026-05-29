@@ -28,7 +28,7 @@ function buildScene(layoutData, geometryData) {
   const tableD      = moduleH * 3
   const heightM     = geometryData.height_m ?? 0.70
   const panelThickM = moduleH * 0.035
-  const { x: ox, y: oy, meterScale: scale } = lngLatToMercator(layoutData.centre_lon, layoutData.centre_lat)
+  const { meterScale: scale } = lngLatToMercator(layoutData.centre_lon, layoutData.centre_lat)
   const statusByGroup = {}
   for (const g of layoutData.inverter_groups) statusByGroup[g.id] = g
   scene.add(new THREE.HemisphereLight(0x8ab4d4, 0x2d4a1e, 0.6))
@@ -56,7 +56,7 @@ function buildScene(layoutData, geometryData) {
     )
     for (let i = 0; i < panels.length; i++) {
       const { x: px, y: py } = lngLatToMercator(panels[i][0], panels[i][1])
-      dummy.position.set(px - ox, py - oy, zCentre)
+      dummy.position.set(px, py, zCentre)
       dummy.rotation.set(tiltRad, 0, azimuthRad)
       dummy.updateMatrix()
       tableMesh.setMatrixAt(i, dummy.matrix)
@@ -72,7 +72,7 @@ function buildScene(layoutData, geometryData) {
     )
     for (let i = 0; i < panels.length; i++) {
       const { x: px, y: py } = lngLatToMercator(panels[i][0], panels[i][1])
-      dummy.position.set(px - ox, py - oy, zCentre - panelThickM * scale * 0.5)
+      dummy.position.set(px, py, zCentre - panelThickM * scale * 0.5)
       dummy.rotation.set(tiltRad, 0, azimuthRad)
       dummy.updateMatrix()
       frameMesh.setMatrixAt(i, dummy.matrix)
@@ -89,7 +89,7 @@ function buildScene(layoutData, geometryData) {
       new THREE.BoxGeometry(invW * scale, invD * scale, invH * scale),
       new THREE.MeshPhysicalMaterial({ color: isOffline ? 0x1e293b : (isFault ? 0x7f1d1d : 0x1a2f1a), metalness: 0.75, roughness: 0.3, emissive: isOffline ? 0x000000 : (isFault ? 0x3f0000 : 0x051005), emissiveIntensity: isFault ? 0.8 : 0.4 })
     )
-    invBox.position.set(gx - ox, gy - oy + southM * scale, invH * scale / 2)
+    invBox.position.set(gx, gy + southM * scale, invH * scale / 2)
     invBox.userData = { isFault, isOffline }
     scene.add(invBox)
     if (!isOffline) pulseMeshes.push(invBox)
@@ -104,8 +104,8 @@ function buildScene(layoutData, geometryData) {
         new THREE.MeshStandardMaterial({ color: isOffline ? 0x1e293b : 0x374151, metalness: 0.65, roughness: 0.3 })
       )
       cb.position.set(
-        gx - ox + ewOffset * scale * Math.cos(azimuthRad),
-        gy - oy + ewOffset * scale * Math.sin(azimuthRad) + geoGroup.zone_ns_m * 0.42 * scale,
+        gx + ewOffset * scale * Math.cos(azimuthRad),
+        gy + ewOffset * scale * Math.sin(azimuthRad) + geoGroup.zone_ns_m * 0.42 * scale,
         0.6 * scale
       )
       scene.add(cb)
@@ -114,7 +114,7 @@ function buildScene(layoutData, geometryData) {
     // LED
     if (!isOffline) {
       const led = new THREE.PointLight(isFault ? 0xff4444 : 0x22ff88, 1.5, Math.max(invW, 20) * 3 * scale)
-      led.position.set(gx - ox, gy - oy + southM * scale, (invH + 1) * scale)
+      led.position.set(gx, gy + southM * scale, (invH + 1) * scale)
       scene.add(led)
     }
   }
@@ -126,16 +126,28 @@ export default function SolarThreeOverlay({ map, layoutData, geometryData }) {
   const matrixRef  = useRef(null)   // ← shared via ref, not closure variable
 
   useEffect(() => {
-    if (!map || !layoutData?.inverter_groups?.length || !geometryData?.groups?.length) return
+    console.log('=== SolarThreeOverlay useEffect fired ===')
+    console.log('map:', map ? 'present' : 'NULL')
+    console.log('layoutData groups:', layoutData?.inverter_groups?.length ?? 'missing')
+    console.log('geometryData groups:', geometryData?.groups?.length ?? 'missing')
+    console.log('canvas ref:', canvasRef.current ? 'present' : 'NULL')
+
+    if (!map || !layoutData?.inverter_groups?.length || !geometryData?.groups?.length) {
+      console.log('=== EARLY RETURN — missing deps ===')
+      return
+    }
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas) {
+      console.log('=== EARLY RETURN — no canvas ===')
+      return
+    }
+    console.log('=== proceeding with renderer setup ===')
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
     renderer.setClearColor(0x000000, 0)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.1
 
-    const camera = new THREE.Camera()
     const { scene, pulseMeshes } = buildScene(layoutData, geometryData)
 
     // Matrix sync layer — writes to matrixRef so animate() can read it
@@ -171,6 +183,7 @@ export default function SolarThreeOverlay({ map, layoutData, geometryData }) {
       map.once('styledata', addMatrixLayer)
     }
 
+    // syncSize() must run first to set canvas dimensions
     function syncSize() {
       const rect = map.getContainer().getBoundingClientRect()
       canvas.width  = rect.width  * devicePixelRatio
@@ -181,25 +194,38 @@ export default function SolarThreeOverlay({ map, layoutData, geometryData }) {
       renderer.setPixelRatio(devicePixelRatio)
     }
     syncSize()
+    setTimeout(() => {
+      document.querySelectorAll('canvas').forEach((c, i) => {
+        const s = window.getComputedStyle(c)
+        console.log(`DOM Canvas ${i}: ${c.width}x${c.height} z-index:${s.zIndex} position:${s.position} opacity:${s.opacity} parent:${c.parentElement?.className || c.parentElement?.tagName}`)
+      })
+    }, 2000)
     window.addEventListener('resize', syncSize)
+
+    // Now canvas has correct dimensions
+    const camera = new THREE.Camera()
 
     const repaintInterval = setInterval(() => map.triggerRepaint(), 16)
 
     let rafId
-    const rotX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2)
 
     function animate() {
       rafId = requestAnimationFrame(animate)
-      const matrix = matrixRef.current          // read from ref — always current
-      if (!matrix) return
 
       const t = Date.now() / 1000
       for (const mesh of pulseMeshes) {
         const pulse = 0.5 + 0.5 * Math.sin(t * 1.5)
-        mesh.material.emissiveIntensity = mesh.userData.isFault ? 0.5 + pulse * 0.5 : 0.2 + pulse * 0.2
+        mesh.material.emissiveIntensity = mesh.userData.isFault
+          ? 0.5 + pulse * 0.5
+          : 0.2 + pulse * 0.2
       }
 
-      const m = new THREE.Matrix4().fromArray(matrix).multiply(rotX)
+      const matrix = matrixRef.current
+      if (!matrix) return
+
+      // Mapbox v3 passes projection matrix as numeric-indexed object
+      // Apply directly — no rotation needed since geometry is in Mercator space
+      const m = new THREE.Matrix4().fromArray(matrix)
       camera.projectionMatrix = m
       camera.projectionMatrixInverse.copy(m).invert()
 
