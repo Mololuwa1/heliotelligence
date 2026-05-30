@@ -37,9 +37,11 @@ Response shape
 
 from __future__ import annotations
 
+import json
 import math
 import logging
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -49,6 +51,22 @@ from heliotelligence.config.site import SiteConfig, load_sites
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/sites", tags=["geometry"])
+
+# Directory containing surveyed panel geometry JSON files (one per site id)
+_GEOMETRY_DATA_DIR = Path(__file__).parents[4] / "config" / "geometry"
+
+
+def _load_surveyed_geometry(site_id: str) -> dict | None:
+    """Return surveyed panel geometry for *site_id* if a data file exists."""
+    path = _GEOMETRY_DATA_DIR / f"{site_id}.json"
+    if not path.exists():
+        return None
+    try:
+        with path.open() as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning("Failed to load surveyed geometry for %s: %s", site_id, exc)
+        return None
 
 
 def _find_site(site_id: str) -> SiteConfig | None:
@@ -172,4 +190,57 @@ async def get_site_geometry(
         raise HTTPException(status_code=404, detail=f"Site {site_id} has no layout configured")
 
     limit = max_panels_per_group if max_panels_per_group > 0 else None
+
+    # Prefer surveyed geometry (derived from engineering drawings) when available
+    surveyed = _load_surveyed_geometry(site.id)
+    if surveyed:
+        return _apply_surveyed_geometry(site, surveyed, limit)
+
     return compute_site_geometry(site, max_panels_per_group=limit)
+
+
+def _apply_surveyed_geometry(
+    site: SiteConfig,
+    surveyed: dict,
+    max_panels_per_group: int | None,
+) -> dict:
+    """Build the geometry response using real surveyed panel positions."""
+    MOD_W_M = 2.278
+    MOD_H_M = 1.134
+
+    groups_out = []
+    for g in surveyed.get("groups", []):
+        panels: list[list[float]] = g.get("panels", [])
+        if max_panels_per_group and len(panels) > max_panels_per_group:
+            step = max(1, len(panels) // max_panels_per_group)
+            panels = panels[::step]
+        groups_out.append({
+            "id": g["id"],
+            "centre_lat": g["centre_lat"],
+            "centre_lon": g["centre_lon"],
+            "panel_count": len(panels),
+            "zone_ew_m": g.get("zone_ew_m"),
+            "zone_ns_m": g.get("zone_ns_m"),
+            "panels": panels,
+        })
+
+    num_strings = site.module.num_strings or 0
+    modules_per_string = site.module.modules_per_string or 0
+    table_width_m = round(modules_per_string * MOD_W_M, 3) if modules_per_string else None
+
+    return {
+        "site_id": str(site.id),
+        "module_width_m": MOD_W_M,
+        "module_height_m": MOD_H_M,
+        "tilt_deg": site.tilt_deg,
+        "azimuth_deg": site.azimuth_deg,
+        "row_pitch_m": site.module.row_pitch_m,
+        "table_width_m": table_width_m,
+        "num_strings": num_strings,
+        "total_panels": num_strings * modules_per_string if num_strings else 0,
+        "height_m": site.height_m,
+        "modules_per_table": site.module.modules_per_table,
+        "bifacial": site.module.bifacial,
+        "geometry_source": "surveyed",
+        "groups": groups_out,
+    }
