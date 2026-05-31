@@ -45,3 +45,4 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: heliotelligence
           entryPoint: frontend
+          channelId: live
