@@ -10,3 +10,9 @@ data/
 .vscode/
 .idea/
 .coverage
+
+# Site geometry extraction — working artefacts (not committed)
+site_extract/
+*.npz
+config/geometry/*_run*.json
+config/geometry/*_regen.json
