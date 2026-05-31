@@ -5,7 +5,19 @@ import { ScatterplotLayer, TextLayer, PathLayer } from '@deck.gl/layers';
 import { PathStyleExtension } from '@deck.gl/extensions';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getGeometry } from '../../api/sites.js';
-import SolarThreeOverlay from './SolarThreeOverlay.jsx';
+function buildTablePolygon(lon, lat, tableW, tableD, azimuthDeg) {
+  const metersPerDegLat = 111320
+  const metersPerDegLon = 111320 * Math.cos(lat * Math.PI / 180)
+  const halfW = tableW / 2
+  const halfD = tableD / 2
+  const az = azimuthDeg * Math.PI / 180
+  const cosA = Math.cos(az), sinA = Math.sin(az)
+  const corners = [[-halfW,-halfD],[halfW,-halfD],[halfW,halfD],[-halfW,halfD],[-halfW,-halfD]]
+  return corners.map(([x, y]) => [
+    lon + (x * cosA - y * sinA) / metersPerDegLon,
+    lat + (x * sinA + y * cosA) / metersPerDegLat,
+  ])
+}
 
 const STATUS_COLOURS = {
   normal:   [16, 185, 129],
@@ -26,8 +38,8 @@ export default function SiteMap({ layoutData, onGroupClick }) {
   const [viewState, setViewState] = useState(() => ({
     longitude: layoutData?.centre_lon ?? 0,
     latitude:  layoutData?.centre_lat ?? 0,
-    zoom: 14.5,
-    pitch: 60,
+    zoom: 15,
+    pitch: 45,
     bearing: -20,
     transitionDuration: 1000,
   }));
@@ -42,6 +54,85 @@ export default function SiteMap({ layoutData, onGroupClick }) {
     if (!siteId) return;
     getGeometry(siteId, 300).then(setGeometry).catch(() => {});
   }, [layoutData?.site_id]);
+
+  useEffect(() => {
+    if (!mbMap || !geometry || !layoutData) return
+
+    const tableW  = geometry.table_width_m            // 54.672m E-W
+    const moduleH = geometry.module_height_m          // 1.134m
+    const tableD  = moduleH * 3                        // ~3.4m N-S
+    const az      = geometry.azimuth_deg ?? layoutData.azimuth_deg ?? 0
+
+    // Visible-but-reasonable extrusion height. Real panel top edge is ~1.6m,
+    // which is invisible at site zoom, so we exaggerate to 3m for legibility.
+    const EXT_HEIGHT = 3.0
+
+    const statusByGroup = {}
+    for (const g of layoutData.inverter_groups) statusByGroup[g.id] = g
+
+    const statusColor = (s) =>
+      s === 'offline'  ? '#1e293b' :
+      s === 'degraded' ? '#eab308' :
+      s === 'normal'   ? '#22c55e' : '#64748b'
+
+    const features = []
+    for (const group of geometry.groups) {
+      const live   = statusByGroup[group.id]
+      const status = live?.status ?? 'unknown'
+      const color  = statusColor(status)
+      for (const [lon, lat] of (group.panels ?? [])) {
+        features.push({
+          type: 'Feature',
+          properties: { color, groupId: group.id, status },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [buildTablePolygon(lon, lat, tableW, tableD, az)],
+          },
+        })
+      }
+    }
+    const geojson = { type: 'FeatureCollection', features }
+
+    function addLayers() {
+      try {
+        if (mbMap.getLayer('solar-panels-3d')) mbMap.removeLayer('solar-panels-3d')
+        if (mbMap.getSource('solar-panels'))   mbMap.removeSource('solar-panels')
+
+        mbMap.addSource('solar-panels', { type: 'geojson', data: geojson })
+        mbMap.addLayer({
+          id: 'solar-panels-3d',
+          type: 'fill-extrusion',
+          source: 'solar-panels',
+          paint: {
+            'fill-extrusion-color': ['get', 'color'],
+            'fill-extrusion-height': EXT_HEIGHT,
+            'fill-extrusion-base': 0,
+            'fill-extrusion-opacity': 0.9,
+            'fill-extrusion-vertical-gradient': true,
+          },
+        })
+
+        mbMap.setLight({
+          anchor: 'viewport',
+          color: '#ffffff',
+          intensity: 0.45,
+          position: [1.5, 210, 30],
+        })
+      } catch (e) {
+        console.warn('solar panels layer error:', e)
+      }
+    }
+
+    if (mbMap.isStyleLoaded()) addLayers()
+    else mbMap.once('styledata', addLayers)
+
+    return () => {
+      try {
+        if (mbMap.getLayer('solar-panels-3d')) mbMap.removeLayer('solar-panels-3d')
+        if (mbMap.getSource('solar-panels'))   mbMap.removeSource('solar-panels')
+      } catch (_) {}
+    }
+  }, [mbMap, geometry, layoutData])
 
   const groups = layoutData?.inverter_groups ?? [];
 
@@ -177,14 +268,6 @@ export default function SiteMap({ layoutData, onGroupClick }) {
           mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
         />
       </DeckGL>
-      {console.log('SiteMap render — mbMap:', mbMap ? 'SET' : 'NULL', 'geometry:', geometry ? `${geometry.groups?.length} groups` : 'NULL')}
-      {useMemo(() => mbMap && geometry ? (
-        <SolarThreeOverlay
-          map={mbMap}
-          layoutData={layoutData}
-          geometryData={geometry}
-        />
-      ) : null, [mbMap, geometry, layoutData])}
     </div>
   );
 }

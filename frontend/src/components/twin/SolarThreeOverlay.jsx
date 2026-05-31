@@ -82,8 +82,7 @@ function buildScene(layoutData, geometryData) {
       const [pLon, pLat] = panels[i]
       const { x, y } = toLocalMetres(pLon, pLat, originLng, originLat)
       dummy.position.set(x, y, zCentre)
-      dummy.rotation.set(0, 0, azimuthRad)  // azimuth: rotate around Z
-      dummy.rotateX(-tiltRad)               // tilt: rotate around local X
+      dummy.rotation.set(-tiltRad, 0, azimuthRad)
       dummy.updateMatrix()
       tableMesh.setMatrixAt(i, dummy.matrix)
     }
@@ -123,7 +122,7 @@ function buildScene(layoutData, geometryData) {
       })
     )
     // Place south of group centre (negative Y = south in Y-up/north convention)
-    invBox.position.set(gx, gy - southM, invH / 2)
+    invBox.position.set(gx, gy + southM, invH / 2)
     invBox.userData = { isFault, isOffline }
     scene.add(invBox)
     if (!isOffline) pulseMeshes.push(invBox)
@@ -137,14 +136,14 @@ function buildScene(layoutData, geometryData) {
         new THREE.BoxGeometry(0.8, 0.5, 1.2),
         new THREE.MeshStandardMaterial({ color: isOffline ? 0x1e293b : 0x374151, metalness: 0.65, roughness: 0.3 })
       )
-      cb.position.set(gx + ewOffset * Math.cos(azimuthRad), gy - geoGroup.zone_ns_m * 0.42, 0.6)
+      cb.position.set(gx + ewOffset * Math.cos(azimuthRad), gy + geoGroup.zone_ns_m * 0.42, 0.6)
       scene.add(cb)
     }
 
     // ── Status LED ───────────────────────────────────────────────────────
     if (!isOffline) {
       const led = new THREE.PointLight(isFault ? 0xff4444 : 0x22ff88, 1.5, Math.max(invW, 20) * 3)
-      led.position.set(gx, gy - southM, invH + 1)
+      led.position.set(gx, gy + southM, invH + 1)
       scene.add(led)
     }
   }
