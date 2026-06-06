@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from '../../router.jsx';
+import logo from '../../assets/logo-light.svg';
 
 const NAV_ITEMS = [
   { label: 'Overview',  path: '' },
@@ -27,8 +28,8 @@ export default function TwinNavBar({ activePage, siteId, siteName }) {
     <div className="flex items-center px-5 py-0 bg-[#060D1A] border-b border-[#1E2A3A] flex-shrink-0" style={{ height: 56 }}>
       {/* Left: branding */}
       <div className="flex flex-col justify-center mr-8 min-w-max">
-        <span className="text-white font-bold text-xs tracking-widest uppercase leading-none">Solar Farm Digital Twin</span>
-        <span className="text-amber-400 text-xs leading-none mt-0.5">{siteName ?? '—'}</span>
+        <img src={logo} alt="Heliotelligence" className="h-7 w-auto" />
+        <span className="text-amber-400 text-xs leading-none mt-0.5 ml-2">{siteName ?? '—'}</span>
       </div>
 
       {/* Centre: tabs */}

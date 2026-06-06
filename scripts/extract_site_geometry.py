@@ -80,7 +80,7 @@ from pathlib import Path
 import fitz          # pymupdf
 import numpy as np
 from pyproj import Transformer
-from sklearn.cluster import KMeans
+from grid_reconstruct import reconstruct_table_grid
 
 
 # ── Umeyama similarity transform ───────────────────────────────────────────
@@ -255,43 +255,41 @@ def assign_to_groups(
     return np.argmin(dists, axis=1)
 
 
-def cluster_tables(
-    utm_pts: np.ndarray,
-    assignments: np.ndarray,
-    control_points: dict,
-    table_counts: dict,
-    to_wgs: Transformer,
-) -> dict[str, list[dict]]:
-    """KMeans-cluster each group's module points into table centroids.
+def reconstruct_tables(utm_pts, control_points, utm_epsg, to_wgs,
+                       pitch=6.6, table_w=54.672):
+    """Reconstruct mounting tables PER inverter group.
 
-    Returns dict: group_id → list of {lon, lat, module_count}.
-    """
-    group_ids = list(control_points.keys())
-    tables_by_group: dict[str, list[dict]] = {}
+    Per-block reconstruction prevents a global row-lattice from spanning the
+    roads between the four physically-separate blocks.
 
-    for gi, gid in enumerate(group_ids):
-        mask = assignments == gi
-        group_pts = utm_pts[mask]
-        k = table_counts[gid]
+    PCA on an individual block is ambiguous: nearly-square blocks can return
+    either the along-row or the across-row axis as the 'major' axis. To resolve
+    this, both candidate bearings (pca and pca+90°) are tried; whichever yields
+    more table centroids is kept."""
+    module_groups = assign_to_groups(utm_pts, control_points, utm_epsg)
+    gids = list(control_points.keys())
+    out = {}
+    for gi, gid in enumerate(gids):
+        pts = utm_pts[module_groups == gi]
+        if len(pts) < 50:
+            print(f"  WARNING: group {gid} has only {len(pts)} modules - skipping")
+            continue
 
-        print(f"  {gid}: {mask.sum()} modules → {k} tables ...", flush=True)
+        r = reconstruct_table_grid(pts, az_deg=None, pitch=pitch, table_w=table_w)
 
-        km = KMeans(n_clusters=k, random_state=42, n_init=10)
-        km.fit(group_pts)
-
-        tables: list[dict] = []
-        for i, (e, n) in enumerate(km.cluster_centers_):
+        mc = r["module_counts"]
+        med = int(np.median(mc)) if len(mc) else 0
+        print(f"  {gid}: {len(pts)} modules -> {len(r['centroids_EN'])} tables, "
+              f"{r['n_rows']} rows, az_used={r['az_used_deg']:.2f}, med_mod/tbl={med}")
+        tables = []
+        for (e, n), cnt in zip(r["centroids_EN"], mc):
             lon, lat = to_wgs.transform(e, n)
-            tables.append({
-                "lon": round(float(lon), 7),
-                "lat": round(float(lat), 7),
-                "module_count": int((km.labels_ == i).sum()),
-            })
-
+            tables.append({"lon": round(float(lon), 7), "lat": round(float(lat), 7),
+                           "module_count": int(cnt)})
         tables.sort(key=lambda x: (x["lat"], x["lon"]))
-        tables_by_group[gid] = tables
-
-    return tables_by_group
+        if tables:
+            out[gid] = tables
+    return out
 
 
 # ── Output schema ──────────────────────────────────────────────────────────
@@ -357,16 +355,13 @@ def main() -> None:
     print(f"    lat=[{lats.min():.5f}, {lats.max():.5f}]")
 
     # 3. Cluster
-    print("\nStep 3: Assigning modules to groups and clustering tables ...")
-    assignments = assign_to_groups(utm_pts, CONTROL_POINTS, UTM_EPSG)
-    tables_by_group = cluster_tables(
-        utm_pts, assignments, CONTROL_POINTS, TABLE_COUNTS, to_wgs
-    )
+    print("\nStep 3: Reconstructing table grid from as-built geometry ...")
+    tables_by_group = reconstruct_tables(utm_pts, CONTROL_POINTS, UTM_EPSG, to_wgs)
 
     # 4. Write output
     output = build_output(tables_by_group, UTM_EPSG, len(dedup_pts), mean_res)
 
-    out_path = Path("config/geometry") / f"{SITE_ID}.json"
+    out_path = Path("config/geometry") / f"{SITE_ID}_run1.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
         json.dump(output, f, indent=2)

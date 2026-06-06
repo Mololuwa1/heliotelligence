@@ -42,9 +42,9 @@ async def _fetch_joined(
                 ee.p_ac_kw  AS expected_kw
             FROM expected_energy ee
             LEFT JOIN meter_readings mr
-                ON mr.site_id = ee.site_id
-               AND mr.ts      = ee.time
-            WHERE ee.site_id = :site_id
+                ON CAST(mr.site_id AS uuid) = ee.site_id
+               AND mr.ts                    = ee.time
+            WHERE ee.site_id = CAST(:site_id AS uuid)
               AND ee.time >= :start
               AND ee.time < :end
             ORDER BY ee.time ASC

@@ -1,6 +1,7 @@
 import { useRouter } from '../../router.jsx';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import StatusDot from '../shared/StatusDot.jsx';
+import logo from '../../assets/logo-light.svg';
 
 const BRACON_ASH = {
   id: '5ab83b40-553c-5ddd-976f-71f6cb5d490f',
@@ -45,17 +46,7 @@ export default function Sidebar() {
     <aside className="w-64 flex-shrink-0 bg-[#0F1629] border-r border-[#2D3F55] flex flex-col h-screen sticky top-0">
       {/* Logo */}
       <div className="px-6 py-5 border-b border-[#2D3F55]">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-amber-400 flex items-center justify-center">
-            <svg className="h-5 w-5 text-[#0F1629]" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.758 17.303a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.697 7.757a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-white font-semibold text-sm leading-none">Heliotelligence</p>
-            <p className="text-slate-500 text-xs mt-0.5">Digital Twin Platform</p>
-          </div>
-        </div>
+        <img src={logo} alt="Heliotelligence" className="h-8 w-auto" />
       </div>
 
       {/* Nav */}

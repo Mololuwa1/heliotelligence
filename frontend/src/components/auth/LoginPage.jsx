@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import logo from '../../assets/logo-light.svg';
 
 export default function LoginPage() {
   const { loginWithEmail, loginWithGoogle } = useAuth();
@@ -37,12 +38,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <svg className="w-8 h-8 text-amber-400" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            <span className="text-xl font-semibold text-white tracking-wide">Heliotelligence</span>
-          </div>
+          <img src={logo} alt="Heliotelligence" className="h-10 w-auto mx-auto mb-3" />
           <p className="text-gray-400 text-sm">Solar performance intelligence platform</p>
         </div>
 

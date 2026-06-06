@@ -238,7 +238,7 @@ async def get_latest_weather_time(
     """
     result = await session.execute(
         text(
-            "SELECT MAX(time) FROM weather_readings WHERE site_id = :site_id"
+            "SELECT MAX(ts) FROM weather_readings WHERE site_id = :site_id"
         ),
         {"site_id": site_id},
     )

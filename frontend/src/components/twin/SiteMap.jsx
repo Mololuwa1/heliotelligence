@@ -3,20 +3,80 @@ import DeckGL from '@deck.gl/react';
 import Map from 'react-map-gl/mapbox';
 import { ScatterplotLayer, TextLayer, PathLayer } from '@deck.gl/layers';
 import { PathStyleExtension } from '@deck.gl/extensions';
+import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getGeometry } from '../../api/sites.js';
-function buildTablePolygon(lon, lat, tableW, tableD, azimuthDeg) {
-  const metersPerDegLat = 111320
-  const metersPerDegLon = 111320 * Math.cos(lat * Math.PI / 180)
-  const halfW = tableW / 2
-  const halfD = tableD / 2
-  const az = azimuthDeg * Math.PI / 180
-  const cosA = Math.cos(az), sinA = Math.sin(az)
-  const corners = [[-halfW,-halfD],[halfW,-halfD],[halfW,halfD],[-halfW,halfD],[-halfW,-halfD]]
-  return corners.map(([x, y]) => [
-    lon + (x * cosA - y * sinA) / metersPerDegLon,
-    lat + (x * sinA + y * cosA) / metersPerDegLat,
-  ])
+function createPanelTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const cols = 24, rows = 3;
+  const cW = 1024 / cols, cH = 128 / rows;
+  ctx.fillStyle = '#0e1a33';
+  ctx.fillRect(0, 0, 1024, 128);
+  for (let col = 0; col < cols; col++) {
+    for (let row = 0; row < rows; row++) {
+      const x = col * cW, y = row * cH;
+      ctx.fillStyle = '#152240';
+      ctx.fillRect(x + 2, y + 2, cW - 4, cH - 4);
+      ctx.strokeStyle = 'rgba(100,140,210,0.13)';
+      ctx.lineWidth = 0.5;
+      for (let ci = 1; ci < 4; ci++) {
+        ctx.beginPath(); ctx.moveTo(x + ci*cW/4, y+2);
+        ctx.lineTo(x + ci*cW/4, y+cH-2); ctx.stroke();
+      }
+      for (let ri = 1; ri < 6; ri++) {
+        ctx.beginPath(); ctx.moveTo(x+2, y + ri*cH/6);
+        ctx.lineTo(x+cW-2, y + ri*cH/6); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(190,215,255,0.28)';
+      ctx.lineWidth = 1;
+      for (let b = 1; b < 3; b++) {
+        ctx.beginPath(); ctx.moveTo(x + b*cW/3, y+2);
+        ctx.lineTo(x + b*cW/3, y+cH-2); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(160,190,230,0.55)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x+1, y+1, cW-2, cH-2);
+    }
+  }
+  const grad = ctx.createLinearGradient(0, 0, 1024, 128);
+  grad.addColorStop(0,    'rgba(255,255,255,0.06)');
+  grad.addColorStop(0.25, 'rgba(255,255,255,0.01)');
+  grad.addColorStop(0.5,  'rgba(255,255,255,0.04)');
+  grad.addColorStop(0.75, 'rgba(255,255,255,0.00)');
+  grad.addColorStop(1,    'rgba(255,255,255,0.05)');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, 1024, 128);
+  return canvas;
+}
+
+function buildPanelMesh(tableW, tableD) {
+  const tilt = 15 * Math.PI / 180;
+  const h    = tableD * Math.tan(tilt);
+  const W = tableW, D = tableD;
+  const positions = new Float32Array([
+    -W/2, -D/2, h,    // SW — north edge, elevated
+     W/2, -D/2, h,    // SE — north edge, elevated
+     W/2,  D/2, 0,    // NE — south edge, ground
+    -W/2,  D/2, 0,    // NW — south edge, ground
+  ]);
+  // Normal points south-and-upward (correct for south-facing UK panels)
+  const normals = new Float32Array([
+    0, Math.sin(tilt), Math.cos(tilt),
+    0, Math.sin(tilt), Math.cos(tilt),
+    0, Math.sin(tilt), Math.cos(tilt),
+    0, Math.sin(tilt), Math.cos(tilt),
+  ]);
+  const indices = new Uint16Array([0,1,2, 0,2,3, 0,2,1, 0,3,2]);
+  return {
+    topology: 'triangle-list',
+    attributes: {
+      POSITION:   { value: positions, size: 3 },
+      NORMAL:     { value: normals,   size: 3 },
+      TEXCOORD_0: { value: new Float32Array([0,0, 1,0, 1,1, 0,1]), size: 2 },
+    },
+    indices: { value: indices },
+  };
 }
 
 const STATUS_COLOURS = {
@@ -34,6 +94,7 @@ export default function SiteMap({ layoutData, onGroupClick }) {
   const [animTick, setAnimTick] = useState(0);
   const [geometry, setGeometry] = useState(null);
   const [mbMap, setMbMap] = useState(null);
+  const [selectedTable, setSelectedTable] = useState(null);
   const handleMapLoad = useCallback(e => setMbMap(e.target), []);
   const [viewState, setViewState] = useState(() => ({
     longitude: layoutData?.centre_lon ?? 0,
@@ -55,86 +116,61 @@ export default function SiteMap({ layoutData, onGroupClick }) {
     getGeometry(siteId, 300).then(setGeometry).catch(() => {});
   }, [layoutData?.site_id]);
 
-  useEffect(() => {
-    if (!mbMap || !geometry || !layoutData) return
+  const tableW  = geometry?.table_width_m ?? 54.672;
+  const tableD  = (geometry?.module_height_m ?? 1.134) * 3;
+  const rowBearing = geometry?.row_bearing_deg ?? 174.47;
+  // azimuth_deg is the panel physics azimuth — never the row bearing
+  const yawDeg = (rowBearing + 360) % 360;
 
-    const tableW  = geometry.table_width_m            // 54.672m E-W
-    const moduleH = geometry.module_height_m          // 1.134m
-    const tableD  = moduleH * 3                        // ~3.4m N-S
-    const az      = geometry.azimuth_deg ?? layoutData.azimuth_deg ?? 0
+  const panelMesh = useMemo(() => buildPanelMesh(tableW, tableD), [tableW, tableD]);
+  const panelTexture = useMemo(() => createPanelTexture(), []);
 
-    // Visible-but-reasonable extrusion height. Real panel top edge is ~1.6m,
-    // which is invisible at site zoom, so we exaggerate to 3m for legibility.
-    const EXT_HEIGHT = 3.0
-
-    const statusByGroup = {}
-    for (const g of layoutData.inverter_groups) statusByGroup[g.id] = g
-
-    const statusColor = (s) =>
-      s === 'offline'  ? '#1e293b' :
-      s === 'degraded' ? '#eab308' :
-      s === 'normal'   ? '#22c55e' : '#64748b'
-
-    const features = []
-    for (const group of geometry.groups) {
-      const live   = statusByGroup[group.id]
-      const status = live?.status ?? 'unknown'
-      const color  = statusColor(status)
-      for (const [lon, lat] of (group.panels ?? [])) {
-        features.push({
-          type: 'Feature',
-          properties: { color, groupId: group.id, status },
-          geometry: {
-            type: 'Polygon',
-            coordinates: [buildTablePolygon(lon, lat, tableW, tableD, az)],
-          },
-        })
-      }
-    }
-    const geojson = { type: 'FeatureCollection', features }
-
-    function addLayers() {
-      try {
-        if (mbMap.getLayer('solar-panels-3d')) mbMap.removeLayer('solar-panels-3d')
-        if (mbMap.getSource('solar-panels'))   mbMap.removeSource('solar-panels')
-
-        mbMap.addSource('solar-panels', { type: 'geojson', data: geojson })
-        mbMap.addLayer({
-          id: 'solar-panels-3d',
-          type: 'fill-extrusion',
-          source: 'solar-panels',
-          paint: {
-            'fill-extrusion-color': ['get', 'color'],
-            'fill-extrusion-height': EXT_HEIGHT,
-            'fill-extrusion-base': 0,
-            'fill-extrusion-opacity': 0.9,
-            'fill-extrusion-vertical-gradient': true,
-          },
-        })
-
-        mbMap.setLight({
-          anchor: 'viewport',
-          color: '#ffffff',
-          intensity: 0.45,
-          position: [1.5, 210, 30],
-        })
-      } catch (e) {
-        console.warn('solar panels layer error:', e)
-      }
-    }
-
-    if (mbMap.isStyleLoaded()) addLayers()
-    else mbMap.once('styledata', addLayers)
-
-    return () => {
-      try {
-        if (mbMap.getLayer('solar-panels-3d')) mbMap.removeLayer('solar-panels-3d')
-        if (mbMap.getSource('solar-panels'))   mbMap.removeSource('solar-panels')
-      } catch (_) {}
-    }
-  }, [mbMap, geometry, layoutData])
+  const tableData = useMemo(() => {
+    if (!geometry?.groups) return [];
+    return geometry.groups.flatMap(g =>
+      (g.panels ?? []).map(([lon, lat]) => ({ lon, lat, groupId: g.id }))
+    );
+  }, [geometry]);
 
   const groups = layoutData?.inverter_groups ?? [];
+
+  const GROUP_COLORS = {
+    MQA11: [30, 60, 140],
+    MQA21: [26, 54, 128],
+    MQA22: [34, 68, 152],
+    MQA23: [28, 58, 136],
+  };
+
+  const solarPanelLayer = useMemo(() => new SimpleMeshLayer({
+    id: 'solar-panels',
+    data: tableData,
+    mesh: panelMesh,
+    getPosition: d => [d.lon, d.lat, 1],
+    getOrientation: () => [0, yawDeg, 0],
+    texture: panelTexture,
+    getColor: d => {
+      const status = groups?.find(g => g.id === d.groupId)?.status;
+      if (selectedTable && d.groupId !== selectedTable.groupId)
+        return [80, 90, 110, 200];
+      return status === 'offline'  ? [50,  55,  80, 255] :
+             status === 'degraded' ? [200, 165,  60, 255] :
+                                     [230, 240, 255, 255];
+    },
+    updateTriggers: { getColor: [groups, selectedTable] },
+    material: {
+      ambient:       0.55,
+      diffuse:       0.65,
+      shininess:     90,
+      specularColor: [160, 190, 255],
+    },
+    pickable: true,
+    onClick: info => {
+      if (info.object) setSelectedTable(info.object);
+      else setSelectedTable(null);
+    },
+    autoHighlight: true,
+    highlightColor: [255, 200, 60, 220],
+  }), [tableData, panelMesh, yawDeg, selectedTable, panelTexture, groups]);
 
   // Flatten all panel positions with group status colour for rendering
   const panelPoints = useMemo(() => {
@@ -175,8 +211,12 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       id: 'glow-outer',
       data: groups,
       getPosition: d => [d.centre_lon, d.centre_lat],
-      getRadius: d => 90 + 20 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
-      getFillColor: d => [...getColour(d.status), 30],
+      getRadius: d => 36 + 8 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
+      getFillColor: d => {
+        const c = d.status === 'offline'  ? [180, 30,  30]  :
+                  d.status === 'degraded' ? [220, 100, 30]  : [245, 166, 35];
+        return [...c, 28];
+      },
       stroked: false,
       radiusUnits: 'meters',
     });
@@ -186,8 +226,12 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       id: 'glow-mid',
       data: groups,
       getPosition: d => [d.centre_lon, d.centre_lat],
-      getRadius: d => 60 + 10 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
-      getFillColor: d => [...getColour(d.status), 60],
+      getRadius: d => 22 + 5 * Math.sin(animTick / 8 + groupOrder.indexOf(d.id)),
+      getFillColor: d => {
+        const c = d.status === 'offline'  ? [180, 30,  30]  :
+                  d.status === 'degraded' ? [220, 100, 30]  : [245, 166, 35];
+        return [...c, 18];
+      },
       stroked: false,
       radiusUnits: 'meters',
     });
@@ -197,11 +241,13 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       id: 'core',
       data: groups,
       getPosition: d => [d.centre_lon, d.centre_lat],
-      getRadius: 40,
-      getFillColor: d => [...getColour(d.status), 220],
+      getRadius: 14,
+      getFillColor: d => d.status === 'offline'  ? [180, 30,  30, 210] :
+                         d.status === 'degraded' ? [220, 100, 30, 220] :
+                                                   [245, 166, 35, 220],
       stroked: true,
-      getLineColor: [255, 255, 255, 180],
-      lineWidthMinPixels: 2,
+      getLineColor: [10, 14, 26, 200],
+      lineWidthMinPixels: 1.5,
       radiusUnits: 'meters',
       pickable: true,
       onClick: ({ object }) => object && onGroupClick?.(object),
@@ -250,8 +296,8 @@ export default function SiteMap({ layoutData, onGroupClick }) {
       multiline: true,
     });
 
-    return [panelLayer, glowOuter, glowMid, energyFlow, core, labels].filter(Boolean);
-  }, [groups, animTick, onGroupClick, panelPoints, viewState.zoom]);
+    return [solarPanelLayer, panelLayer, glowOuter, glowMid, energyFlow, core, labels].filter(Boolean);
+  }, [groups, animTick, onGroupClick, panelPoints, viewState.zoom, solarPanelLayer]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -268,6 +314,86 @@ export default function SiteMap({ layoutData, onGroupClick }) {
           mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
         />
       </DeckGL>
+      {selectedTable && (() => {
+        const grp = groups?.find(g => g.id === selectedTable.groupId) ?? {};
+        const statusColor = {
+          normal: '#22c55e', degraded: '#eab308', offline: '#ef4444'
+        }[grp.status] ?? '#64748b';
+        return (
+          <div style={{
+            position:'absolute', bottom:80, right:24,
+            background:'rgba(10,14,26,0.95)',
+            border:'1px solid #2D3F55', borderRadius:12,
+            padding:'16px 20px', color:'#fff', minWidth:240,
+            backdropFilter:'blur(8px)', zIndex:10,
+          }}>
+            {/* header */}
+            <div style={{display:'flex',justifyContent:'space-between',
+                         alignItems:'center',marginBottom:12}}>
+              <span style={{fontWeight:700,fontSize:15,color:'#f5a623'}}>
+                {selectedTable.groupId}
+              </span>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <div style={{width:8,height:8,borderRadius:'50%',
+                             background:statusColor}}/>
+                <span style={{fontSize:12,color:statusColor,textTransform:'capitalize'}}>
+                  {grp.status ?? 'unknown'}
+                </span>
+              </div>
+            </div>
+            {/* metrics */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,
+                         marginBottom:14}}>
+              <div style={{background:'#0F1629',borderRadius:8,padding:'8px 10px'}}>
+                <div style={{fontSize:10,color:'#64748b',marginBottom:2}}>
+                  INVERTERS
+                </div>
+                <div style={{fontSize:18,fontWeight:700}}>
+                  {grp.active_inverters ?? '—'}
+                  <span style={{fontSize:12,color:'#64748b',fontWeight:400}}>
+                    /{grp.inverter_count ?? '—'}
+                  </span>
+                </div>
+              </div>
+              <div style={{background:'#0F1629',borderRadius:8,padding:'8px 10px'}}>
+                <div style={{fontSize:10,color:'#64748b',marginBottom:2}}>
+                  TABLES
+                </div>
+                <div style={{fontSize:18,fontWeight:700}}>
+                  {groups?.find(g=>g.id===selectedTable.groupId)
+                    ? tableData.filter(t=>t.groupId===selectedTable.groupId).length
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            <div style={{fontSize:11,color:'#475569',marginBottom:12}}>
+              {selectedTable.lat?.toFixed(5)}°N,&nbsp;
+              {selectedTable.lon?.toFixed(5)}°E
+            </div>
+            {/* actions */}
+            <div style={{display:'flex',gap:8}}>
+              <button
+                onClick={() => setSelectedTable(null)}
+                style={{flex:1,padding:'6px 0',borderRadius:6,border:'1px solid #2D3F55',
+                        background:'transparent',color:'#94a3b8',cursor:'pointer',
+                        fontSize:12}}>
+                Dismiss
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedTable(null);
+                  window.location.href =
+                    `/twin/analytics?group=${selectedTable.groupId}`;
+                }}
+                style={{flex:2,padding:'6px 0',borderRadius:6,border:'none',
+                        background:'#f5a623',color:'#0a0e1a',cursor:'pointer',
+                        fontWeight:600,fontSize:12}}>
+                View Analytics →
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

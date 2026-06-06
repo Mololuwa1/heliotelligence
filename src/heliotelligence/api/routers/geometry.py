@@ -234,6 +234,7 @@ def _apply_surveyed_geometry(
         "module_height_m": MOD_H_M,
         "tilt_deg": site.tilt_deg,
         "azimuth_deg": site.azimuth_deg,
+        "row_bearing_deg": surveyed.get("row_bearing_deg"),
         "row_pitch_m": site.module.row_pitch_m,
         "table_width_m": table_width_m,
         "num_strings": num_strings,

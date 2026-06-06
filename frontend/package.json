@@ -12,6 +12,7 @@
   "dependencies": {
     "@deck.gl/geo-layers": "^9.3.2",
     "@deck.gl/layers": "^9.3.2",
+    "@deck.gl/mesh-layers": "^9.3.3",
     "@deck.gl/react": "^9.3.2",
     "axios": "^1.16.1",
     "date-fns": "^4.2.1",

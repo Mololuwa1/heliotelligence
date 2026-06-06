@@ -16,3 +16,6 @@ site_extract/
 *.npz
 config/geometry/*_run*.json
 config/geometry/*_regen.json
+config/geometry/site-001_cloud.json
+config/geometry/site-001_tables_test.json
+scripts/grid_reconstruct.py
