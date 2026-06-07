@@ -19,3 +19,5 @@ config/geometry/*_regen.json
 config/geometry/site-001_cloud.json
 config/geometry/site-001_tables_test.json
 scripts/grid_reconstruct.py
+frontend/.env.production
+frontend/.env.*.local
