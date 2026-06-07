@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import math
 import logging
+import os
 import uuid
 from pathlib import Path
 
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sites", tags=["geometry"])
 
 # Directory containing surveyed panel geometry JSON files (one per site id)
-_GEOMETRY_DATA_DIR = Path(__file__).parents[4] / "config" / "geometry"
+_GEOMETRY_DATA_DIR = Path(os.environ.get('GEOMETRY_DATA_DIR', 'config/geometry'))
 
 
 def _load_surveyed_geometry(site_id: str) -> dict | None:
