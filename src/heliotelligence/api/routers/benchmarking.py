@@ -97,6 +97,14 @@ async def get_benchmarking(
 
     capacity_kwp = _get_capacity_kwp(site_id)
 
+    _sites   = load_sites(settings.site_config_path)
+    _site    = next(
+        (s for s in _sites if str(uuid.uuid5(uuid.NAMESPACE_DNS, s.id)) == site_id),
+        None,
+    )
+    _groups  = _site.layout.inverter_groups if (_site and _site.layout) else []
+    _tot_inv = sum(len(g.inverters) for g in _groups)
+
     # Each benchmarking function gets its own session so they can run concurrently.
     async def _pr():
         async with factory() as s:
@@ -116,9 +124,38 @@ async def get_benchmarking(
                 site_id, start, end, s, capacity_kwp=capacity_kwp
             )
 
-    pr_result, losses_result, avail_result, yield_result = await asyncio.gather(
-        _pr(), _losses(), _avail(), _yield()
+    async def _group_actuals():
+        async with factory() as s:
+            rows = await s.execute(
+                text("""
+                    SELECT inverter_id,
+                           COALESCE(SUM(inv_p_ac_kw), 0) * 0.5 AS e_kwh
+                    FROM   inverter_readings
+                    WHERE  site_id = :sid
+                      AND  ts BETWEEN :start AND :end
+                    GROUP  BY inverter_id
+                """),
+                {"sid": site_id, "start": start, "end": end},
+            )
+            return {r.inverter_id: float(r.e_kwh) for r in rows.all()}
+
+    pr_result, losses_result, avail_result, yield_result, inv_actuals = await asyncio.gather(
+        _pr(), _losses(), _avail(), _yield(), _group_actuals()
     )
+
+    e_exp_site = (pr_result or {}).get("e_expected_kwh", 0)
+    groups_out = []
+    for g in _groups:
+        e_act = sum(inv_actuals.get(inv_id, 0) for inv_id in g.inverters)
+        share = len(g.inverters) / _tot_inv if _tot_inv else 0
+        e_exp = e_exp_site * share
+        groups_out.append({
+            "id":             g.id,
+            "inverter_count": len(g.inverters),
+            "e_actual_kwh":   round(e_act, 2),
+            "e_expected_kwh": round(e_exp, 2),
+            "pr":             round(e_act / e_exp, 4) if e_exp > 0 else None,
+        })
 
     return dict(
         site_id=site_id,
@@ -128,4 +165,5 @@ async def get_benchmarking(
         losses=losses_result,
         availability=avail_result,
         yield_metrics=yield_result,
+        groups=groups_out,
     )

@@ -167,6 +167,7 @@ async def get_site_layout(
             "fault_inverters": fault,
             "availability_pct": availability_pct,
             "status": _group_status(mean_avail),
+            "inverters": group.inverters,
         })
 
     return {
