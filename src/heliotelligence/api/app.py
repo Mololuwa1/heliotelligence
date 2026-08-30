@@ -21,23 +21,23 @@ from typing import AsyncGenerator
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from heliotelligence.config.settings import settings
-from heliotelligence.config.site import load_sites
-from heliotelligence.collectors.scheduler import configure_scheduler, get_scheduler
-from heliotelligence.db.session import get_session_factory
-from heliotelligence.db.sync import sync_sites
+from heliotelligence.api.auth import get_current_user
+from heliotelligence.api.routers import admin as admin_router
+from heliotelligence.api.routers import alerts as alerts_router
+from heliotelligence.api.routers import analysis as analysis_router
+from heliotelligence.api.routers import backfill as backfill_router
+from heliotelligence.api.routers import benchmarking as benchmarking_router
+from heliotelligence.api.routers import expected_energy as expected_energy_router
+from heliotelligence.api.routers import geometry as geometry_router
 from heliotelligence.api.routers import health as health_router
 from heliotelligence.api.routers import ingest as ingest_router
-from heliotelligence.api.routers import expected_energy as expected_energy_router
-from heliotelligence.api.routers import benchmarking as benchmarking_router
-from heliotelligence.api.routers import analysis as analysis_router
-from heliotelligence.api.routers import reports as reports_router
-from heliotelligence.api.routers import alerts as alerts_router
-from heliotelligence.api.routers import backfill as backfill_router
 from heliotelligence.api.routers import layout as layout_router
-from heliotelligence.api.routers import geometry as geometry_router
-from heliotelligence.api.routers import admin as admin_router
-from heliotelligence.api.auth import get_current_user
+from heliotelligence.api.routers import reports as reports_router
+from heliotelligence.collectors.scheduler import configure_scheduler, get_scheduler
+from heliotelligence.config.settings import settings
+from heliotelligence.config.site import load_sites
+from heliotelligence.db.session import get_session_factory
+from heliotelligence.db.sync import sync_sites
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    log.info("Starting Heliotelligence API (environment=%s)", settings.app_env)
+
     sites = load_sites(settings.site_config_path)
     if not sites:
         log.warning(
@@ -87,25 +89,20 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://heliotelligence.web.app",
-        "https://heliotelligence.firebaseapp.com",
-        "https://app.heliotelligence.com",
-    ],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(health_router.router)                                                              # public
-app.include_router(admin_router.router)                                                               # has own auth
-app.include_router(ingest_router.router,          dependencies=[Depends(get_current_user)])
+app.include_router(health_router.router)  # public
+app.include_router(admin_router.router)  # has own auth
+app.include_router(ingest_router.router, dependencies=[Depends(get_current_user)])
 app.include_router(expected_energy_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(benchmarking_router.router,    dependencies=[Depends(get_current_user)])
-app.include_router(analysis_router.router,        dependencies=[Depends(get_current_user)])
-app.include_router(reports_router.router,         dependencies=[Depends(get_current_user)])
-app.include_router(alerts_router.router,          dependencies=[Depends(get_current_user)])
-app.include_router(backfill_router.router,        dependencies=[Depends(get_current_user)])
-app.include_router(layout_router.router,          dependencies=[Depends(get_current_user)])
-app.include_router(geometry_router.router,        dependencies=[Depends(get_current_user)])
+app.include_router(benchmarking_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(analysis_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(reports_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(alerts_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(backfill_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(layout_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(geometry_router.router, dependencies=[Depends(get_current_user)])
