@@ -9,6 +9,14 @@ calculate_module_operating_point(...)
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
+calculate_string_operating_points(site, module_operating_point)
+    Expand a representative module operating point across an explicit physical
+    Site → Inverter → MPPT → String topology.
+
+aggregate_independent_string_mppt_power(string_operating_points)
+    Sum independent string MPP powers by physical MPPT as a counterfactual
+    reference. This is not a common-voltage MPPT solution.
+
 calculate_dc_power(...)
     Backwards-compatible aggregate site calculation. It now consumes the
     module operating point internally but preserves the existing output and
@@ -144,6 +152,98 @@ def scale_module_to_string(
             result[column] = module_operating_point[column]
 
     return result
+
+
+def calculate_string_operating_points(
+    site: SiteConfig,
+    module_operating_point: pd.DataFrame,
+) -> pd.DataFrame:
+    """Return one ideal-series operating state per physical string and timestep.
+
+    An explicit electrical topology is required. Each configured string is
+    scaled independently from the supplied representative module MPP; this
+    function does not model mismatch, bypass activation, or MPPT interaction.
+    """
+    topology = site.electrical_topology
+    if topology is None:
+        raise ValueError(
+            "site.electrical_topology is required to calculate string "
+            "operating points"
+        )
+    if not module_operating_point.index.is_unique:
+        raise ValueError(
+            "module_operating_point index must contain unique timestamps"
+        )
+
+    identity_columns = [
+        "timestamp",
+        "inverter_id",
+        "mppt_id",
+        "string_id",
+        "zone_id",
+        "modules_per_string",
+    ]
+    operating_columns = ["p_mp_w", "v_mp_v", "i_mp_a"]
+    metadata_columns = [
+        column
+        for column in (
+            "effective_irradiance_wm2",
+            "tier_used",
+            "fit_quality",
+        )
+        if column in module_operating_point.columns
+    ]
+    output_columns = identity_columns + operating_columns + metadata_columns
+
+    string_states: list[pd.DataFrame] = []
+    for inverter in topology.inverters:
+        for mppt in inverter.mppts:
+            for string in mppt.strings:
+                state = scale_module_to_string(
+                    module_operating_point,
+                    string.modules_per_string,
+                ).copy()
+                state.insert(0, "timestamp", state.index)
+                state.insert(1, "inverter_id", inverter.id)
+                state.insert(2, "mppt_id", mppt.id)
+                state.insert(3, "string_id", string.id)
+                state.insert(4, "zone_id", string.zone_id)
+                state.insert(5, "modules_per_string", string.modules_per_string)
+                string_states.append(state.reset_index(drop=True))
+
+    if not string_states:
+        return pd.DataFrame(columns=output_columns)
+
+    return pd.concat(string_states, ignore_index=True)[output_columns]
+
+
+def aggregate_independent_string_mppt_power(
+    string_operating_points: pd.DataFrame,
+) -> pd.DataFrame:
+    """Sum independent string MPP power within each physical MPPT.
+
+    ``string_operating_points`` is expected to contain one row per physical
+    string per timestamp, as produced by :func:`calculate_string_operating_points`.
+    ``p_independent_mp_w`` is a counterfactual reference in which every string
+    remains at its own maximum-power voltage. It is not actual common-MPPT
+    power, and no aggregate MPPT voltage or current is inferred.
+    """
+    group_columns = ["timestamp", "inverter_id", "mppt_id"]
+    required = set(group_columns + ["p_mp_w"])
+    missing = required.difference(string_operating_points.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(
+            f"string_operating_points missing columns: {missing_text}"
+        )
+
+    return (
+        string_operating_points.groupby(group_columns, as_index=False, sort=False)[
+            "p_mp_w"
+        ]
+        .sum()
+        .rename(columns={"p_mp_w": "p_independent_mp_w"})
+    )
 
 
 def calculate_dc_power(
