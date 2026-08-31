@@ -2,21 +2,34 @@
 
 Public API
 ----------
-calculate_dc_power(site, poa_total, t_cell, aoi,
-                   solar_zenith=None, precipitable_water=None) -> pd.DataFrame
+calculate_module_operating_point(...)
+    Resolve module parameters, apply spectral correction, and solve the module
+    electrical model at each timestep.
 
-Output columns
---------------
-  p_dc_kw       — DC power after all losses [kW, whole array]
+scale_module_to_string(module_operating_point, modules_per_string)
+    Apply ideal series-connection algebra to a module operating point.
+
+calculate_dc_power(...)
+    Backwards-compatible aggregate site calculation. It now consumes the
+    module operating point internally but preserves the existing output and
+    legacy loss cascade until the topology-aware Stage 4 migration is complete.
+
+Aggregate output columns
+------------------------
+  p_dc_kw       — DC power after all legacy losses [kW, whole array]
   p_dc_stc_kw   — DC power at STC (no losses) [kW, for PR denominator]
   v_mp          — voltage at MPP per module [V]
   i_mp          — current at MPP per module [A]
   tier_used     — integer 1–5, which lookup tier was used
   fit_quality   — 'high' | 'low' | 'pvwatts'
 
-Loss cascade (applied in order)
+Legacy loss cascade (temporary)
 --------------------------------
-  soiling   → LID → mismatch → DC wiring
+  soiling → LID → mismatch → DC wiring
+
+Mismatch and DC wiring remain here only for backwards compatibility. The target
+architecture derives mismatch from string/MPPT IV interaction and moves wiring
+loss to the physical cable network.
 
 SDM routing
 -----------
@@ -24,33 +37,11 @@ SDM routing
   Tiers 3-4 (local/datasheet): fit_desoto_batzelis → calcparams_desoto + singlediode
   Tier 5 (PVWatts fallback) : pvwatts_dc
 
-Note on calcparams_pvsyst and fit_cec_sam
-------------------------------------------
-The specification calls for calcparams_pvsyst on Tiers 3-4.
-fit_pvsyst_sandia requires full IV-curve data; fit_cec_sam requires the
-NREL PySAM package (not installed); fit_desoto fails to converge on
-high-current half-cell modules (144-cell Jinko).
-fit_desoto_batzelis (analytical, scipy-free) is used instead for Tiers 3-4
-and produces the same De Soto parameter set compatible with calcparams_desoto.
-The two model families are closely related; difference is negligible vs.
-datasheet fitting uncertainty.
-
 Spectral correction
 -------------------
 Uses pvlib.spectrum.spectral_factor_firstsolar when solar_zenith and
-precipitable_water are provided.  If not supplied, a WARNING is logged
-and spectral correction is skipped (multiplicative factor = 1.0).
-
-pvlib functions used
---------------------
-  pvlib.pvsystem.retrieve_sam('CECMod')
-  pvlib.ivtools.sdm.fit_desoto_batzelis
-  pvlib.pvsystem.calcparams_desoto
-  pvlib.pvsystem.singlediode
-  pvlib.pvsystem.pvwatts_dc
-  pvlib.spectrum.spectral_factor_firstsolar
-  pvlib.atmosphere.get_relative_airmass
-  pvlib.atmosphere.get_absolute_airmass
+precipitable_water are provided. If not supplied, a WARNING is logged and
+spectral correction is skipped (multiplicative factor = 1.0).
 """
 
 from __future__ import annotations
@@ -86,6 +77,75 @@ _SPECTRAL_MODULE_TYPE_MAP = {
 _NON_CSI = {"cdte", "cigs"}
 
 
+def calculate_module_operating_point(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    t_cell: pd.Series,
+    *,
+    solar_zenith: pd.Series | None = None,
+    precipitable_water: pd.Series | None = None,
+) -> pd.DataFrame:
+    """Calculate the expected electrical MPP for one representative module.
+
+    The returned quantities are module-terminal values before array-level loss
+    factors. They are the canonical Stage 4 handoff used to build strings and,
+    later, MPPT-level electrical models.
+
+    Returns
+    -------
+    pd.DataFrame
+        p_mp_w                    module maximum power [W]
+        v_mp_v                    module MPP voltage [V]
+        i_mp_a                    module MPP current [A]
+        effective_irradiance_wm2  spectrally corrected irradiance [W/m²]
+        tier_used                 module parameter-resolution tier
+        fit_quality               parameter/model confidence label
+    """
+    operating_point, _ = _calculate_module_operating_point(
+        site,
+        poa_total,
+        t_cell,
+        solar_zenith=solar_zenith,
+        precipitable_water=precipitable_water,
+    )
+    return operating_point
+
+
+def scale_module_to_string(
+    module_operating_point: pd.DataFrame,
+    modules_per_string: int,
+) -> pd.DataFrame:
+    """Scale a uniform module MPP to an ideal series-connected string.
+
+    Series connection adds voltage while current remains unchanged. This helper
+    deliberately does not model non-uniformity, bypass activation, mismatch, or
+    cable losses; those belong to the later string/MPPT electrical layers.
+    """
+    if modules_per_string <= 0:
+        raise ValueError("modules_per_string must be greater than 0")
+
+    required = {"p_mp_w", "v_mp_v", "i_mp_a"}
+    missing = required.difference(module_operating_point.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(f"module_operating_point missing columns: {missing_text}")
+
+    result = pd.DataFrame(index=module_operating_point.index)
+    result["p_mp_w"] = module_operating_point["p_mp_w"] * modules_per_string
+    result["v_mp_v"] = module_operating_point["v_mp_v"] * modules_per_string
+    result["i_mp_a"] = module_operating_point["i_mp_a"]
+
+    for column in (
+        "effective_irradiance_wm2",
+        "tier_used",
+        "fit_quality",
+    ):
+        if column in module_operating_point.columns:
+            result[column] = module_operating_point[column]
+
+    return result
+
+
 def calculate_dc_power(
     site: SiteConfig,
     poa_total: pd.Series,
@@ -94,83 +154,33 @@ def calculate_dc_power(
     solar_zenith: pd.Series | None = None,
     precipitable_water: pd.Series | None = None,
 ) -> pd.DataFrame:
-    """Calculate array DC power using the single-diode model.
+    """Calculate backwards-compatible aggregate array DC power.
 
-    Parameters
-    ----------
-    site : SiteConfig
-        Site config; module sub-config drives the SDM parameterisation.
-    poa_total : pd.Series
-        Total effective POA irradiance [W/m²].
-    t_cell : pd.Series
-        Cell temperature [°C].
-    aoi : pd.Series
-        Angle of incidence on the front surface [degrees].
-    solar_zenith : pd.Series, optional
-        Apparent solar zenith [degrees].  Required for spectral correction.
-    precipitable_water : pd.Series, optional
-        Precipitable water column [cm].  Required for spectral correction.
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: p_dc_kw, p_dc_stc_kw, v_mp, i_mp, tier_used, fit_quality.
+    ``aoi`` remains in the public signature for compatibility with the existing
+    pipeline. The current electrical model does not consume it directly.
     """
-    import pvlib.pvsystem
+    del aoi
 
     module_cfg = site.module
-
-    # ------------------------------------------------------------------
-    # Non-c-Si technology warning
-    # ------------------------------------------------------------------
-    if module_cfg.technology in _NON_CSI:
-        logger.warning(
-            "Non c-Si technology detected (%s).  SDM accuracy may be "
-            "reduced.  Consider a technology-specific model.",
-            module_cfg.technology,
-        )
-
-    # ------------------------------------------------------------------
-    # Step 1: Resolve module parameters
-    # ------------------------------------------------------------------
-    resolution = resolve_module_params(module_cfg)
-    params = resolution["params"]
-    tier = resolution["tier"]
-    fit_quality = resolution["fit_quality"]
-
-    # ------------------------------------------------------------------
-    # Step 2: Spectral correction
-    # ------------------------------------------------------------------
-    spectral_factor = _compute_spectral_factor(
-        module_cfg.technology, solar_zenith, precipitable_water, site
+    module_point, params = _calculate_module_operating_point(
+        site,
+        poa_total,
+        t_cell,
+        solar_zenith=solar_zenith,
+        precipitable_water=precipitable_water,
     )
-    effective_irradiance = poa_total * spectral_factor
 
     # ------------------------------------------------------------------
-    # Step 3: Route by tier
-    # ------------------------------------------------------------------
-    if tier in (1, 2):
-        p_module, v_mp_series, i_mp_series = _sdm_cec(
-            params, effective_irradiance, t_cell
-        )
-    elif tier in (3, 4):
-        p_module, v_mp_series, i_mp_series = _sdm_datasheet(
-            params, module_cfg.technology, effective_irradiance, t_cell
-        )
-    else:  # tier 5
-        p_module, v_mp_series, i_mp_series = _pvwatts(
-            params, effective_irradiance, t_cell
-        )
-
-    # ------------------------------------------------------------------
-    # Step 4: Scale to array
+    # Scale representative module to the legacy whole-array aggregate.
     # ------------------------------------------------------------------
     n_modules = module_cfg.num_strings * module_cfg.modules_per_string
-    p_dc_array_w = p_module * n_modules  # watts
+    p_dc_array_w = module_point["p_mp_w"] * n_modules
 
     # STC reference power (no losses, for PR calculation)
     pnom_wp = params.get("pnom_wp") or (
-        module_cfg.pnom_wp or module_cfg.v_mp and module_cfg.i_mp
+        module_cfg.pnom_wp
+        or module_cfg.v_mp
+        and module_cfg.i_mp
         and module_cfg.v_mp * module_cfg.i_mp
     )
     if pnom_wp:
@@ -179,10 +189,10 @@ def calculate_dc_power(
             index=poa_total.index,
         )
     else:
-        p_dc_stc_kw = p_dc_array_w / 1000.0  # fallback: use modelled output
+        p_dc_stc_kw = p_dc_array_w / 1000.0
 
     # ------------------------------------------------------------------
-    # Step 5: Loss cascade
+    # Legacy aggregate loss cascade. Kept unchanged in this refactor.
     # ------------------------------------------------------------------
     p_dc = p_dc_array_w.copy()
     p_dc *= 1.0 - module_cfg.soiling_loss_pct / 100.0
@@ -190,21 +200,85 @@ def calculate_dc_power(
     p_dc *= 1.0 - module_cfg.mismatch_loss_pct / 100.0
     p_dc *= 1.0 - module_cfg.wiring_loss_dc_pct / 100.0
 
-    p_dc_kw = p_dc / 1000.0
+    p_dc_kw = (p_dc / 1000.0).clip(lower=0.0)
     p_dc_stc_kw = p_dc_stc_kw.clip(lower=0.0)
-    p_dc_kw = p_dc_kw.clip(lower=0.0)
 
     return pd.DataFrame(
         {
             "p_dc_kw": p_dc_kw,
             "p_dc_stc_kw": p_dc_stc_kw,
-            "v_mp": v_mp_series,
-            "i_mp": i_mp_series,
+            "v_mp": module_point["v_mp_v"],
+            "i_mp": module_point["i_mp_a"],
+            "tier_used": module_point["tier_used"],
+            "fit_quality": module_point["fit_quality"],
+        },
+        index=poa_total.index,
+    )
+
+
+def _calculate_module_operating_point(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    t_cell: pd.Series,
+    *,
+    solar_zenith: pd.Series | None,
+    precipitable_water: pd.Series | None,
+) -> tuple[pd.DataFrame, dict]:
+    """Internal module solver returning both operating point and parameters."""
+    module_cfg = site.module
+
+    if module_cfg.technology in _NON_CSI:
+        logger.warning(
+            "Non c-Si technology detected (%s). SDM accuracy may be "
+            "reduced. Consider a technology-specific model.",
+            module_cfg.technology,
+        )
+
+    resolution = resolve_module_params(module_cfg)
+    params = resolution["params"]
+    tier = resolution["tier"]
+    fit_quality = resolution["fit_quality"]
+
+    spectral_factor = _compute_spectral_factor(
+        module_cfg.technology,
+        solar_zenith,
+        precipitable_water,
+        site,
+    )
+    effective_irradiance = poa_total * spectral_factor
+
+    if tier in (1, 2):
+        p_module, v_mp_series, i_mp_series = _sdm_cec(
+            params,
+            effective_irradiance,
+            t_cell,
+        )
+    elif tier in (3, 4):
+        p_module, v_mp_series, i_mp_series = _sdm_datasheet(
+            params,
+            module_cfg.technology,
+            effective_irradiance,
+            t_cell,
+        )
+    else:
+        p_module, v_mp_series, i_mp_series = _pvwatts(
+            params,
+            effective_irradiance,
+            t_cell,
+        )
+
+    operating_point = pd.DataFrame(
+        {
+            "p_mp_w": p_module,
+            "v_mp_v": v_mp_series,
+            "i_mp_a": i_mp_series,
+            "effective_irradiance_wm2": effective_irradiance,
             "tier_used": tier,
             "fit_quality": fit_quality,
         },
         index=poa_total.index,
     )
+    return operating_point, params
 
 
 # ---------------------------------------------------------------------------
@@ -217,31 +291,14 @@ def _compute_spectral_factor(
     precipitable_water: pd.Series | None,
     site: SiteConfig,
 ) -> "float | pd.Series":
-    """Compute spectral mismatch factor via pvlib.spectrum.spectral_factor_firstsolar.
-
-    Parameters
-    ----------
-    technology : str
-        Module technology string from ModuleConfig.
-    solar_zenith : pd.Series or None
-        Apparent solar zenith [degrees].
-    precipitable_water : pd.Series or None
-        Precipitable water [cm].
-    site : SiteConfig
-        Used for altitude (pressure adjustment).
-
-    Returns
-    -------
-    float or pd.Series
-        Spectral mismatch factor M (1.0 = no correction).
-    """
+    """Compute spectral mismatch factor via First Solar coefficients."""
     import pvlib.atmosphere
     import pvlib.spectrum
 
     if solar_zenith is None or precipitable_water is None:
         logger.warning(
             "Spectral correction skipped: solar_zenith and/or precipitable_water "
-            "not provided.  Pass solar_zenith and precipitable_water to "
+            "not provided. Pass solar_zenith and precipitable_water to "
             "calculate_dc_power() to enable spectral correction."
         )
         return 1.0
@@ -255,6 +312,9 @@ def _compute_spectral_factor(
         )
         return 1.0
 
+    import pvlib.atmosphere
+    import pvlib.spectrum
+
     pressure = pvlib.atmosphere.alt2pres(site.altitude_m)
     airmass_rel = pvlib.atmosphere.get_relative_airmass(solar_zenith)
     airmass_abs = pvlib.atmosphere.get_absolute_airmass(airmass_rel, pressure)
@@ -267,7 +327,9 @@ def _compute_spectral_factor(
     logger.info(
         "Spectral correction applied (module_type=%s): mean factor=%.4f.",
         module_type,
-        float(spectral_factor.mean()) if hasattr(spectral_factor, "mean") else spectral_factor,
+        float(spectral_factor.mean())
+        if hasattr(spectral_factor, "mean")
+        else spectral_factor,
     )
     return spectral_factor
 
@@ -277,24 +339,9 @@ def _sdm_cec(
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Single-diode model using CEC (De Soto) parameters.
-
-    Uses pvlib.pvsystem.calcparams_desoto + singlediode.
-
-    Parameters
-    ----------
-    params : dict
-        CEC database row as a dict.
-    effective_irradiance : pd.Series — W/m²
-    t_cell : pd.Series — °C
-
-    Returns
-    -------
-    (p_module_w, v_mp, i_mp) — all pd.Series, per-module values.
-    """
+    """Single-diode model using CEC (De Soto) parameters."""
     import pvlib.pvsystem
 
-    # alpha_sc in CEC database is in A/°C; apply Adjust correction
     alpha_sc = params["alpha_sc"]
     adjust = params.get("Adjust", 0.0)
     alpha_sc_adj = alpha_sc * (1.0 + adjust / 100.0)
@@ -330,53 +377,26 @@ def _sdm_datasheet(
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Single-diode model fitted from datasheet STC parameters.
-
-    Uses pvlib.ivtools.sdm.fit_desoto_batzelis (fully analytical, no PySAM,
-    no scipy root-finding) to derive De Soto SDM coefficients from STC
-    datasheet values, then calls calcparams_desoto + singlediode.
-
-    Chosen over fit_desoto (scipy root-finding) because fit_desoto fails to
-    converge on high-current half-cell modules (e.g. Jinko 144-cell with
-    13.69 A Imp) due to the log1p singularity in the initial-guess step.
-    fit_desoto_batzelis is an analytical solution and has no convergence
-    issues with these parameters.
-
-    Parameters
-    ----------
-    params : dict
-        Local library or inline datasheet entry.
-    technology : str
-        ModuleConfig.technology string (used for EgRef selection).
-    effective_irradiance : pd.Series — W/m²
-    t_cell : pd.Series — °C
-
-    Returns
-    -------
-    (p_module_w, v_mp, i_mp) — all pd.Series, per-module values.
-    """
+    """Single-diode model fitted from datasheet STC parameters."""
     import pvlib.ivtools.sdm
     import pvlib.pvsystem
 
-    # alpha_sc in local library is in %/°C; convert to A/°C
     i_sc = float(params["i_sc"])
-    alpha_sc_pct_per_c = float(params["alpha_sc"])  # %/°C
+    alpha_sc_pct_per_c = float(params["alpha_sc"])
     alpha_sc_a_per_c = i_sc * alpha_sc_pct_per_c / 100.0
 
-    # beta_voc in local library is in %/°C; convert to V/°C
     v_oc = float(params["v_oc"])
-    beta_voc_pct_per_c = float(params["beta_voc"])  # %/°C
+    beta_voc_pct_per_c = float(params["beta_voc"])
     beta_voc_v_per_c = v_oc * beta_voc_pct_per_c / 100.0
 
-    # EgRef: bandgap energy for the technology [eV]
-    _EGREF = {
+    eg_ref_by_technology = {
         "mono_si": 1.121,
         "poly_si": 1.121,
         "hjt": 1.121,
         "cdte": 1.475,
         "cigs": 1.15,
     }
-    EgRef = _EGREF.get(technology, 1.121)
+    eg_ref = eg_ref_by_technology.get(technology, 1.121)
 
     batzelis_params = pvlib.ivtools.sdm.fit_desoto_batzelis(
         v_mp=float(params["v_mp"]),
@@ -387,10 +407,6 @@ def _sdm_datasheet(
         beta_voc=beta_voc_v_per_c,
     )
 
-    # Physical validity check — negative R_sh is impossible and causes NaN.
-    # This typically signals that i_sc < i_mp in the source data (physically
-    # impossible; i_mp must be < i_sc).  Fall back to the PVWatts model if
-    # gamma_pmp is available.
     if batzelis_params["R_sh_ref"] <= 0:
         logger.warning(
             "Batzelis fitting produced non-physical R_sh_ref=%.3f for "
@@ -426,7 +442,7 @@ def _sdm_datasheet(
             I_o_ref=batzelis_params["I_o_ref"],
             R_sh_ref=batzelis_params["R_sh_ref"],
             R_s=batzelis_params["R_s"],
-            EgRef=EgRef,
+            EgRef=eg_ref,
         )
     )
     iv = pvlib.pvsystem.singlediode(
@@ -447,31 +463,17 @@ def _pvwatts(
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """PVWatts simplified DC model (Tier 5 fallback).
-
-    Uses pvlib.pvsystem.pvwatts_dc.
-
-    Parameters
-    ----------
-    params : dict  — must have 'pnom_wp' and 'gamma_pmp'.
-    effective_irradiance : pd.Series — W/m²
-    t_cell : pd.Series — °C
-
-    Returns
-    -------
-    (p_module_w, v_mp, i_mp) — v_mp and i_mp are NaN Series (not computed
-    by PVWatts).
-    """
+    """PVWatts simplified DC model (Tier 5 fallback)."""
     import pvlib.pvsystem
 
     pnom_wp = float(params["pnom_wp"])
-    gamma_pmp = float(params["gamma_pmp"])  # %/°C
+    gamma_pmp = float(params["gamma_pmp"])
 
     p_module = pvlib.pvsystem.pvwatts_dc(
         effective_irradiance=effective_irradiance,
         temp_cell=t_cell,
         pdc0=pnom_wp,
-        gamma_pdc=gamma_pmp / 100.0,  # pvwatts_dc expects fraction/°C
+        gamma_pdc=gamma_pmp / 100.0,
     )
     p_module = pd.Series(p_module, index=effective_irradiance.index).clip(lower=0.0)
     nan_series = pd.Series(float("nan"), index=effective_irradiance.index)
