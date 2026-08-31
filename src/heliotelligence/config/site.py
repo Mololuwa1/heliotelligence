@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModuleConfig(BaseModel):
@@ -53,8 +53,8 @@ class ModuleConfig(BaseModel):
     # --- Loss cascade -------------------------------------------------------
     soiling_loss_pct: float = 1.0        # % of DC power
     lid_loss_pct: float = 0.60           # light-induced degradation [%]
-    mismatch_loss_pct: float = 1.15      # string mismatch [%]
-    wiring_loss_dc_pct: float = 0.48     # DC wiring [%]
+    mismatch_loss_pct: float = 1.15      # legacy aggregate mismatch [%]
+    wiring_loss_dc_pct: float = 0.48     # legacy aggregate DC wiring [%]
 
     # --- Array geometry -----------------------------------------------------
     modules_per_string: int = 24
@@ -80,6 +80,90 @@ class InverterConfig(BaseModel):
     eta_nom: float = 0.9842
     wiring_loss_ac_pct: float = 1.70
     grid_limit_kwac: float | None = None
+
+
+class StringConfig(BaseModel):
+    """One physical PV string in the electrical topology.
+
+    This topology is intentionally separate from the existing aggregate module
+    configuration. It is optional so legacy sites continue to run unchanged
+    while Stage 4 is migrated to string/MPPT resolution.
+    """
+
+    id: str
+    modules_per_string: int = Field(gt=0)
+    zone_id: str | None = None
+    label: str | None = None
+
+
+class MPPTConfig(BaseModel):
+    """One independent MPPT input on a physical inverter."""
+
+    id: str
+    strings: list[StringConfig] = Field(default_factory=list)
+
+    @property
+    def string_count(self) -> int:
+        return len(self.strings)
+
+
+class InverterUnitConfig(BaseModel):
+    """One physical inverter unit and its MPPT inputs."""
+
+    id: str
+    group_id: str | None = None
+    model_ref: str | None = None
+    mppts: list[MPPTConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_mppt_ids(self) -> "InverterUnitConfig":
+        mppt_ids = [mppt.id for mppt in self.mppts]
+        if len(mppt_ids) != len(set(mppt_ids)):
+            raise ValueError(f"Duplicate MPPT id within inverter '{self.id}'")
+        return self
+
+    @property
+    def mppt_count(self) -> int:
+        return len(self.mppts)
+
+    @property
+    def string_count(self) -> int:
+        return sum(mppt.string_count for mppt in self.mppts)
+
+
+class ElectricalTopologyConfig(BaseModel):
+    """Physical Site → Inverter → MPPT → String connectivity."""
+
+    inverters: list[InverterUnitConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_ids(self) -> "ElectricalTopologyConfig":
+        inverter_ids = [inverter.id for inverter in self.inverters]
+        if len(inverter_ids) != len(set(inverter_ids)):
+            raise ValueError("Duplicate inverter id in electrical topology")
+
+        seen_strings: set[str] = set()
+        for inverter in self.inverters:
+            for mppt in inverter.mppts:
+                for string in mppt.strings:
+                    if string.id in seen_strings:
+                        raise ValueError(
+                            f"Duplicate string id '{string.id}' in electrical topology"
+                        )
+                    seen_strings.add(string.id)
+        return self
+
+    @property
+    def inverter_count(self) -> int:
+        return len(self.inverters)
+
+    @property
+    def mppt_count(self) -> int:
+        return sum(inverter.mppt_count for inverter in self.inverters)
+
+    @property
+    def string_count(self) -> int:
+        return sum(inverter.string_count for inverter in self.inverters)
 
 
 class InverterGroupConfig(BaseModel):
@@ -131,6 +215,7 @@ class SiteConfig(BaseModel):
     # --- Nested configs -----------------------------------------------------
     module: ModuleConfig = Field(default_factory=ModuleConfig)
     inverter: InverterConfig = Field(default_factory=InverterConfig)
+    electrical_topology: ElectricalTopologyConfig | None = None
     layout: SiteLayoutConfig | None = None
 
     # --- Derived property ---------------------------------------------------
