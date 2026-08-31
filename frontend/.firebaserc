@@ -1,5 +1,15 @@
 {
   "projects": {
-    "default": "heliotelligence"
+    "default": "heliotelligence",
+    "staging": "heliotelligence-staging"
+  },
+  "targets": {
+    "heliotelligence-staging": {
+      "hosting": {
+        "staging": [
+          "heliotelligence-staging"
+        ]
+      }
+    }
   }
 }

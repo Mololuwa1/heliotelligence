@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 data/
+!src/heliotelligence/data/
+!src/heliotelligence/data/__init__.py
+!src/heliotelligence/data/module_library.yaml
 *.log
 .DS_Store
 .vscode/

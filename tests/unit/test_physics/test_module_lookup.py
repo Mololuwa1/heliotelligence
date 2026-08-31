@@ -12,6 +12,8 @@ Tests
 
 from __future__ import annotations
 
+from importlib.resources import files
+
 import pytest
 
 from heliotelligence.config.site import ModuleConfig
@@ -88,6 +90,14 @@ def test_tier2_autosearch_logs_warning(caplog):
 # ---------------------------------------------------------------------------
 # Tier 3 — local module library
 # ---------------------------------------------------------------------------
+
+def test_local_module_library_is_packaged():
+    """The Tier-3 YAML must be available as an installed package resource."""
+    resource = files("heliotelligence.data").joinpath("module_library.yaml")
+
+    assert resource.is_file()
+    assert "JKM570N-72HL4-BDV" in resource.read_text(encoding="utf-8")
+
 
 def test_tier3_local_library_jinko():
     """Local library lookup for JKM570N-72HL4-BDV should return tier=3."""

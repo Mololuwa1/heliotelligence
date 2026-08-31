@@ -24,7 +24,7 @@ Logs at INFO level which tier was used on every call.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from importlib.resources import files
 
 import yaml
 
@@ -32,9 +32,7 @@ from heliotelligence.config.site import ModuleConfig
 
 logger = logging.getLogger(__name__)
 
-# Path to the local module library relative to the project root.
-# Resolved at import time so callers don't need to pass it.
-_LIBRARY_PATH = Path(__file__).parents[3] / "config" / "module_library.yaml"
+_LIBRARY_RESOURCE = files("heliotelligence.data").joinpath("module_library.yaml")
 
 
 def _load_cec_database() -> "pandas.DataFrame":  # noqa: F821 — avoid top-level pandas import
@@ -46,9 +44,7 @@ def _load_cec_database() -> "pandas.DataFrame":  # noqa: F821 — avoid top-leve
 
 def _load_local_library() -> dict:
     """Return the local module library as a dict keyed by module name."""
-    if not _LIBRARY_PATH.exists():
-        return {}
-    with _LIBRARY_PATH.open("r", encoding="utf-8") as fh:
+    with _LIBRARY_RESOURCE.open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     return (data or {}).get("modules", {})
 

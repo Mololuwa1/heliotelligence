@@ -1,0 +1,71 @@
+# Staging deployment template.
+#
+# This file is used by the isolated staging Cloud Build trigger after the
+# staging project, database, service accounts, and secrets are provisioned.
+
+substitutions:
+  _STAGING_PROJECT_ID: heliotelligence-staging
+  _REGION: europe-west2
+  _ARTIFACT_REPOSITORY: heliotelligence
+  _IMAGE_NAME: api
+  _SERVICE_NAME: heliotelligence-api-staging
+  _CORS_ORIGINS: https://heliotelligence-staging.web.app,https://heliotelligence-staging.firebaseapp.com
+  _RUNTIME_SERVICE_ACCOUNT: heliotelligence-api-staging@heliotelligence-staging.iam.gserviceaccount.com
+
+serviceAccount: projects/heliotelligence-staging/serviceAccounts/heliotelligence-build-staging@heliotelligence-staging.iam.gserviceaccount.com
+
+steps:
+  - name: 'python:3.13-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install ".[dev]" -q
+        python -m pytest tests/unit/ -q --no-header --no-cov
+    env:
+      - 'DATABASE_URL=postgresql://test:test@localhost/test'
+      - 'APP_ENV=development'
+    id: 'test'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${_STAGING_PROJECT_ID}/${_ARTIFACT_REPOSITORY}/${_IMAGE_NAME}:$SHORT_SHA'
+      - '.'
+    id: 'build'
+    waitFor: ['test']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${_STAGING_PROJECT_ID}/${_ARTIFACT_REPOSITORY}/${_IMAGE_NAME}:$SHORT_SHA'
+    id: 'push'
+    waitFor: ['build']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--project=${_STAGING_PROJECT_ID}'
+      - '--image=${_REGION}-docker.pkg.dev/${_STAGING_PROJECT_ID}/${_ARTIFACT_REPOSITORY}/${_IMAGE_NAME}:$SHORT_SHA'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--min-instances=0'
+      - '--max-instances=2'
+      - '--service-account=${_RUNTIME_SERVICE_ACCOUNT}'
+      - '--add-cloudsql-instances=${_STAGING_PROJECT_ID}:${_REGION}:heliotelligence-staging-db'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest'
+      - '--set-env-vars=^@^SITE_CONFIG_PATH=config/sites.yaml@APP_ENV=staging@CORS_ORIGINS=${_CORS_ORIGINS}'
+    id: 'deploy'
+    waitFor: ['push']
+
+images:
+  - '${_REGION}-docker.pkg.dev/${_STAGING_PROJECT_ID}/${_ARTIFACT_REPOSITORY}/${_IMAGE_NAME}:$SHORT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -9,6 +9,7 @@ steps:
         python -m pytest tests/unit/ -q --no-header --no-cov
     env:
       - 'DATABASE_URL=postgresql://test:test@localhost/test'
+      - 'APP_ENV=development'
     id: 'test'
 
   # Build Docker image
@@ -32,14 +33,14 @@ steps:
     id: 'push'
     waitFor: ['build']
 
-  # Deploy to Cloud Run
+  # Deploy exactly the image built from this commit to Cloud Run.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
       - 'run'
       - 'deploy'
       - 'heliotelligence-api'
-      - '--image=europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:latest'
+      - '--image=europe-west2-docker.pkg.dev/heliotelligence/heliotelligence/api:$SHORT_SHA'
       - '--region=europe-west2'
       - '--platform=managed'
       - '--allow-unauthenticated'
@@ -48,7 +49,7 @@ steps:
       - '--min-instances=1'
       - '--max-instances=10'
       - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest'
-      - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,ENVIRONMENT=production'
+      - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,APP_ENV=production'
     id: 'deploy'
     waitFor: ['push']
 
