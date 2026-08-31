@@ -1,8 +1,7 @@
 # Staging deployment template.
 #
-# This file is intentionally not connected to a Cloud Build trigger yet.
-# Provision the staging project/database/secrets first, then configure a trigger
-# to use this file. See docs/deployment-environments.md.
+# This file is used by the isolated staging Cloud Build trigger after the
+# staging project, database, service accounts, and secrets are provisioned.
 
 substitutions:
   _STAGING_PROJECT_ID: heliotelligence-staging
@@ -10,7 +9,10 @@ substitutions:
   _ARTIFACT_REPOSITORY: heliotelligence
   _IMAGE_NAME: api
   _SERVICE_NAME: heliotelligence-api-staging
-  _CORS_ORIGINS: http://localhost:5173
+  _CORS_ORIGINS: https://heliotelligence-staging.web.app,https://heliotelligence-staging.firebaseapp.com
+  _RUNTIME_SERVICE_ACCOUNT: heliotelligence-api-staging@heliotelligence-staging.iam.gserviceaccount.com
+
+serviceAccount: projects/heliotelligence-staging/serviceAccounts/heliotelligence-build-staging@heliotelligence-staging.iam.gserviceaccount.com
 
 steps:
   - name: 'python:3.13-slim'
@@ -51,13 +53,14 @@ steps:
       - '--image=${_REGION}-docker.pkg.dev/${_STAGING_PROJECT_ID}/${_ARTIFACT_REPOSITORY}/${_IMAGE_NAME}:$SHORT_SHA'
       - '--region=${_REGION}'
       - '--platform=managed'
-      - '--allow-unauthenticated'
       - '--memory=2Gi'
       - '--cpu=2'
       - '--min-instances=0'
       - '--max-instances=2'
-      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest'
-      - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,APP_ENV=staging,CORS_ORIGINS=${_CORS_ORIGINS}'
+      - '--service-account=${_RUNTIME_SERVICE_ACCOUNT}'
+      - '--add-cloudsql-instances=${_STAGING_PROJECT_ID}:${_REGION}:heliotelligence-staging-db'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest'
+      - '--set-env-vars=^@^SITE_CONFIG_PATH=config/sites.yaml@APP_ENV=staging@CORS_ORIGINS=${_CORS_ORIGINS}'
     id: 'deploy'
     waitFor: ['push']
 
