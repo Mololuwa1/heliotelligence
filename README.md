@@ -172,7 +172,7 @@ The lookup resolves module parameters in order of accuracy, stopping at the firs
 |---|---|---|---|
 | 1 | CEC database (explicit) | Highest | `module.cec_name` set and found in `retrieve_sam('CECMod')` |
 | 2 | CEC database (auto-search) | Highest | Fuzzy match on manufacturer + model found in CEC DB. Logs WARNING to set `cec_name` explicitly |
-| 3 | Local module library | Medium | `module.local_module_name` found in `config/module_library.yaml` |
+| 3 | Local module library | Medium | `module.local_module_name` found in the bundled module library |
 | 4 | Inline datasheet params | Low | `v_mp`, `i_mp`, `v_oc`, `i_sc` all set in `SiteConfig` |
 | 5 | PVWatts fallback | Lowest | Only `pnom_wp` and `gamma_pmp` available |
 
@@ -182,7 +182,7 @@ The lookup resolves module parameters in order of accuracy, stopping at the firs
 
 ---
 
-### Local module library (`config/module_library.yaml`)
+### Local module library (`src/heliotelligence/data/module_library.yaml`)
 
 A YAML file that acts as a proprietary module database sitting above the CEC database in the lookup hierarchy. Every new site onboarded potentially adds modules to this library that future sites can benefit from.
 
@@ -441,7 +441,6 @@ The reference site used to validate the physics stack. All physics model calibra
 heliotelligence/
 ├── config/
 │   ├── sites.yaml               # Site configuration (one entry per site)
-│   ├── module_library.yaml      # Local module parameter database
 │   └── sites.example.yaml       # Template for new sites
 ├── data/
 │   └── scada/                   # SCADA CSV drop folders (gitignored)

@@ -20,7 +20,7 @@ steps:
     args:
       - '-c'
       - |
-        pip install -e ".[dev]" -q
+        pip install ".[dev]" -q
         python -m pytest tests/unit/ -q --no-header --no-cov
     env:
       - 'DATABASE_URL=postgresql://test:test@localhost/test'

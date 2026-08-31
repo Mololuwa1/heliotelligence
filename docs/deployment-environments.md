@@ -34,10 +34,10 @@ Development must never use production database credentials.
 
 ## Staging
 
-Staging is a cloud deployment isolated from production. It should have:
+Staging is a provisioned cloud deployment isolated from production. It uses:
 
-- a dedicated Cloud Run service, e.g. `heliotelligence-api-staging`
-- a dedicated staging PostgreSQL/TimescaleDB database
+- a dedicated Cloud Run service
+- a dedicated staging PostgreSQL database
 - staging Secret Manager secrets
 - a staging Firebase project/site
 - `APP_ENV=staging`
@@ -45,7 +45,7 @@ Staging is a cloud deployment isolated from production. It should have:
 
 The staging environment is where schema migrations, physics changes, regression reports, API changes, and frontend integration are validated before production promotion.
 
-A staging Cloud Build template is provided at `deploy/cloudbuild.staging.yaml`. It is intentionally not wired to a trigger until the staging GCP project and secrets exist.
+The `deploy/cloudbuild.staging.yaml` template is connected to the staging deployment trigger. Triggered builds run tests, publish an immutable commit-tagged image, and deploy only the staging Cloud Run service with its dedicated runtime identity.
 
 ## Production
 
@@ -69,18 +69,17 @@ Additional physics regression tests will be added as the Stage 4/5 architecture 
 - secrets are never committed to the repository.
 - frontend staging and production must point to their matching API environment.
 
-## Codex / local-cloud handoff
+## Staging operations
 
-Codex or a local terminal with authenticated GCP/Firebase access becomes useful when repository-only work reaches infrastructure provisioning. At that point, use it to:
+The staging project, database, container registry, Cloud Run service, Firebase Hosting target, and deployment trigger are provisioned. Repository changes flow to staging through the dedicated staging build configuration and identity; production deployment remains a separate workflow.
 
-1. create or select the staging GCP project
-2. create the staging Artifact Registry repository if needed
-3. provision the staging PostgreSQL/TimescaleDB instance/database
-4. create staging Secret Manager values using the same logical secret names as production
-5. create/configure the staging Firebase project and hosting target
-6. configure the staging Cloud Build trigger using `deploy/cloudbuild.staging.yaml`
-7. configure staging frontend deployment secrets and API URL
-8. run the first staging deployment and smoke-test `/health`
+Staging runtime configuration follows these rules:
+
+- Cloud Run connects only to the staging database.
+- Firebase Admin uses the runtime service account through Application Default Credentials.
+- optional integrations remain disabled until real staging credentials are intentionally configured.
+- frontend builds use only the staging API and staging Firebase application.
+- migrations run separately with the dedicated staging migration identity.
 
 The `/health` response includes the runtime environment so deployment wiring can be verified directly.
 
