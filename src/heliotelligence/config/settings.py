@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     )
     log_level: str = "INFO"
     secret_key: str = "change-me-in-production"
+    run_scheduler: bool = True
     cors_origins: str = (
         "http://localhost:5173,"
         "https://heliotelligence.web.app,"

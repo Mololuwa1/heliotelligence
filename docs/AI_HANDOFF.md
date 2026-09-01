@@ -104,21 +104,25 @@ particular, no physical MPPT-to-string map is currently known.
 
 ## Known operational issue: in-process scheduler
 
-The current verified repository state is:
+`RUN_SCHEDULER` now explicitly controls whether a FastAPI process configures
+and starts APScheduler. Its default is `true` for backwards compatibility.
+The staging deployment template sets `RUN_SCHEDULER=false`, so the next staging
+deployment from that template is prepared to disable scheduling in the
+request-serving API. This describes repository configuration only; it does not
+establish that the currently deployed staging revision has this setting.
 
-- FastAPI lifespan starts APScheduler in-process.
-- Scheduler startup is unconditional.
-- Settings has no `RUN_SCHEDULER` control.
-- Docker starts Uvicorn with two workers.
-- Cloud Run may run multiple service instances.
-
-Duplicate scheduled-job execution is therefore a known architectural risk.
-This is **not** currently solved.
+Production and other runtimes that do not explicitly set the gate retain the
+previous in-process scheduler behaviour. Docker still starts Uvicorn with two
+workers, Cloud Run may run multiple service instances, and duplicate scheduled
+job execution therefore remains a risk wherever the gate is enabled. The
+long-term scheduler architecture is **not** solved.
 
 The target direction is a request-serving Cloud Run API plus a separately
 scheduled worker or Cloud Run Job, or another design that guarantees one
 intended execution of each scheduled workload. This records the required
 outcome without prescribing an implementation.
+
+Periodic workloads still need migration to that dedicated execution model.
 
 Address this operational issue separately from the Stage 4 physics migration.
 
@@ -127,7 +131,8 @@ Address this operational issue separately from the Stage 4 physics migration.
 - Staging exists and is separate from production.
 - Staging commands must explicitly target the staging project
   (`heliotelligence-staging`); do not rely on local CLI defaults.
-- Assume the current API scheduler is active unless deployment or runtime
-  evidence proves otherwise.
+- The staging template is prepared to disable the scheduler on its next
+  deployment; assume the current live API scheduler is active unless deployment
+  or runtime evidence proves otherwise.
 
 Never put secrets, credentials, or secret values in repository documentation.
