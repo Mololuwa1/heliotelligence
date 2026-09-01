@@ -4,12 +4,12 @@ Startup sequence
 ────────────────
   1. Load site configs from YAML.
   2. Sync sites to the database (INSERT … ON CONFLICT DO UPDATE).
-  3. Configure Solcast and SCADA CSV jobs via collectors.scheduler.
-  4. Scheduler starts; app begins serving requests.
+  3. When RUN_SCHEDULER is enabled, configure jobs via collectors.scheduler.
+  4. When enabled, the scheduler starts; the app begins serving requests.
 
 Shutdown
 ────────
-  5. Scheduler is stopped gracefully.
+  5. A scheduler started by this process is stopped gracefully.
 """
 
 from __future__ import annotations
@@ -65,15 +65,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await session.commit()
     log.info("Synced %d site(s) to database", synced)
 
-    sched = get_scheduler()
-    configure_scheduler(sites)
-    sched.start()
-    log.info("APScheduler started with %d job(s)", len(sched.get_jobs()))
+    sched = None
+    if settings.run_scheduler:
+        sched = get_scheduler()
+        configure_scheduler(sites)
+        sched.start()
+        log.info("APScheduler started with %d job(s)", len(sched.get_jobs()))
+    else:
+        log.info("In-process APScheduler disabled by RUN_SCHEDULER")
 
-    yield
-
-    sched.shutdown(wait=False)
-    log.info("APScheduler stopped")
+    try:
+        yield
+    finally:
+        if sched is not None:
+            sched.shutdown(wait=False)
+            log.info("APScheduler stopped")
 
 
 # ---------------------------------------------------------------------------

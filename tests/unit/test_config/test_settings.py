@@ -56,3 +56,27 @@ def test_cors_origins_are_normalised() -> None:
         "http://localhost:5173",
         "https://staging.example.com",
     ]
+
+
+def test_run_scheduler_defaults_to_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RUN_SCHEDULER", raising=False)
+
+    settings = Settings(database_url=DATABASE_URL, _env_file=None)
+
+    assert settings.run_scheduler is True
+
+
+@pytest.mark.parametrize(
+    ("environment_value", "expected"),
+    [("false", False), ("true", True)],
+)
+def test_run_scheduler_reads_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_value: str,
+    expected: bool,
+) -> None:
+    monkeypatch.setenv("RUN_SCHEDULER", environment_value)
+
+    settings = Settings(database_url=DATABASE_URL, _env_file=None)
+
+    assert settings.run_scheduler is expected
