@@ -26,11 +26,18 @@ Always query Git first.
 - PR #2 — Electrical topology foundation — merged.
 - PR #3 — Stage 4 module operating-point refactor — merged.
 - PR #4 — Topology-aware string and MPPT aggregation — merged.
+- PR #5 — Project handoff / architecture documentation foundation — merged.
+- PR #6 — Scheduler execution gate — merged.
+- PR #7 — Application logging visibility — merged.
 
 PR #4 merge commit / architectural checkpoint:
 `b8eecb349121c917fd141a0c01b5c2aa562af349`.
 
-This SHA is a historical checkpoint, not a forever-current `HEAD`.
+Current operational checkpoint merge commit:
+`e3186f288fb8a0da723809648c306e2527acb926`.
+
+These SHAs are historical checkpoints, not forever-current `HEAD` values.
+Always query Git for the current `main`.
 
 ## Current Stage 4 capability
 
@@ -106,33 +113,57 @@ particular, no physical MPPT-to-string map is currently known.
 
 `RUN_SCHEDULER` now explicitly controls whether a FastAPI process configures
 and starts APScheduler. Its default is `true` for backwards compatibility.
-The staging deployment template sets `RUN_SCHEDULER=false`, so the next staging
-deployment from that template is prepared to disable scheduling in the
-request-serving API. This describes repository configuration only; it does not
-establish that the currently deployed staging revision has this setting.
+The request-serving staging API is now validated with in-process scheduling
+disabled through `RUN_SCHEDULER=false`.
 
 Production and other runtimes that do not explicitly set the gate retain the
 previous in-process scheduler behaviour. Docker still starts Uvicorn with two
 workers, Cloud Run may run multiple service instances, and duplicate scheduled
 job execution therefore remains a risk wherever the gate is enabled. The
-long-term scheduler architecture is **not** solved.
+staging work did not change production.
 
-The target direction is a request-serving Cloud Run API plus a separately
-scheduled worker or Cloud Run Job, or another design that guarantees one
-intended execution of each scheduled workload. This records the required
-outcome without prescribing an implementation.
-
-Periodic workloads still need migration to that dedicated execution model.
+The long-term scheduler architecture is **not** solved. Periodic workloads
+still require a dedicated execution model. A likely direction is Cloud
+Scheduler plus a Cloud Run Job or worker, or another mechanism that guarantees
+one intended execution of each workload, but the exact architecture has not
+been selected and no dedicated executor currently exists.
 
 Address this operational issue separately from the Stage 4 physics migration.
 
+## Application logging checkpoint
+
+PR #7 added application-specific logging for the `heliotelligence` namespace.
+`settings.log_level` is now consumed, application INFO lifecycle records are
+observable, and Uvicorn/root logging is not globally replaced. This enabled
+runtime verification of the scheduler gate.
+
 ## Staging checkpoint
 
-- Staging exists and is separate from production.
-- Staging commands must explicitly target the staging project
-  (`heliotelligence-staging`); do not rely on local CLI defaults.
-- The staging template is prepared to disable the scheduler on its next
-  deployment; assume the current live API scheduler is active unless deployment
-  or runtime evidence proves otherwise.
+- Project: `heliotelligence-staging`.
+- Validated Git SHA: `e3186f288fb8a0da723809648c306e2527acb926`.
+- Validated Cloud Build: `c5a8788c-62cb-499c-b2e5-7902ee4fe0d6`.
+- Validated image: `api:e3186f2` at digest
+  `sha256:1c101683cc35310a89b60e2d521ea138fc00fc62e2216625f9931dea5dc42a2d`.
+- Validated Cloud Run revision: `heliotelligence-api-staging-00004-4bn`,
+  receiving 100% of traffic.
+- Runtime configuration: `RUN_SCHEDULER=false` and `APP_ENV=staging`.
+- Health validation: HTTP 200, application status `ok`, and database status
+  `ok`.
+
+Runtime logs showed:
+
+- `Starting Heliotelligence API (environment=staging)`;
+- `Synced 2 site(s) to database`;
+- `In-process APScheduler disabled by RUN_SCHEDULER`;
+- no `APScheduler started`; and
+- no `APScheduler stopped`.
+
+Each lifecycle message appeared twice because the container runs two Uvicorn
+workers. These duplicate startup messages are not duplicate scheduler
+execution. The request-serving staging API is validated with in-process
+scheduling disabled.
+
+Staging exists separately from production. Always target the staging project
+explicitly for staging commands; do not rely on local CLI defaults.
 
 Never put secrets, credentials, or secret values in repository documentation.
