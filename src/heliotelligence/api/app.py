@@ -34,11 +34,13 @@ from heliotelligence.api.routers import ingest as ingest_router
 from heliotelligence.api.routers import layout as layout_router
 from heliotelligence.api.routers import reports as reports_router
 from heliotelligence.collectors.scheduler import configure_scheduler, get_scheduler
+from heliotelligence.config.logging_config import configure_application_logging
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import load_sites
 from heliotelligence.db.session import get_session_factory
 from heliotelligence.db.sync import sync_sites
 
+configure_application_logging(settings.log_level)
 log = logging.getLogger(__name__)
 
 
