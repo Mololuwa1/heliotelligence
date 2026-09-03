@@ -6,6 +6,10 @@ calculate_module_operating_point(...)
     Resolve module parameters, apply spectral correction, and solve the module
     electrical model at each timestep.
 
+calculate_module_iv_curves(...)
+    Evaluate one module's voltage-dependent current and power at each
+    timestep using the same physical single-diode parameters as the module MPP.
+
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
@@ -55,13 +59,38 @@ spectral correction is skipped (multiplicative factor = 1.0).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from heliotelligence.config.site import SiteConfig
 from heliotelligence.physics.module_lookup import resolve_module_params
 
 logger = logging.getLogger(__name__)
+
+_IV_CURVE_COLUMNS = [
+    "timestamp",
+    "curve_point",
+    "voltage_v",
+    "current_a",
+    "power_w",
+    "effective_irradiance_wm2",
+    "tier_used",
+    "fit_quality",
+]
+_NUMERICAL_NEGATIVE_TOLERANCE = 1e-7
+
+
+@dataclass(frozen=True)
+class _SdmOperatingParameters:
+    """Timestamp-level parameters for pvlib's single-diode solver."""
+
+    photocurrent: pd.Series
+    saturation_current: pd.Series
+    resistance_series: pd.Series
+    resistance_shunt: pd.Series
+    n_ns_vth: pd.Series
 
 # Technology → pvlib celltype for fit_cec_sam
 _CELLTYPE_MAP = {
@@ -117,6 +146,99 @@ def calculate_module_operating_point(
         precipitable_water=precipitable_water,
     )
     return operating_point
+
+
+def calculate_module_iv_curves(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    t_cell: pd.Series,
+    *,
+    solar_zenith: pd.Series | None = None,
+    precipitable_water: pd.Series | None = None,
+    voltage_points: int = 201,
+) -> pd.DataFrame:
+    """Evaluate a physical module I-V curve for every input timestamp.
+
+    The result is long-form, with exactly ``voltage_points`` rows per input
+    timestamp. Physical CEC and fitted-datasheet tiers use the same De Soto
+    operating parameters as :func:`calculate_module_operating_point`. PVWatts
+    fallbacks are rejected because they do not contain enough information to
+    define a defensible voltage-dependent curve.
+    """
+    _validate_iv_curve_inputs(
+        poa_total,
+        t_cell,
+        solar_zenith,
+        precipitable_water,
+        voltage_points,
+    )
+
+    resolution, effective_irradiance = _resolve_module_electrical_inputs(
+        site,
+        poa_total,
+        solar_zenith=solar_zenith,
+        precipitable_water=precipitable_water,
+    )
+    params = resolution["params"]
+    tier = resolution["tier"]
+    fit_quality = resolution["fit_quality"]
+
+    if tier == 5:
+        raise ValueError(
+            "Voltage-dependent module I-V is unavailable for Tier 5 "
+            "PVWatts fallback parameters"
+        )
+
+    curve_irradiance = effective_irradiance.clip(lower=0.0)
+    if not np.isfinite(curve_irradiance.to_numpy(dtype=float)).all():
+        raise ValueError("effective irradiance must contain only finite values")
+    sdm_parameters = _calculate_sdm_operating_parameters(
+        params,
+        site.module.technology,
+        curve_irradiance,
+        t_cell,
+        tier,
+    )
+    if sdm_parameters is None:
+        raise ValueError(
+            "Voltage-dependent module I-V is unavailable because the "
+            "datasheet parameters do not produce a physical single-diode fit; "
+            "the scalar model can only use its PVWatts fallback"
+        )
+
+    if poa_total.empty:
+        return pd.DataFrame(columns=_IV_CURVE_COLUMNS)
+
+    curves: list[pd.DataFrame] = []
+    for position, timestamp in enumerate(poa_total.index):
+        irradiance = float(curve_irradiance.iloc[position])
+        if irradiance <= 0.0:
+            voltage = np.zeros(voltage_points)
+            current = np.zeros(voltage_points)
+        else:
+            voltage = _voltage_grid(
+                _open_circuit_voltage(sdm_parameters, position),
+                voltage_points,
+            )
+            current = _current_from_voltage(voltage, sdm_parameters, position)
+
+        power = _validated_nonnegative(voltage * current, "power")
+        curves.append(
+            pd.DataFrame(
+                {
+                    "timestamp": [timestamp] * voltage_points,
+                    "curve_point": np.arange(voltage_points),
+                    "voltage_v": voltage,
+                    "current_a": current,
+                    "power_w": power,
+                    "effective_irradiance_wm2": [irradiance] * voltage_points,
+                    "tier_used": [tier] * voltage_points,
+                    "fit_quality": [fit_quality] * voltage_points,
+                }
+            )
+        )
+
+    return pd.concat(curves, ignore_index=True)[_IV_CURVE_COLUMNS]
 
 
 def scale_module_to_string(
@@ -326,46 +448,46 @@ def _calculate_module_operating_point(
 ) -> tuple[pd.DataFrame, dict]:
     """Internal module solver returning both operating point and parameters."""
     module_cfg = site.module
-
-    if module_cfg.technology in _NON_CSI:
-        logger.warning(
-            "Non c-Si technology detected (%s). SDM accuracy may be "
-            "reduced. Consider a technology-specific model.",
-            module_cfg.technology,
-        )
-
-    resolution = resolve_module_params(module_cfg)
+    resolution, effective_irradiance = _resolve_module_electrical_inputs(
+        site,
+        poa_total,
+        solar_zenith=solar_zenith,
+        precipitable_water=precipitable_water,
+    )
     params = resolution["params"]
     tier = resolution["tier"]
     fit_quality = resolution["fit_quality"]
 
-    spectral_factor = _compute_spectral_factor(
-        module_cfg.technology,
-        solar_zenith,
-        precipitable_water,
-        site,
-    )
-    effective_irradiance = poa_total * spectral_factor
-
-    if tier in (1, 2):
-        p_module, v_mp_series, i_mp_series = _sdm_cec(
-            params,
-            effective_irradiance,
-            t_cell,
-        )
-    elif tier in (3, 4):
-        p_module, v_mp_series, i_mp_series = _sdm_datasheet(
+    sdm_parameters = None
+    if tier != 5:
+        sdm_parameters = _calculate_sdm_operating_parameters(
             params,
             module_cfg.technology,
             effective_irradiance,
             t_cell,
+            tier,
         )
-    else:
+
+    if sdm_parameters is None:
+        if tier in (3, 4):
+            logger.warning(
+                "Datasheet fitting produced non-physical parameters for '%s'. "
+                "Falling back to PVWatts model.",
+                params.get("model", "unknown"),
+            )
+            params = _pvwatts_fallback_params(params)
         p_module, v_mp_series, i_mp_series = _pvwatts(
             params,
             effective_irradiance,
             t_cell,
         )
+    else:
+        iv = _solve_sdm(sdm_parameters)
+        p_module = pd.Series(iv["p_mp"], index=effective_irradiance.index).clip(
+            lower=0.0
+        )
+        v_mp_series = pd.Series(iv["v_mp"], index=effective_irradiance.index)
+        i_mp_series = pd.Series(iv["i_mp"], index=effective_irradiance.index)
 
     operating_point = pd.DataFrame(
         {
@@ -385,12 +507,91 @@ def _calculate_module_operating_point(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_module_electrical_inputs(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    *,
+    solar_zenith: pd.Series | None,
+    precipitable_water: pd.Series | None,
+) -> tuple[dict, pd.Series]:
+    """Resolve module metadata and spectrally corrected irradiance."""
+    module_cfg = site.module
+    if module_cfg.technology in _NON_CSI:
+        logger.warning(
+            "Non c-Si technology detected (%s). SDM accuracy may be "
+            "reduced. Consider a technology-specific model.",
+            module_cfg.technology,
+        )
+
+    resolution = resolve_module_params(module_cfg)
+    spectral_factor = _compute_spectral_factor(
+        module_cfg.technology,
+        solar_zenith,
+        precipitable_water,
+        site,
+    )
+    return resolution, poa_total * spectral_factor
+
+
+def _validate_iv_curve_inputs(
+    poa_total: pd.Series,
+    t_cell: pd.Series,
+    solar_zenith: pd.Series | None,
+    precipitable_water: pd.Series | None,
+    voltage_points: int,
+) -> None:
+    """Validate fixed-shape I-V inputs without pandas auto-alignment."""
+    if voltage_points < 3:
+        raise ValueError("voltage_points must be at least 3")
+    if not poa_total.index.is_unique:
+        raise ValueError("poa_total index must contain unique timestamps")
+    if not t_cell.index.is_unique:
+        raise ValueError("t_cell index must contain unique timestamps")
+    if not poa_total.index.equals(t_cell.index):
+        raise ValueError("poa_total and t_cell indexes must align exactly")
+
+    for name, series in (
+        ("solar_zenith", solar_zenith),
+        ("precipitable_water", precipitable_water),
+    ):
+        if series is not None:
+            if not series.index.is_unique:
+                raise ValueError(f"{name} index must contain unique timestamps")
+            if not poa_total.index.equals(series.index):
+                raise ValueError(f"{name} index must align exactly with poa_total")
+
+    if not np.isfinite(poa_total.to_numpy(dtype=float)).all():
+        raise ValueError("poa_total must contain only finite values")
+    if not np.isfinite(t_cell.to_numpy(dtype=float)).all():
+        raise ValueError("t_cell must contain only finite values")
+
+
+def _calculate_sdm_operating_parameters(
+    params: dict,
+    technology: str,
+    effective_irradiance: pd.Series,
+    t_cell: pd.Series,
+    tier: int,
+) -> _SdmOperatingParameters | None:
+    """Calculate the shared De Soto parameters used by MPP and I-V paths."""
+    if tier in (1, 2):
+        return _sdm_cec_parameters(params, effective_irradiance, t_cell)
+    if tier in (3, 4):
+        return _sdm_datasheet_parameters(
+            params,
+            technology,
+            effective_irradiance,
+            t_cell,
+        )
+    return None
+
+
 def _compute_spectral_factor(
     technology: str,
     solar_zenith: pd.Series | None,
     precipitable_water: pd.Series | None,
     site: SiteConfig,
-) -> "float | pd.Series":
+) -> float | pd.Series:
     """Compute spectral mismatch factor via First Solar coefficients."""
     import pvlib.atmosphere
     import pvlib.spectrum
@@ -434,50 +635,38 @@ def _compute_spectral_factor(
     return spectral_factor
 
 
-def _sdm_cec(
+def _sdm_cec_parameters(
     params: dict,
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
-) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Single-diode model using CEC (De Soto) parameters."""
+) -> _SdmOperatingParameters:
+    """Calculate timestamp-level De Soto parameters from CEC coefficients."""
     import pvlib.pvsystem
 
     alpha_sc = params["alpha_sc"]
     adjust = params.get("Adjust", 0.0)
     alpha_sc_adj = alpha_sc * (1.0 + adjust / 100.0)
 
-    photocurrent, saturation_current, resistance_series, resistance_shunt, nNsVth = (
-        pvlib.pvsystem.calcparams_desoto(
-            effective_irradiance=effective_irradiance,
-            temp_cell=t_cell,
-            alpha_sc=alpha_sc_adj,
-            a_ref=params["a_ref"],
-            I_L_ref=params["I_L_ref"],
-            I_o_ref=params["I_o_ref"],
-            R_sh_ref=params["R_sh_ref"],
-            R_s=params["R_s"],
-        )
+    values = pvlib.pvsystem.calcparams_desoto(
+        effective_irradiance=effective_irradiance,
+        temp_cell=t_cell,
+        alpha_sc=alpha_sc_adj,
+        a_ref=params["a_ref"],
+        I_L_ref=params["I_L_ref"],
+        I_o_ref=params["I_o_ref"],
+        R_sh_ref=params["R_sh_ref"],
+        R_s=params["R_s"],
     )
-    iv = pvlib.pvsystem.singlediode(
-        photocurrent=photocurrent,
-        saturation_current=saturation_current,
-        resistance_series=resistance_series,
-        resistance_shunt=resistance_shunt,
-        nNsVth=nNsVth,
-    )
-    p_module = pd.Series(iv["p_mp"], index=effective_irradiance.index).clip(lower=0.0)
-    v_mp = pd.Series(iv["v_mp"], index=effective_irradiance.index)
-    i_mp = pd.Series(iv["i_mp"], index=effective_irradiance.index)
-    return p_module, v_mp, i_mp
+    return _as_sdm_parameters(values, effective_irradiance.index)
 
 
-def _sdm_datasheet(
+def _sdm_datasheet_parameters(
     params: dict,
     technology: str,
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
-) -> tuple[pd.Series, pd.Series, pd.Series]:
-    """Single-diode model fitted from datasheet STC parameters."""
+) -> _SdmOperatingParameters | None:
+    """Calculate De Soto parameters fitted from datasheet STC values."""
     import pvlib.ivtools.sdm
     import pvlib.pvsystem
 
@@ -508,54 +697,109 @@ def _sdm_datasheet(
     )
 
     if batzelis_params["R_sh_ref"] <= 0:
-        logger.warning(
-            "Batzelis fitting produced non-physical R_sh_ref=%.3f for "
-            "'%s' (check: i_sc=%.3f must be > i_mp=%.3f). "
-            "Falling back to PVWatts model.",
-            batzelis_params["R_sh_ref"],
-            params.get("model", "unknown"),
-            i_sc,
-            float(params["i_mp"]),
-        )
-        gamma_pmp = params.get("gamma_pmp")
-        pnom = params.get("pnom_wp")
-        if pnom is None:
-            pnom = float(params["v_mp"]) * float(params["i_mp"])
-        if gamma_pmp is None:
-            raise ValueError(
-                "Batzelis fitting failed (non-physical R_sh) and no "
-                "gamma_pmp available for PVWatts fallback."
-            )
-        return _pvwatts(
-            {"pnom_wp": pnom, "gamma_pmp": gamma_pmp},
-            effective_irradiance,
-            t_cell,
-        )
+        return None
 
-    photocurrent, saturation_current, resistance_series, resistance_shunt, nNsVth = (
-        pvlib.pvsystem.calcparams_desoto(
-            effective_irradiance=effective_irradiance,
-            temp_cell=t_cell,
-            alpha_sc=alpha_sc_a_per_c,
-            a_ref=batzelis_params["a_ref"],
-            I_L_ref=batzelis_params["I_L_ref"],
-            I_o_ref=batzelis_params["I_o_ref"],
-            R_sh_ref=batzelis_params["R_sh_ref"],
-            R_s=batzelis_params["R_s"],
-            EgRef=eg_ref,
+    values = pvlib.pvsystem.calcparams_desoto(
+        effective_irradiance=effective_irradiance,
+        temp_cell=t_cell,
+        alpha_sc=alpha_sc_a_per_c,
+        a_ref=batzelis_params["a_ref"],
+        I_L_ref=batzelis_params["I_L_ref"],
+        I_o_ref=batzelis_params["I_o_ref"],
+        R_sh_ref=batzelis_params["R_sh_ref"],
+        R_s=batzelis_params["R_s"],
+        EgRef=eg_ref,
+    )
+    return _as_sdm_parameters(values, effective_irradiance.index)
+
+
+def _as_sdm_parameters(
+    values: tuple,
+    index: pd.Index,
+) -> _SdmOperatingParameters:
+    """Normalize pvlib De Soto outputs to indexed Series."""
+    return _SdmOperatingParameters(
+        *(pd.Series(value, index=index) for value in values)
+    )
+
+
+def _solve_sdm(parameters: _SdmOperatingParameters) -> dict:
+    """Solve canonical single-diode points from operating parameters."""
+    import pvlib.pvsystem
+
+    return pvlib.pvsystem.singlediode(
+        photocurrent=parameters.photocurrent,
+        saturation_current=parameters.saturation_current,
+        resistance_series=parameters.resistance_series,
+        resistance_shunt=parameters.resistance_shunt,
+        nNsVth=parameters.n_ns_vth,
+    )
+
+
+def _pvwatts_fallback_params(params: dict) -> dict:
+    """Extract the existing datasheet-to-PVWatts fallback parameters."""
+    gamma_pmp = params.get("gamma_pmp")
+    pnom = params.get("pnom_wp")
+    if pnom is None:
+        pnom = float(params["v_mp"]) * float(params["i_mp"])
+    if gamma_pmp is None:
+        raise ValueError(
+            "Batzelis fitting failed (non-physical R_sh) and no "
+            "gamma_pmp available for PVWatts fallback."
         )
-    )
+    return {"pnom_wp": pnom, "gamma_pmp": gamma_pmp}
+
+
+def _voltage_grid(open_circuit_voltage: float, voltage_points: int) -> np.ndarray:
+    """Build an inclusive physical voltage grid for one daylight curve."""
+    if not np.isfinite(open_circuit_voltage) or open_circuit_voltage <= 0.0:
+        raise ValueError("single-diode solver produced an invalid open-circuit voltage")
+    return np.linspace(0.0, open_circuit_voltage, voltage_points)
+
+
+def _open_circuit_voltage(
+    parameters: _SdmOperatingParameters,
+    position: int,
+) -> float:
+    """Solve Voc for one daylight timestamp without evaluating night rows."""
+    import pvlib.pvsystem
+
     iv = pvlib.pvsystem.singlediode(
-        photocurrent=photocurrent,
-        saturation_current=saturation_current,
-        resistance_series=resistance_series,
-        resistance_shunt=resistance_shunt,
-        nNsVth=nNsVth,
+        photocurrent=float(parameters.photocurrent.iloc[position]),
+        saturation_current=float(parameters.saturation_current.iloc[position]),
+        resistance_series=float(parameters.resistance_series.iloc[position]),
+        resistance_shunt=float(parameters.resistance_shunt.iloc[position]),
+        nNsVth=float(parameters.n_ns_vth.iloc[position]),
     )
-    p_module = pd.Series(iv["p_mp"], index=effective_irradiance.index).clip(lower=0.0)
-    v_mp = pd.Series(iv["v_mp"], index=effective_irradiance.index)
-    i_mp = pd.Series(iv["i_mp"], index=effective_irradiance.index)
-    return p_module, v_mp, i_mp
+    return float(iv["v_oc"])
+
+
+def _current_from_voltage(
+    voltage: np.ndarray,
+    parameters: _SdmOperatingParameters,
+    position: int,
+) -> np.ndarray:
+    """Evaluate non-negative module current across one voltage grid."""
+    import pvlib.pvsystem
+
+    current = pvlib.pvsystem.i_from_v(
+        voltage=voltage,
+        photocurrent=float(parameters.photocurrent.iloc[position]),
+        saturation_current=float(parameters.saturation_current.iloc[position]),
+        resistance_series=float(parameters.resistance_series.iloc[position]),
+        resistance_shunt=float(parameters.resistance_shunt.iloc[position]),
+        nNsVth=float(parameters.n_ns_vth.iloc[position]),
+    )
+    return _validated_nonnegative(np.asarray(current, dtype=float), "current")
+
+
+def _validated_nonnegative(values: np.ndarray, quantity: str) -> np.ndarray:
+    """Clamp solver noise only, rejecting material negative/non-finite values."""
+    if not np.isfinite(values).all():
+        raise ValueError(f"single-diode solver produced non-finite {quantity}")
+    if (values < -_NUMERICAL_NEGATIVE_TOLERANCE).any():
+        raise ValueError(f"single-diode solver produced negative {quantity}")
+    return np.maximum(values, 0.0)
 
 
 def _pvwatts(
