@@ -148,13 +148,19 @@ def test_non_csi_technology_logs_warning(caplog):
     t_cell = _stc_series(35.0)
     aoi = _stc_series(5.0)
 
-    with caplog.at_level(logging.WARNING, logger="heliotelligence.physics.electrical"):
-        calculate_dc_power(site, poa, t_cell, aoi)
+    target_logger = logging.getLogger("heliotelligence.physics.electrical")
+    target_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING, logger=target_logger.name):
+            calculate_dc_power(site, poa, t_cell, aoi)
+    finally:
+        target_logger.removeHandler(caplog.handler)
 
     warning_messages = " ".join(caplog.messages)
     assert "Non c-Si" in warning_messages or "non c-si" in warning_messages.lower(), (
         "Non c-Si technology should log a WARNING about reduced SDM accuracy"
     )
+    assert caplog.handler not in target_logger.handlers
 
 
 # ---------------------------------------------------------------------------
