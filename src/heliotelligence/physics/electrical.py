@@ -13,6 +13,10 @@ calculate_module_iv_curves(...)
 scale_module_iv_to_string(module_iv_curves, modules_per_string)
     Apply ideal homogeneous series scaling to a voltage-dependent module curve.
 
+calculate_common_voltage_mppt(string_iv_curves)
+    Combine supplied string I-V curves at one shared voltage and select their
+    aggregate maximum-power operating point.
+
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
@@ -62,6 +66,7 @@ spectral correction is skipped (multiplicative factor = 1.0).
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -269,6 +274,153 @@ def scale_module_iv_to_string(
     result["voltage_v"] = module_iv_curves["voltage_v"] * modules_per_string
     result["power_w"] = module_iv_curves["power_w"] * modules_per_string
     return result
+
+
+def calculate_common_voltage_mppt(
+    string_iv_curves: Sequence[pd.DataFrame],
+) -> pd.DataFrame:
+    """Calculate a shared-voltage MPPT point for supplied parallel strings.
+
+    Each input frame represents one string. For every timestamp, candidate
+    voltages are the sorted union of supplied voltage samples within the common
+    overlap ``0 <= V <= min(sampled Voc)``. String currents are linearly
+    interpolated inside that domain, summed, and multiplied by the common
+    voltage. The first (lowest-voltage) maximum is selected.
+
+    Mixed active and all-zero curves are rejected because the all-zero night
+    representation does not define dark-string current under an externally
+    imposed voltage. This function does not extrapolate or model topology,
+    reverse current, blocking devices, mismatch, cables, or inverter limits.
+    """
+    if not string_iv_curves:
+        raise ValueError("string_iv_curves must contain at least one string curve")
+
+    required = {"timestamp", "curve_point", "voltage_v", "current_a", "power_w"}
+    ordered_timestamps: list[list[object]] = []
+    for string_position, curve in enumerate(string_iv_curves):
+        missing = required.difference(curve.columns)
+        if missing:
+            missing_text = ", ".join(sorted(missing))
+            raise ValueError(
+                f"string_iv_curves[{string_position}] missing columns: {missing_text}"
+            )
+        ordered_timestamps.append(pd.unique(curve["timestamp"]).tolist())
+
+    reference_timestamps = ordered_timestamps[0]
+    for string_position, timestamps in enumerate(ordered_timestamps[1:], start=1):
+        if timestamps != reference_timestamps:
+            raise ValueError(
+                f"string_iv_curves[{string_position}] timestamps must exactly match "
+                "string_iv_curves[0] in first-occurrence order"
+            )
+
+    results: list[dict[str, object]] = []
+    for timestamp in reference_timestamps:
+        timestamp_curves = [
+            _validated_common_mppt_curve(curve, timestamp, string_position)
+            for string_position, curve in enumerate(string_iv_curves)
+        ]
+        all_zero = [bool(curve["all_zero"]) for curve in timestamp_curves]
+        if all(all_zero):
+            results.append(
+                {
+                    "timestamp": timestamp,
+                    "v_common_mppt_v": 0.0,
+                    "i_common_mppt_a": 0.0,
+                    "p_common_mppt_w": 0.0,
+                    "string_count": len(string_iv_curves),
+                }
+            )
+            continue
+        if any(all_zero):
+            raise ValueError(
+                f"timestamp {timestamp!r} mixes active and all-zero string curves; "
+                "a reverse-current or blocking-device model is required"
+            )
+
+        common_vmax = min(float(curve["voltage"][-1]) for curve in timestamp_curves)
+        candidates = np.unique(
+            np.concatenate(
+                [
+                    curve["voltage"][curve["voltage"] <= common_vmax]
+                    for curve in timestamp_curves
+                ]
+                + [np.array([0.0, common_vmax])]
+            )
+        )
+        total_current = np.zeros_like(candidates)
+        for curve in timestamp_curves:
+            total_current += np.interp(
+                candidates,
+                curve["voltage"],
+                curve["current"],
+            )
+        total_power = candidates * total_current
+        maximum_position = int(np.argmax(total_power))
+        results.append(
+            {
+                "timestamp": timestamp,
+                "v_common_mppt_v": float(candidates[maximum_position]),
+                "i_common_mppt_a": float(total_current[maximum_position]),
+                "p_common_mppt_w": float(total_power[maximum_position]),
+                "string_count": len(string_iv_curves),
+            }
+        )
+
+    return pd.DataFrame(
+        results,
+        columns=[
+            "timestamp",
+            "v_common_mppt_v",
+            "i_common_mppt_a",
+            "p_common_mppt_w",
+            "string_count",
+        ],
+    )
+
+
+def _validated_common_mppt_curve(
+    curve: pd.DataFrame,
+    timestamp: object,
+    string_position: int,
+) -> dict[str, object]:
+    """Return validated numeric arrays for one string and timestamp."""
+    rows = curve.loc[curve["timestamp"] == timestamp]
+    context = f"string_iv_curves[{string_position}] at timestamp {timestamp!r}"
+    if rows.empty:
+        raise ValueError(f"{context} must contain at least one curve point")
+    if rows["curve_point"].duplicated().any():
+        raise ValueError(f"{context} must contain unique curve_point values")
+
+    values: dict[str, np.ndarray] = {}
+    for column in ("voltage_v", "current_a", "power_w"):
+        numeric = rows[column].to_numpy(dtype=float, copy=True)
+        if not np.isfinite(numeric).all():
+            raise ValueError(f"{context} {column} must contain only finite values")
+        if (numeric < -_NUMERICAL_NEGATIVE_TOLERANCE).any():
+            raise ValueError(f"{context} {column} must be non-negative")
+        numeric[numeric < 0.0] = 0.0
+        values[column] = numeric
+
+    voltage = values["voltage_v"]
+    current = values["current_a"]
+    power = values["power_w"]
+    all_zero = bool(
+        np.all(voltage == 0.0)
+        and np.all(current == 0.0)
+        and np.all(power == 0.0)
+    )
+    if not all_zero:
+        if voltage[-1] <= 0.0:
+            raise ValueError(f"{context} active curve maximum voltage must be positive")
+        if voltage[0] != 0.0:
+            raise ValueError(f"{context} active curve must begin at 0 V")
+        if not np.all(np.diff(voltage) > 0.0):
+            raise ValueError(
+                f"{context} active voltage samples must be strictly increasing"
+            )
+
+    return {"voltage": voltage, "current": current, "all_zero": all_zero}
 
 
 def scale_module_to_string(
