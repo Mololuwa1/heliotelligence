@@ -72,8 +72,13 @@ def test_tier2_autosearch_logs_warning(caplog):
 
     import logging
 
-    with caplog.at_level(logging.WARNING, logger="heliotelligence.physics.module_lookup"):
-        result = resolve_module_params(cfg)
+    target_logger = logging.getLogger("heliotelligence.physics.module_lookup")
+    target_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING, logger=target_logger.name):
+            result = resolve_module_params(cfg)
+    finally:
+        target_logger.removeHandler(caplog.handler)
 
     if result["tier"] == 2:
         assert result["source"] == "cec_auto"
@@ -82,6 +87,7 @@ def test_tier2_autosearch_logs_warning(caplog):
         assert "cec_name" in warning_messages, (
             "Tier-2 auto-search should log a WARNING suggesting the user set cec_name"
         )
+        assert caplog.handler not in target_logger.handlers
     else:
         # If partial name doesn't match CEC (unlikely but possible), skip
         pytest.skip(f"Partial name '{partial_name}' did not match CEC; skipping tier-2 test")
