@@ -10,6 +10,9 @@ calculate_module_iv_curves(...)
     Evaluate one module's voltage-dependent current and power at each
     timestep using the same physical single-diode parameters as the module MPP.
 
+scale_module_iv_to_string(module_iv_curves, modules_per_string)
+    Apply ideal homogeneous series scaling to a voltage-dependent module curve.
+
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
@@ -239,6 +242,33 @@ def calculate_module_iv_curves(
         )
 
     return pd.concat(curves, ignore_index=True)[_IV_CURVE_COLUMNS]
+
+
+def scale_module_iv_to_string(
+    module_iv_curves: pd.DataFrame,
+    modules_per_string: int,
+) -> pd.DataFrame:
+    """Scale module I-V points to an ideal homogeneous series string.
+
+    Corresponding curve points retain module current while voltage and power
+    scale by the number of identical series-connected modules. All columns and
+    row ordering are preserved, and the input frame is not mutated.
+    This ideal homogeneous transformation does not model non-uniform module
+    conditions, bypass-diode behavior, mismatch, cable losses, or MPPT interaction.
+    """
+    if modules_per_string <= 0:
+        raise ValueError("modules_per_string must be greater than 0")
+
+    required = {"timestamp", "curve_point", "voltage_v", "current_a", "power_w"}
+    missing = required.difference(module_iv_curves.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(f"module_iv_curves missing columns: {missing_text}")
+
+    result = module_iv_curves.copy(deep=True)
+    result["voltage_v"] = module_iv_curves["voltage_v"] * modules_per_string
+    result["power_w"] = module_iv_curves["power_w"] * modules_per_string
+    return result
 
 
 def scale_module_to_string(
