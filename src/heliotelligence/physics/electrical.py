@@ -10,6 +10,14 @@ calculate_module_iv_curves(...)
     Evaluate one module's voltage-dependent current and power at each
     timestep using the same physical single-diode parameters as the module MPP.
 
+StringModuleIVInputs
+    Attribute-frozen container for one string's explicit module-level
+    environmental inputs; it performs no inference or calculation.
+
+calculate_topology_module_iv_curves(site, topology, module_iv_inputs_by_string_id)
+    Generate canonical module I-V curves from explicit per-string inputs in
+    topology order, without string scaling or topology inference.
+
 scale_module_iv_to_string(module_iv_curves, modules_per_string)
     Apply ideal homogeneous series scaling to a voltage-dependent module curve.
 
@@ -112,6 +120,29 @@ class _SdmOperatingParameters:
     resistance_shunt: pd.Series
     n_ns_vth: pd.Series
 
+
+@dataclass(frozen=True)
+class _DatasheetSdmReference:
+    """Environment-independent De Soto reference parameters from a datasheet."""
+
+    alpha_sc_a_per_c: float
+    a_ref: float
+    i_l_ref: float
+    i_o_ref: float
+    r_sh_ref: float
+    r_s: float
+    eg_ref: float
+
+
+@dataclass(frozen=True)
+class StringModuleIVInputs:
+    """Attribute-frozen inputs for one string's representative module."""
+
+    poa_total: pd.Series
+    t_cell: pd.Series
+    solar_zenith: pd.Series | None = None
+    precipitable_water: pd.Series | None = None
+
 # Technology → pvlib celltype for fit_cec_sam
 _CELLTYPE_MAP = {
     "mono_si": "monoSi",
@@ -193,12 +224,160 @@ def calculate_module_iv_curves(
         voltage_points,
     )
 
-    resolution, effective_irradiance = _resolve_module_electrical_inputs(
+    resolution = _resolve_module_configuration(site)
+    effective_irradiance = _calculate_effective_irradiance(
         site,
         poa_total,
         solar_zenith=solar_zenith,
         precipitable_water=precipitable_water,
     )
+    datasheet_reference = None
+    if resolution["tier"] in (3, 4):
+        datasheet_reference = _fit_datasheet_sdm_reference(
+            resolution["params"], site.module.technology
+        )
+        if datasheet_reference is None:
+            raise ValueError(
+                "Voltage-dependent module I-V is unavailable because the "
+                "datasheet parameters do not produce a physical single-diode fit; "
+                "the scalar model can only use its PVWatts fallback"
+            )
+    return _evaluate_module_iv_curves(
+        site,
+        poa_total,
+        t_cell,
+        resolution,
+        effective_irradiance,
+        voltage_points,
+        datasheet_reference=datasheet_reference,
+    )
+
+
+def calculate_topology_module_iv_curves(
+    site: SiteConfig,
+    topology: ElectricalTopologyConfig,
+    module_iv_inputs_by_string_id: Mapping[str, StringModuleIVInputs],
+    *,
+    voltage_points: int = 201,
+) -> dict[str, pd.DataFrame]:
+    """Generate module I-V curves from explicit per-string input states.
+
+    The supplied ``topology`` determines string identity and processing order;
+    ``site.electrical_topology`` is not inspected. Every configured input state
+    is validated before the site's module parameters are resolved once. Each
+    string is then evaluated independently with the canonical module I-V
+    physics. This function does not infer environmental state, scale strings,
+    or run MPPT physics.
+    """
+    if voltage_points < 3:
+        raise ValueError("voltage_points must be at least 3")
+
+    configured_ids = {
+        string.id
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    }
+    supplied_ids = set(module_iv_inputs_by_string_id)
+    missing_ids = sorted(configured_ids - supplied_ids)
+    unexpected_ids = sorted(supplied_ids - configured_ids)
+    if missing_ids or unexpected_ids:
+        details: list[str] = []
+        if missing_ids:
+            details.append(f"missing string ids: {', '.join(missing_ids)}")
+        if unexpected_ids:
+            details.append(f"unexpected string ids: {', '.join(unexpected_ids)}")
+        raise ValueError(
+            "module_iv_inputs_by_string_id does not match electrical topology: "
+            + "; ".join(details)
+        )
+
+    ordered_inputs: list[tuple[str, str, str, StringModuleIVInputs]] = []
+    for inverter in topology.inverters:
+        for mppt in inverter.mppts:
+            for string in mppt.strings:
+                inputs = module_iv_inputs_by_string_id[string.id]
+                try:
+                    _validate_iv_curve_inputs(
+                        inputs.poa_total,
+                        inputs.t_cell,
+                        inputs.solar_zenith,
+                        inputs.precipitable_water,
+                        voltage_points,
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"inverter '{inverter.id}' MPPT '{mppt.id}' "
+                        f"string '{string.id}': {exc}"
+                    ) from exc
+                ordered_inputs.append(
+                    (inverter.id, mppt.id, string.id, inputs)
+                )
+
+    if not ordered_inputs:
+        return {}
+
+    resolution = _resolve_module_configuration(site)
+    if resolution["tier"] == 5:
+        raise ValueError(
+            "Voltage-dependent module I-V is unavailable for Tier 5 "
+            "PVWatts fallback parameters"
+        )
+    datasheet_reference = None
+    if resolution["tier"] in (3, 4):
+        try:
+            datasheet_reference = _fit_datasheet_sdm_reference(
+                resolution["params"], site.module.technology
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "Voltage-dependent module I-V is unavailable because the "
+                f"site/module datasheet fit failed: {exc}"
+            ) from exc
+        if datasheet_reference is None:
+            raise ValueError(
+                "Voltage-dependent module I-V is unavailable because the "
+                "site/module datasheet parameters do not produce a physical "
+                "single-diode fit; the scalar model can only use its PVWatts "
+                "fallback"
+            )
+    results: dict[str, pd.DataFrame] = {}
+    for inverter_id, mppt_id, string_id, inputs in ordered_inputs:
+        try:
+            effective_irradiance = _calculate_effective_irradiance(
+                site,
+                inputs.poa_total,
+                solar_zenith=inputs.solar_zenith,
+                precipitable_water=inputs.precipitable_water,
+            )
+            results[string_id] = _evaluate_module_iv_curves(
+                site,
+                inputs.poa_total,
+                inputs.t_cell,
+                resolution,
+                effective_irradiance,
+                voltage_points,
+                datasheet_reference=datasheet_reference,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"inverter '{inverter_id}' MPPT '{mppt_id}' "
+                f"string '{string_id}': {exc}"
+            ) from exc
+    return results
+
+
+def _evaluate_module_iv_curves(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    t_cell: pd.Series,
+    resolution: dict,
+    effective_irradiance: pd.Series,
+    voltage_points: int,
+    *,
+    datasheet_reference: _DatasheetSdmReference | None = None,
+) -> pd.DataFrame:
+    """Evaluate canonical long-form module I-V curves from resolved inputs."""
     params = resolution["params"]
     tier = resolution["tier"]
     fit_quality = resolution["fit_quality"]
@@ -218,6 +397,7 @@ def calculate_module_iv_curves(
         curve_irradiance,
         t_cell,
         tier,
+        datasheet_reference=datasheet_reference,
     )
     if sdm_parameters is None:
         raise ValueError(
@@ -913,6 +1093,18 @@ def _resolve_module_electrical_inputs(
     precipitable_water: pd.Series | None,
 ) -> tuple[dict, pd.Series]:
     """Resolve module metadata and spectrally corrected irradiance."""
+    resolution = _resolve_module_configuration(site)
+    effective_irradiance = _calculate_effective_irradiance(
+        site,
+        poa_total,
+        solar_zenith=solar_zenith,
+        precipitable_water=precipitable_water,
+    )
+    return resolution, effective_irradiance
+
+
+def _resolve_module_configuration(site: SiteConfig) -> dict:
+    """Resolve one site's module parameters and emit its technology warning."""
     module_cfg = site.module
     if module_cfg.technology in _NON_CSI:
         logger.warning(
@@ -920,15 +1112,24 @@ def _resolve_module_electrical_inputs(
             "reduced. Consider a technology-specific model.",
             module_cfg.technology,
         )
+    return resolve_module_params(module_cfg)
 
-    resolution = resolve_module_params(module_cfg)
+
+def _calculate_effective_irradiance(
+    site: SiteConfig,
+    poa_total: pd.Series,
+    *,
+    solar_zenith: pd.Series | None,
+    precipitable_water: pd.Series | None,
+) -> pd.Series:
+    """Apply the canonical spectral factor to explicit POA irradiance."""
     spectral_factor = _compute_spectral_factor(
-        module_cfg.technology,
+        site.module.technology,
         solar_zenith,
         precipitable_water,
         site,
     )
-    return resolution, poa_total * spectral_factor
+    return poa_total * spectral_factor
 
 
 def _validate_iv_curve_inputs(
@@ -970,14 +1171,22 @@ def _calculate_sdm_operating_parameters(
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
     tier: int,
+    *,
+    datasheet_reference: _DatasheetSdmReference | None = None,
 ) -> _SdmOperatingParameters | None:
     """Calculate the shared De Soto parameters used by MPP and I-V paths."""
     if tier in (1, 2):
         return _sdm_cec_parameters(params, effective_irradiance, t_cell)
     if tier in (3, 4):
-        return _sdm_datasheet_parameters(
-            params,
-            technology,
+        if datasheet_reference is None:
+            return _sdm_datasheet_parameters(
+                params,
+                technology,
+                effective_irradiance,
+                t_cell,
+            )
+        return _sdm_datasheet_operating_parameters(
+            datasheet_reference,
             effective_irradiance,
             t_cell,
         )
@@ -1065,8 +1274,20 @@ def _sdm_datasheet_parameters(
     t_cell: pd.Series,
 ) -> _SdmOperatingParameters | None:
     """Calculate De Soto parameters fitted from datasheet STC values."""
+    reference = _fit_datasheet_sdm_reference(params, technology)
+    if reference is None:
+        return None
+    return _sdm_datasheet_operating_parameters(
+        reference, effective_irradiance, t_cell
+    )
+
+
+def _fit_datasheet_sdm_reference(
+    params: dict,
+    technology: str,
+) -> _DatasheetSdmReference | None:
+    """Fit environment-independent De Soto reference parameters once."""
     import pvlib.ivtools.sdm
-    import pvlib.pvsystem
 
     i_sc = float(params["i_sc"])
     alpha_sc_pct_per_c = float(params["alpha_sc"])
@@ -1097,16 +1318,35 @@ def _sdm_datasheet_parameters(
     if batzelis_params["R_sh_ref"] <= 0:
         return None
 
+    return _DatasheetSdmReference(
+        alpha_sc_a_per_c=alpha_sc_a_per_c,
+        a_ref=batzelis_params["a_ref"],
+        i_l_ref=batzelis_params["I_L_ref"],
+        i_o_ref=batzelis_params["I_o_ref"],
+        r_sh_ref=batzelis_params["R_sh_ref"],
+        r_s=batzelis_params["R_s"],
+        eg_ref=eg_ref,
+    )
+
+
+def _sdm_datasheet_operating_parameters(
+    reference: _DatasheetSdmReference,
+    effective_irradiance: pd.Series,
+    t_cell: pd.Series,
+) -> _SdmOperatingParameters:
+    """Calculate dynamic De Soto parameters from a fitted static reference."""
+    import pvlib.pvsystem
+
     values = pvlib.pvsystem.calcparams_desoto(
         effective_irradiance=effective_irradiance,
         temp_cell=t_cell,
-        alpha_sc=alpha_sc_a_per_c,
-        a_ref=batzelis_params["a_ref"],
-        I_L_ref=batzelis_params["I_L_ref"],
-        I_o_ref=batzelis_params["I_o_ref"],
-        R_sh_ref=batzelis_params["R_sh_ref"],
-        R_s=batzelis_params["R_s"],
-        EgRef=eg_ref,
+        alpha_sc=reference.alpha_sc_a_per_c,
+        a_ref=reference.a_ref,
+        I_L_ref=reference.i_l_ref,
+        I_o_ref=reference.i_o_ref,
+        R_sh_ref=reference.r_sh_ref,
+        R_s=reference.r_s,
+        EgRef=reference.eg_ref,
     )
     return _as_sdm_parameters(values, effective_irradiance.index)
 
