@@ -21,6 +21,10 @@ calculate_physical_mismatch(string_iv_curves)
     Derive shared-MPPT mismatch from an IV-consistent independent-string
     counterfactual and the actual common-voltage operating point.
 
+calculate_topology_mppt_mismatch(topology, string_iv_curves_by_id)
+    Route explicit Inverter → MPPT → String connectivity into the canonical
+    physical shared-MPPT mismatch calculation.
+
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
@@ -70,13 +74,13 @@ spectral correction is skipped (multiplicative factor = 1.0).
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from heliotelligence.config.site import SiteConfig
+from heliotelligence.config.site import ElectricalTopologyConfig, SiteConfig
 from heliotelligence.physics.module_lookup import resolve_module_params
 
 logger = logging.getLogger(__name__)
@@ -468,6 +472,75 @@ def calculate_physical_mismatch(
             "string_count",
         ]
     ]
+
+
+def calculate_topology_mppt_mismatch(
+    topology: ElectricalTopologyConfig,
+    string_iv_curves_by_id: Mapping[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Route configured strings into physical mismatch results per MPPT.
+
+    Connectivity and traversal order come only from ``topology``. Supplied
+    curves must exactly match its configured string IDs and must already
+    represent complete physical strings. Each populated MPPT is delegated once
+    to :func:`calculate_physical_mismatch`; empty MPPTs produce no rows.
+    """
+    output_columns = [
+        "timestamp",
+        "inverter_id",
+        "mppt_id",
+        "v_common_mppt_v",
+        "i_common_mppt_a",
+        "p_common_mppt_w",
+        "p_independent_mp_w",
+        "p_mismatch_w",
+        "mismatch_pct",
+        "string_count",
+    ]
+    configured_ids = {
+        string.id
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    }
+    supplied_ids = set(string_iv_curves_by_id)
+    missing_ids = sorted(configured_ids - supplied_ids)
+    unexpected_ids = sorted(supplied_ids - configured_ids)
+    if missing_ids or unexpected_ids:
+        details: list[str] = []
+        if missing_ids:
+            details.append(f"missing string ids: {', '.join(missing_ids)}")
+        if unexpected_ids:
+            details.append(f"unexpected string ids: {', '.join(unexpected_ids)}")
+        raise ValueError(
+            "string_iv_curves_by_id does not match electrical topology: "
+            + "; ".join(details)
+        )
+
+    results: list[pd.DataFrame] = []
+    for inverter in topology.inverters:
+        for mppt in inverter.mppts:
+            if not mppt.strings:
+                continue
+            mppt_curves = [
+                string_iv_curves_by_id[string.id] for string in mppt.strings
+            ]
+            try:
+                physical = calculate_physical_mismatch(mppt_curves)
+            except ValueError as exc:
+                raise ValueError(
+                    f"inverter '{inverter.id}' MPPT '{mppt.id}': {exc}"
+                ) from exc
+            if physical.empty:
+                continue
+            result = physical.copy(deep=True)
+            result.insert(1, "inverter_id", inverter.id)
+            result.insert(2, "mppt_id", mppt.id)
+            results.append(result[output_columns])
+
+    if not results:
+        return pd.DataFrame(columns=output_columns)
+    return pd.concat(results, ignore_index=True)[output_columns]
 
 
 def _validated_common_mppt_curve(
