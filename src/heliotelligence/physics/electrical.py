@@ -13,6 +13,10 @@ calculate_module_iv_curves(...)
 scale_module_iv_to_string(module_iv_curves, modules_per_string)
     Apply ideal homogeneous series scaling to a voltage-dependent module curve.
 
+calculate_topology_string_iv_curves(topology, module_iv_curves_by_string_id)
+    Scale explicit per-string module I-V curves into physical string I-V curves
+    using each configured StringConfig.modules_per_string.
+
 calculate_common_voltage_mppt(string_iv_curves)
     Combine supplied string I-V curves at one shared voltage and select their
     aggregate maximum-power operating point.
@@ -282,6 +286,54 @@ def scale_module_iv_to_string(
     result["voltage_v"] = module_iv_curves["voltage_v"] * modules_per_string
     result["power_w"] = module_iv_curves["power_w"] * modules_per_string
     return result
+
+
+def calculate_topology_string_iv_curves(
+    topology: ElectricalTopologyConfig,
+    module_iv_curves_by_string_id: Mapping[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """Scale explicit per-string module curves using configured string lengths.
+
+    Connectivity and processing order come only from ``topology``. Supplied
+    module curves must exactly match its configured string IDs and are scaled
+    independently by :func:`scale_module_iv_to_string`. This function does not
+    generate module curves, infer environmental conditions, or run MPPT physics.
+    """
+    configured_ids = {
+        string.id
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    }
+    supplied_ids = set(module_iv_curves_by_string_id)
+    missing_ids = sorted(configured_ids - supplied_ids)
+    unexpected_ids = sorted(supplied_ids - configured_ids)
+    if missing_ids or unexpected_ids:
+        details: list[str] = []
+        if missing_ids:
+            details.append(f"missing string ids: {', '.join(missing_ids)}")
+        if unexpected_ids:
+            details.append(f"unexpected string ids: {', '.join(unexpected_ids)}")
+        raise ValueError(
+            "module_iv_curves_by_string_id does not match electrical topology: "
+            + "; ".join(details)
+        )
+
+    results: dict[str, pd.DataFrame] = {}
+    for inverter in topology.inverters:
+        for mppt in inverter.mppts:
+            for string in mppt.strings:
+                try:
+                    results[string.id] = scale_module_iv_to_string(
+                        module_iv_curves_by_string_id[string.id],
+                        string.modules_per_string,
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"inverter '{inverter.id}' MPPT '{mppt.id}' "
+                        f"string '{string.id}': {exc}"
+                    ) from exc
+    return results
 
 
 def calculate_common_voltage_mppt(
