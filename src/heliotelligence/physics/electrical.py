@@ -18,6 +18,10 @@ calculate_topology_module_iv_curves(site, topology, module_iv_inputs_by_string_i
     Generate canonical module I-V curves from explicit per-string inputs in
     topology order, without string scaling or topology inference.
 
+calculate_topology_module_iv_curves_from_environment_states(...)
+    Evaluate each explicit runtime environmental state once, then route
+    independent module-level I-V frames to strings in topology order.
+
 scale_module_iv_to_string(module_iv_curves, modules_per_string)
     Apply ideal homogeneous series scaling to a voltage-dependent module curve.
 
@@ -365,6 +369,143 @@ def calculate_topology_module_iv_curves(
                 f"string '{string_id}': {exc}"
             ) from exc
     return results
+
+
+def calculate_topology_module_iv_curves_from_environment_states(
+    site: SiteConfig,
+    topology: ElectricalTopologyConfig,
+    environment_state_id_by_string_id: Mapping[str, str],
+    module_iv_inputs_by_state_id: Mapping[str, StringModuleIVInputs],
+    *,
+    voltage_points: int = 201,
+) -> dict[str, pd.DataFrame]:
+    """Route shared explicit environmental states into module I-V curves.
+
+    The runtime string-to-state mapping is explicit: no topology metadata is
+    interpreted as environmental state. Unique states are validated and
+    evaluated in first-use topology order. Physics is computed once per state,
+    while each returned string receives an independent mutable DataFrame.
+    """
+    if voltage_points < 3:
+        raise ValueError("voltage_points must be at least 3")
+
+    ordered_string_ids = [
+        string.id
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    ]
+    configured_ids = set(ordered_string_ids)
+    supplied_ids = set(environment_state_id_by_string_id)
+    missing_ids = sorted(configured_ids - supplied_ids)
+    unexpected_ids = sorted(supplied_ids - configured_ids)
+    if missing_ids or unexpected_ids:
+        details: list[str] = []
+        if missing_ids:
+            details.append(f"missing string ids: {', '.join(missing_ids)}")
+        if unexpected_ids:
+            details.append(f"unexpected string ids: {', '.join(unexpected_ids)}")
+        raise ValueError(
+            "environment_state_id_by_string_id does not match electrical topology: "
+            + "; ".join(details)
+        )
+
+    referenced_state_ids = set(environment_state_id_by_string_id.values())
+    supplied_state_ids = set(module_iv_inputs_by_state_id)
+    missing_state_ids = sorted(referenced_state_ids - supplied_state_ids)
+    unexpected_state_ids = sorted(supplied_state_ids - referenced_state_ids)
+    if missing_state_ids or unexpected_state_ids:
+        details = []
+        if missing_state_ids:
+            details.append(
+                f"missing environment state ids: {', '.join(missing_state_ids)}"
+            )
+        if unexpected_state_ids:
+            details.append(
+                "unexpected environment state ids: "
+                + ", ".join(unexpected_state_ids)
+            )
+        raise ValueError(
+            "module_iv_inputs_by_state_id does not match referenced environment "
+            "states: "
+            + "; ".join(details)
+        )
+
+    ordered_state_ids = list(
+        dict.fromkeys(
+            environment_state_id_by_string_id[string_id]
+            for string_id in ordered_string_ids
+        )
+    )
+    for state_id in ordered_state_ids:
+        inputs = module_iv_inputs_by_state_id[state_id]
+        try:
+            _validate_iv_curve_inputs(
+                inputs.poa_total,
+                inputs.t_cell,
+                inputs.solar_zenith,
+                inputs.precipitable_water,
+                voltage_points,
+            )
+        except ValueError as exc:
+            raise ValueError(f"environment state '{state_id}': {exc}") from exc
+
+    if not ordered_state_ids:
+        return {}
+
+    resolution = _resolve_module_configuration(site)
+    if resolution["tier"] == 5:
+        raise ValueError(
+            "Voltage-dependent module I-V is unavailable for Tier 5 "
+            "PVWatts fallback parameters"
+        )
+    datasheet_reference = None
+    if resolution["tier"] in (3, 4):
+        try:
+            datasheet_reference = _fit_datasheet_sdm_reference(
+                resolution["params"], site.module.technology
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "Voltage-dependent module I-V is unavailable because the "
+                f"site/module datasheet fit failed: {exc}"
+            ) from exc
+        if datasheet_reference is None:
+            raise ValueError(
+                "Voltage-dependent module I-V is unavailable because the "
+                "site/module datasheet parameters do not produce a physical "
+                "single-diode fit; the scalar model can only use its PVWatts "
+                "fallback"
+            )
+
+    curves_by_state_id: dict[str, pd.DataFrame] = {}
+    for state_id in ordered_state_ids:
+        inputs = module_iv_inputs_by_state_id[state_id]
+        try:
+            effective_irradiance = _calculate_effective_irradiance(
+                site,
+                inputs.poa_total,
+                solar_zenith=inputs.solar_zenith,
+                precipitable_water=inputs.precipitable_water,
+            )
+            curves_by_state_id[state_id] = _evaluate_module_iv_curves(
+                site,
+                inputs.poa_total,
+                inputs.t_cell,
+                resolution,
+                effective_irradiance,
+                voltage_points,
+                datasheet_reference=datasheet_reference,
+            )
+        except ValueError as exc:
+            raise ValueError(f"environment state '{state_id}': {exc}") from exc
+
+    return {
+        string_id: curves_by_state_id[
+            environment_state_id_by_string_id[string_id]
+        ].copy(deep=True)
+        for string_id in ordered_string_ids
+    }
 
 
 def _evaluate_module_iv_curves(
