@@ -17,6 +17,10 @@ calculate_common_voltage_mppt(string_iv_curves)
     Combine supplied string I-V curves at one shared voltage and select their
     aggregate maximum-power operating point.
 
+calculate_physical_mismatch(string_iv_curves)
+    Derive shared-MPPT mismatch from an IV-consistent independent-string
+    counterfactual and the actual common-voltage operating point.
+
 scale_module_to_string(module_operating_point, modules_per_string)
     Apply ideal series-connection algebra to a module operating point.
 
@@ -377,6 +381,93 @@ def calculate_common_voltage_mppt(
             "string_count",
         ],
     )
+
+
+def calculate_physical_mismatch(
+    string_iv_curves: Sequence[pd.DataFrame],
+) -> pd.DataFrame:
+    """Calculate the physical penalty from strings sharing one MPPT voltage.
+
+    The actual operating point comes from
+    :func:`calculate_common_voltage_mppt`. The independent counterfactual uses
+    the sorted union of all supplied string voltage samples at each timestamp;
+    every string independently maximizes ``V * I(V)`` over candidates inside
+    its own ``0 <= V <= sampled Voc`` domain, using the same linear current
+    interpolation basis as the common-voltage calculation.
+
+    Tiny negative mismatch caused by floating-point roundoff is normalized to
+    zero. A common result materially above the independent counterfactual is an
+    internal-consistency error. This one-MPPT primitive does not integrate
+    topology or replace the legacy static mismatch calculation.
+    """
+    common = calculate_common_voltage_mppt(string_iv_curves)
+    independent_power: list[float] = []
+    mismatch_power: list[float] = []
+
+    for timestamp_position, timestamp in enumerate(common["timestamp"]):
+        timestamp_curves = [
+            _validated_common_mppt_curve(curve, timestamp, string_position)
+            for string_position, curve in enumerate(string_iv_curves)
+        ]
+        if all(bool(curve["all_zero"]) for curve in timestamp_curves):
+            independent_power.append(0.0)
+            mismatch_power.append(0.0)
+            continue
+
+        master_candidates = np.unique(
+            np.concatenate([curve["voltage"] for curve in timestamp_curves])
+        )
+        timestamp_independent_power = 0.0
+        for curve in timestamp_curves:
+            voltage = curve["voltage"]
+            candidates = master_candidates[
+                (master_candidates >= 0.0) & (master_candidates <= voltage[-1])
+            ]
+            candidates = np.unique(
+                np.concatenate([candidates, np.array([0.0, voltage[-1]])])
+            )
+            current = np.interp(candidates, voltage, curve["current"])
+            timestamp_independent_power += float(np.max(candidates * current))
+
+        common_power = float(common.iloc[timestamp_position]["p_common_mppt_w"])
+        powers_close = bool(np.isclose(
+            common_power,
+            timestamp_independent_power,
+            rtol=1e-12,
+            atol=1e-9,
+        ))
+        if common_power > timestamp_independent_power and not powers_close:
+            raise ValueError(
+                f"timestamp {timestamp!r} common MPPT power exceeds the "
+                "IV-consistent independent-string power"
+            )
+        independent_power.append(timestamp_independent_power)
+        mismatch_power.append(
+            0.0
+            if powers_close
+            else timestamp_independent_power - common_power
+        )
+
+    result = common.copy(deep=True)
+    result["p_independent_mp_w"] = independent_power
+    result["p_mismatch_w"] = mismatch_power
+    result["mismatch_pct"] = np.where(
+        result["p_independent_mp_w"] > 0.0,
+        100.0 * result["p_mismatch_w"] / result["p_independent_mp_w"],
+        0.0,
+    )
+    return result[
+        [
+            "timestamp",
+            "v_common_mppt_v",
+            "i_common_mppt_a",
+            "p_common_mppt_w",
+            "p_independent_mp_w",
+            "p_mismatch_w",
+            "mismatch_pct",
+            "string_count",
+        ]
+    ]
 
 
 def _validated_common_mppt_curve(
