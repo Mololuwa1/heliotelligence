@@ -118,21 +118,32 @@ def _validate_inputs(inputs: tuple[object, object, object, object]) -> None:
             raise ValueError(f"{name} must be a pandas Series")
 
     series = inputs
+    for value, name in zip(series, names, strict=True):
+        _validate_index(value.index, name)  # type: ignore[union-attr]
+
     index = series[0].index  # type: ignore[union-attr]
-    if not isinstance(index, pd.DatetimeIndex):
-        raise ValueError("input index must be a pandas DatetimeIndex")
-    if index.tz is None:
-        raise ValueError("input index must be timezone-aware")
-    if index.hasnans:
-        raise ValueError("input index must not contain NaT")
-    if index.has_duplicates:
-        raise ValueError("input index must not contain duplicate timestamps")
-    if any(not value.index.equals(index) for value in series[1:]):  # type: ignore[union-attr]
-        raise ValueError("input Series indexes must match exactly")
+    if any(
+        not value.index.equals(index) or value.index.name != index.name
+        for value in series[1:]  # type: ignore[union-attr]
+    ):
+        raise ValueError(
+            "input Series indexes must match exactly; index names must match exactly"
+        )
 
     for value, name in zip(series[:3], names[:3], strict=True):
         _validate_irradiance(value, name)  # type: ignore[arg-type]
     _validate_zenith(series[3])  # type: ignore[arg-type]
+
+
+def _validate_index(index: pd.Index, series_name: str) -> None:
+    if not isinstance(index, pd.DatetimeIndex):
+        raise ValueError(f"{series_name} index must be a pandas DatetimeIndex")
+    if index.tz is None:
+        raise ValueError(f"{series_name} index must be timezone-aware")
+    if index.hasnans:
+        raise ValueError(f"{series_name} index must not contain NaT")
+    if index.has_duplicates:
+        raise ValueError(f"{series_name} index must not contain duplicate timestamps")
 
 
 def _validate_irradiance(series: pd.Series, name: str) -> None:

@@ -270,6 +270,86 @@ def test_indexes_must_match_exactly() -> None:
         )
 
 
+@pytest.mark.parametrize("position", [1, 2, 3])
+def test_each_secondary_index_must_be_a_datetime_index(position: int) -> None:
+    canonical = pd.DatetimeIndex(
+        ["2026-06-21 12:00"], tz="UTC", name="physical_time"
+    )
+    generic = pd.Index(
+        [pd.Timestamp("2026-06-21 12:00", tz="UTC")],
+        dtype=object,
+        name="physical_time",
+    )
+    assert canonical.equals(generic)
+    indexes: list[pd.Index] = [canonical] * 4
+    indexes[position] = generic
+    inputs = [pd.Series([value], index=index) for value, index in zip(
+        (500.0, 100.0, 600.0, 30.0), indexes, strict=True
+    )]
+    with pytest.raises(ValueError, match="DatetimeIndex"):
+        resolve_horizontal_irradiance_components(*inputs)
+
+
+@pytest.mark.parametrize("position", [1, 2, 3])
+def test_each_secondary_index_name_must_match(position: int) -> None:
+    canonical = pd.DatetimeIndex(
+        ["2026-06-21 12:00"], tz="UTC", name="physical_time"
+    )
+    different_name = canonical.rename("different_name")
+    assert canonical.equals(different_name)
+    indexes = [canonical] * 4
+    indexes[position] = different_name
+    inputs = [pd.Series([value], index=index) for value, index in zip(
+        (500.0, 100.0, 600.0, 30.0), indexes, strict=True
+    )]
+    with pytest.raises(ValueError, match="index names must match exactly"):
+        resolve_horizontal_irradiance_components(*inputs)
+
+
+@pytest.mark.parametrize(
+    ("secondary", "message"),
+    [
+        (pd.DatetimeIndex(["2026-06-21 12:00"]), "timezone-aware"),
+        (pd.DatetimeIndex([pd.NaT], tz="UTC"), "NaT"),
+        (
+            pd.DatetimeIndex(
+                ["2026-06-21 12:00", "2026-06-21 12:00"], tz="UTC"
+            ),
+            "duplicate",
+        ),
+    ],
+)
+def test_secondary_index_validity_is_checked_independently(
+    secondary: pd.DatetimeIndex, message: str
+) -> None:
+    canonical = pd.date_range("2026-06-21 12:00", periods=len(secondary), tz="UTC")
+    with pytest.raises(ValueError, match=message):
+        resolve_horizontal_irradiance_components(
+            pd.Series([500.0] * len(canonical), index=canonical),
+            pd.Series([100.0] * len(secondary), index=secondary),
+            pd.Series([600.0] * len(canonical), index=canonical),
+            pd.Series([30.0] * len(canonical), index=canonical),
+        )
+
+
+def test_matching_indexes_do_not_require_matching_frequency_metadata() -> None:
+    with_frequency = pd.date_range(
+        "2026-06-21 10:00", periods=2, freq="h", tz="UTC", name="physical_time"
+    )
+    without_frequency = pd.DatetimeIndex(
+        with_frequency.to_numpy(), tz="UTC", name="physical_time"
+    )
+    assert with_frequency.freq is not None
+    assert without_frequency.freq is None
+    result = resolve_horizontal_irradiance_components(
+        pd.Series([500.0, 600.0], index=with_frequency),
+        pd.Series([100.0, 120.0], index=without_frequency),
+        pd.Series([600.0, 650.0], index=with_frequency),
+        pd.Series([30.0, 40.0], index=with_frequency),
+    )
+    assert result.index.equals(with_frequency)
+
+
 @pytest.mark.parametrize(
     ("index", "message"),
     [
