@@ -281,6 +281,18 @@ def test_timezone_naive_times_are_rejected() -> None:
         _calculate(times)
 
 
+@pytest.mark.parametrize(
+    "times",
+    [
+        pd.DatetimeIndex([pd.NaT], tz="UTC"),
+        pd.DatetimeIndex(["2026-06-21 12:00", pd.NaT], tz="UTC"),
+    ],
+)
+def test_missing_timestamps_are_rejected(times: pd.DatetimeIndex) -> None:
+    with pytest.raises(ValueError, match="NaT"):
+        _calculate(times)
+
+
 def test_duplicate_timestamps_are_rejected() -> None:
     times = pd.DatetimeIndex(
         ["2026-06-21 12:00", "2026-06-21 12:00"],

@@ -99,6 +99,8 @@ def _validate_times(times: object) -> None:
         raise ValueError("times must be a pandas DatetimeIndex")
     if times.tz is None:
         raise ValueError("times must be timezone-aware")
+    if times.hasnans:
+        raise ValueError("times must not contain NaT")
     if times.has_duplicates:
         raise ValueError("times must not contain duplicate timestamps")
 
