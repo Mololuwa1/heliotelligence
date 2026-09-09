@@ -145,6 +145,146 @@ def test_poa_component_identities_hold_without_repair() -> None:
     )
 
 
+def _zero_triplet_inputs(
+    index: pd.DatetimeIndex | None = None,
+    *,
+    zenith: pd.Series | None = None,
+    azimuth: pd.Series | None = None,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    index = _index(12) if index is None else index
+    zeros = pd.Series(0.0, index=index)
+    return (
+        zeros.copy(),
+        zeros.copy(),
+        zeros.copy(),
+        pd.Series(30.0, index=index) if zenith is None else zenith,
+        pd.Series(180.0, index=index) if azimuth is None else azimuth,
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "expected_resolved", "expected_state"),
+    [
+        ("perez", False, "model_output_unresolved"),
+        ("perez-driesse", True, "transposed"),
+    ],
+)
+def test_zero_triplet_preserves_model_outputs_and_reports_resolution_truthfully(
+    model: str,
+    expected_resolved: bool,
+    expected_state: str,
+) -> None:
+    inputs = _zero_triplet_inputs()
+    result = _calculate(inputs, model=model)
+    expected = _reference(inputs, model)
+
+    mappings = {
+        "poa_direct_raw_wm2": "poa_direct",
+        "poa_sky_diffuse_raw_wm2": "poa_sky_diffuse",
+        "poa_ground_diffuse_raw_wm2": "poa_ground_diffuse",
+        "poa_diffuse_raw_wm2": "poa_diffuse",
+        "poa_global_raw_wm2": "poa_global",
+    }
+    for output, reference in mappings.items():
+        pdt.assert_series_equal(
+            result[output], expected[reference], check_names=False, check_exact=True
+        )
+
+    row = result.iloc[0]
+    assert bool(row["transposition_applied"])
+    assert bool(row["poa_transposition_resolved"]) is expected_resolved
+    assert row["transposition_state"] == expected_state
+    assert row["transposition_model"] == model
+    if model == "perez":
+        assert row["poa_direct_raw_wm2"] == 0.0
+        assert row["poa_ground_diffuse_raw_wm2"] == 0.0
+        assert pd.isna(row["poa_sky_diffuse_raw_wm2"])
+        assert pd.isna(row["poa_diffuse_raw_wm2"])
+        assert pd.isna(row["poa_global_raw_wm2"])
+    else:
+        raw_poa = row[list(mappings)].to_numpy(dtype=float)
+        assert np.isfinite(raw_poa).all()
+        assert (raw_poa == 0.0).all()
+
+
+def test_staged_zero_ghi_preserves_perez_model_output_resolution_distinction() -> None:
+    index = pd.DatetimeIndex(
+        ["2026-06-21 04:45"], tz="Europe/London", name="physical_time"
+    )
+    geometry = calculate_solar_geometry(
+        index, latitude_deg=52.5, longitude_deg=-1.2, altitude_m=100.0
+    )
+    assert geometry.iloc[0]["solar_zenith_deg"] >= 90.0
+    assert geometry.iloc[0]["apparent_solar_zenith_deg"] < 90.0
+
+    missing = pd.Series(np.nan, index=index)
+    r1b = resolve_horizontal_irradiance_components(
+        pd.Series(0.0, index=index),
+        missing.copy(),
+        missing.copy(),
+        geometry["solar_zenith_deg"],
+    )
+    assert r1b.iloc[0]["component_resolution_state"] == "erbs_decomposed"
+    assert bool(r1b.iloc[0]["irradiance_components_resolved"])
+    assert r1b.iloc[0][["ghi_wm2", "dhi_wm2", "dni_wm2"]].tolist() == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+    inputs = (
+        r1b["ghi_wm2"],
+        r1b["dhi_wm2"],
+        r1b["dni_wm2"],
+        geometry["apparent_solar_zenith_deg"],
+        geometry["solar_azimuth_deg"],
+    )
+    for model, expected_resolved, expected_state in (
+        ("perez", False, "model_output_unresolved"),
+        ("perez-driesse", True, "transposed"),
+    ):
+        result = _calculate(inputs, model=model)
+        expected = _reference(inputs, model)
+        pdt.assert_series_equal(
+            result["poa_global_raw_wm2"],
+            expected["poa_global"],
+            check_names=False,
+            check_exact=True,
+        )
+        assert bool(result.iloc[0]["transposition_applied"])
+        assert bool(result.iloc[0]["poa_transposition_resolved"]) is expected_resolved
+        assert result.iloc[0]["transposition_state"] == expected_state
+        assert result.iloc[0]["transposition_model"] == model
+
+
+def test_mixed_input_and_model_resolution_states_are_row_independent() -> None:
+    index = _index(12, 13, 14)
+    inputs = (
+        pd.Series([800.0, np.nan, 0.0], index=index),
+        pd.Series([140.0, 100.0, 0.0], index=index),
+        pd.Series([750.0, 400.0, 0.0], index=index),
+        pd.Series([30.0, 40.0, 30.0], index=index),
+        pd.Series([180.0, 190.0, 180.0], index=index),
+    )
+    result = _calculate(inputs, model="perez")
+
+    assert result.index.equals(index)
+    assert result["transposition_state"].tolist() == [
+        "transposed",
+        "unresolved_irradiance",
+        "model_output_unresolved",
+    ]
+    assert result["transposition_applied"].tolist() == [True, False, True]
+    assert result["poa_transposition_resolved"].tolist() == [True, False, False]
+    assert result["transposition_model"].tolist() == [
+        "perez",
+        "not_applied",
+        "perez",
+    ]
+    assert result.iloc[1, 7:12].isna().all()
+    assert pd.isna(result.iloc[2]["poa_global_raw_wm2"])
+
+
 @pytest.mark.parametrize("model", ["perez", "perez-driesse"])
 def test_night_horizon_and_sun_behind_plane_preserve_pvlib(model: str) -> None:
     index = _index(5, 6, 23)

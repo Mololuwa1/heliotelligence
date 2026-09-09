@@ -91,21 +91,21 @@ def calculate_raw_poa_transposition(
         dtype=float,
     )
 
-    resolved = ghi.notna() & dhi.notna() & dni.notna()
+    input_complete = ghi.notna() & dhi.notna() & dni.notna()
     poa_columns = {
         name: pd.Series(np.nan, index=index, dtype=float)
         for name in _OUTPUT_COLUMNS[7:12]
     }
-    if resolved.any():
+    if input_complete.any():
         poa = pvlib.irradiance.get_total_irradiance(
             surface_tilt=surface_tilt_deg,
             surface_azimuth=surface_azimuth_deg,
-            solar_zenith=apparent_zenith.loc[resolved],
-            solar_azimuth=solar_azimuth.loc[resolved],
-            dni=dni.loc[resolved],
-            ghi=ghi.loc[resolved],
-            dhi=dhi.loc[resolved],
-            dni_extra=dni_extra.loc[resolved],
+            solar_zenith=apparent_zenith.loc[input_complete],
+            solar_azimuth=solar_azimuth.loc[input_complete],
+            dni=dni.loc[input_complete],
+            ghi=ghi.loc[input_complete],
+            dhi=dhi.loc[input_complete],
+            dni_extra=dni_extra.loc[input_complete],
             albedo=albedo,
             model=model,
             model_perez="allsitescomposite1990",
@@ -118,12 +118,19 @@ def calculate_raw_poa_transposition(
             "poa_global_raw_wm2": "poa_global",
         }
         for output_name, pvlib_name in mappings.items():
-            poa_columns[output_name].loc[resolved] = poa[pvlib_name]
+            poa_columns[output_name].loc[input_complete] = poa[pvlib_name]
 
     state = pd.Series("unresolved_irradiance", index=index, dtype=str)
-    state.loc[resolved] = "transposed"
+    poa_resolved = pd.Series(False, index=index, dtype=bool)
+    if input_complete.any():
+        poa_values = pd.DataFrame(poa_columns, index=index)
+        poa_resolved.loc[input_complete] = np.isfinite(
+            poa_values.loc[input_complete]
+        ).all(axis=1)
+        state.loc[input_complete] = "model_output_unresolved"
+        state.loc[poa_resolved] = "transposed"
     model_used = pd.Series("not_applied", index=index, dtype=str)
-    model_used.loc[resolved] = model
+    model_used.loc[input_complete] = model
 
     return pd.DataFrame(
         {
@@ -135,8 +142,8 @@ def calculate_raw_poa_transposition(
             "dni_extra_wm2": dni_extra,
             "aoi_deg": aoi,
             **poa_columns,
-            "poa_transposition_resolved": resolved.astype(bool),
-            "transposition_applied": resolved.astype(bool),
+            "poa_transposition_resolved": poa_resolved,
+            "transposition_applied": input_complete.astype(bool),
             "transposition_state": state,
             "transposition_model": model_used,
         },
