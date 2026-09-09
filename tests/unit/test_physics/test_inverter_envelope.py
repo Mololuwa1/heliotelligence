@@ -379,7 +379,14 @@ def test_timezone_aware_index_and_provenance_are_preserved() -> None:
 
 
 def test_output_contract_does_not_invent_constrained_power_or_current() -> None:
-    result = _evaluate(v_dc=[550.0], i_dc=[40.0], p_dc=[1000.0])
+    supplied_v_dc = 550.0
+    supplied_i_dc = 40.0
+    supplied_p_dc = 1000.0
+    result = _evaluate(
+        v_dc=[supplied_v_dc],
+        i_dc=[supplied_i_dc],
+        p_dc=[supplied_p_dc],
+    )
     assert list(result.columns) == [
         "v_dc_v",
         "i_dc_a",
@@ -395,6 +402,14 @@ def test_output_contract_does_not_invent_constrained_power_or_current() -> None:
         "envelope_confidence",
     ]
     assert not any("clipped" in column or "constrained" in column for column in result)
+    row = result.iloc[0]
+    assert bool(row["above_mppt_voltage_limit"])
+    assert bool(row["above_dc_current_limit"])
+    assert not bool(row["dc_limits_satisfied"])
+    assert row["v_dc_v"] == supplied_v_dc
+    assert row["i_dc_a"] == supplied_i_dc
+    assert row["p_dc_available_w"] == supplied_p_dc
+    assert row["p_dc_available_w"] != row["v_dc_v"] * _envelope().dc_current_max_a
 
 
 def test_empty_inputs_return_stable_typed_schema() -> None:
