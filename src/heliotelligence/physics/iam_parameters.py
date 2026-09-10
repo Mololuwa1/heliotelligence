@@ -34,7 +34,15 @@ _PVLIB_FIT_MODEL = {
     "martin-ruiz": "martin_ruiz",
     "ashrae": "ashrae",
 }
-_PHYSICAL_FIT_NOTE = "pvlib_physical_fit_does_not_fit_n_ar; n_ar set to None"
+_PHYSICAL_FIT_NOTE = (
+    "pvlib physical fit optimizes n and L with K fixed to 4; "
+    "n_ar is not fitted and is set to None for R3A compatibility"
+)
+_MINIMUM_INFORMATIVE_AOI_COUNT = {
+    "physical": 2,
+    "martin-ruiz": 1,
+    "ashrae": 1,
+}
 
 
 def resolve_beam_iam_parameters(
@@ -82,6 +90,16 @@ def resolve_beam_iam_parameters(
         raise ValueError("measured profiles must contain at least 2 samples")
     if np.unique(measured_aoi).size < 2:
         raise ValueError("measured_aoi_deg must contain at least 2 distinct values")
+    informative_count = np.unique(
+        measured_aoi[(measured_aoi > 0.0) & (measured_aoi < 90.0)]
+    ).size
+    required_count = _MINIMUM_INFORMATIVE_AOI_COUNT[model]
+    if informative_count < required_count:
+        raise ValueError(
+            f"measured_fit for {model} has insufficient informative AOIs: "
+            f"requires {required_count} distinct AOI values strictly between "
+            f"0 and 90 degrees, received {informative_count}"
+        )
 
     try:
         fitted = pvlib.iam.fit(

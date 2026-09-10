@@ -194,6 +194,7 @@ def test_physical_fit_adds_explicit_unfitted_n_ar_semantics() -> None:
     measured = _profile("physical")
     direct_fit = pvlib.iam.fit(AOI, measured, model_name="physical")
     assert set(direct_fit) == {"n", "K", "L"}
+    assert direct_fit["K"] == 4
     result = resolve_beam_iam_parameters(
         model="physical",
         method="measured_fit",
@@ -207,9 +208,12 @@ def test_physical_fit_adds_explicit_unfitted_n_ar_semantics() -> None:
     assert parameters["K"] == pytest.approx(direct_fit["K"])
     assert parameters["L"] == pytest.approx(direct_fit["L"])
     assert parameters["n_ar"] is None
-    assert result["derivation_note"] == (
-        "pvlib_physical_fit_does_not_fit_n_ar; n_ar set to None"
-    )
+    note = result["derivation_note"]
+    assert isinstance(note, str)
+    assert "optimizes n and L" in note
+    assert "K fixed to 4" in note
+    assert "n_ar is not fitted" in note
+    assert "set to None for R3A compatibility" in note
     expected = pvlib.iam.physical(AOI, **parameters)
     residual = expected - measured
     assert result["fit_rmse"] == pytest.approx(np.sqrt(np.mean(residual**2)))
@@ -494,6 +498,109 @@ def test_measured_profile_sample_requirements(aoi: list[float]) -> None:
         )
 
 
+@pytest.mark.parametrize("model", ["physical", "martin-ruiz", "ashrae"])
+def test_endpoint_only_profile_is_rejected_before_pvlib_fit(
+    model: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called = False
+
+    def unexpected_fit(*args: object, **kwargs: object) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("pvlib.iam.fit must not be called")
+
+    monkeypatch.setattr(pvlib.iam, "fit", unexpected_fit)
+    with pytest.raises(
+        ValueError,
+        match=rf"{model} has insufficient informative AOIs.*received 0",
+    ):
+        resolve_beam_iam_parameters(
+            model=model,  # type: ignore[arg-type]
+            method="measured_fit",
+            source_label="source",
+            measured_aoi_deg=[0.0, 90.0],
+            measured_iam=[1.0, 0.0],
+        )
+    assert called is False
+
+
+@pytest.mark.parametrize("model", ["ashrae", "martin-ruiz"])
+def test_one_parameter_models_accept_one_informative_aoi(model: str) -> None:
+    aoi = np.array([0.0, 60.0])
+    if model == "ashrae":
+        measured = np.asarray(pvlib.iam.ashrae(aoi, b=0.05))
+        reference = pvlib.iam.fit(aoi, measured, model_name="ashrae")
+    else:
+        measured = np.asarray(pvlib.iam.martin_ruiz(aoi, a_r=0.16))
+        reference = pvlib.iam.fit(aoi, measured, model_name="martin_ruiz")
+
+    result = resolve_beam_iam_parameters(
+        model=model,  # type: ignore[arg-type]
+        method="measured_fit",
+        source_label="source",
+        measured_aoi_deg=aoi,
+        measured_iam=measured,
+    )
+    assert result["model_parameters"] == pytest.approx(reference)
+
+
+def test_physical_rejects_only_one_distinct_informative_aoi() -> None:
+    with pytest.raises(
+        ValueError,
+        match="physical has insufficient informative AOIs.*requires 2.*received 1",
+    ):
+        resolve_beam_iam_parameters(
+            model="physical",
+            method="measured_fit",
+            source_label="source",
+            measured_aoi_deg=[0.0, 60.0],
+            measured_iam=[1.0, 0.9],
+        )
+
+
+@pytest.mark.parametrize(
+    "aoi",
+    [
+        np.array([20.0, 60.0]),
+        np.array([20.0, 20.0, 60.0]),
+        np.array([0.0, 20.0, 60.0, 90.0]),
+    ],
+)
+def test_physical_accepts_two_distinct_informative_aois(aoi: np.ndarray) -> None:
+    measured = np.asarray(pvlib.iam.physical(aoi, n=1.52, K=4.0, L=0.002))
+    reference = pvlib.iam.fit(aoi, measured, model_name="physical")
+    result = resolve_beam_iam_parameters(
+        model="physical",
+        method="measured_fit",
+        source_label="source",
+        measured_aoi_deg=aoi,
+        measured_iam=measured,
+    )
+    parameters = result["model_parameters"]
+    assert isinstance(parameters, dict)
+    assert parameters["n"] == pytest.approx(reference["n"])
+    assert parameters["K"] == pytest.approx(reference["K"])
+    assert parameters["L"] == pytest.approx(reference["L"])
+    assert parameters["n_ar"] is None
+    assert result["fit_sample_count"] == len(aoi)
+    assert result["fit_aoi_min_deg"] == float(np.min(aoi))
+    assert result["fit_aoi_max_deg"] == float(np.max(aoi))
+
+
+def test_duplicate_interior_aoi_counts_once_for_physical() -> None:
+    with pytest.raises(
+        ValueError,
+        match="physical has insufficient informative AOIs.*received 1",
+    ):
+        resolve_beam_iam_parameters(
+            model="physical",
+            method="measured_fit",
+            source_label="source",
+            measured_aoi_deg=[20.0, 20.0, 90.0],
+            measured_iam=[0.99, 0.98, 0.0],
+        )
+
+
 def test_measured_profile_lengths_must_match() -> None:
     with pytest.raises(ValueError, match="equal length"):
         resolve_beam_iam_parameters(
@@ -640,6 +747,6 @@ def test_nonfinite_fitted_curve_fails_without_repair(
             model="physical",
             method="measured_fit",
             source_label="source",
-            measured_aoi_deg=[0.0, 30.0],
+            measured_aoi_deg=[20.0, 30.0],
             measured_iam=[1.0, 0.8],
         )
