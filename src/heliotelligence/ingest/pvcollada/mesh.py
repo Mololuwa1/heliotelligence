@@ -198,7 +198,9 @@ def _triangulate_polygon(
     signs: list[float] = []
     for index in range(len(projected)):
         a, b, c = projected[index - 1], projected[index], projected[(index + 1) % len(projected)]
-        cross = float(np.cross(b - a, c - b))
+        first = b - a
+        second = c - b
+        cross = float(first[0] * second[1] - first[1] * second[0])
         if abs(cross) > 1e-12:
             signs.append(cross)
     if not signs or (min(signs) < 0.0 < max(signs)):
