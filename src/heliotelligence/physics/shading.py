@@ -31,6 +31,17 @@ _OUTPUT_COLUMNS = [
     "sample_count",
     "shaded_sample_count",
 ]
+_VISIBILITY_MAP_COLUMNS = [
+    "receiver_id",
+    "sample_index",
+    "sample_u_index",
+    "sample_v_index",
+    "sample_east_m",
+    "sample_north_m",
+    "sample_up_m",
+    "beam_visible",
+    "beam_shaded",
+]
 
 
 @dataclass(frozen=True)
@@ -241,6 +252,104 @@ def calculate_direct_beam_visibility(
         )
 
     return pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
+
+
+def calculate_direct_beam_visibility_map(
+    surfaces: Sequence[RectangularSurface3D],
+    receiver_ids: Sequence[str],
+    *,
+    solar_zenith_deg: float,
+    solar_azimuth_deg: float,
+    samples_u: int = 5,
+    samples_v: int = 5,
+) -> pd.DataFrame:
+    """Return deterministic sample-level direct-beam visibility.
+
+    Rows are receiver-major and then follow the reference cell-centre grid's
+    u-major, v-minor ordering.  This primitive is geometry-only: it neither
+    consumes nor produces irradiance.
+    """
+    direction = np.asarray(
+        solar_direction_enu(solar_zenith_deg, solar_azimuth_deg), dtype=float
+    )
+    _validate_sample_count(samples_u, "samples_u")
+    _validate_sample_count(samples_v, "samples_v")
+
+    if isinstance(surfaces, (str, bytes)) or not isinstance(surfaces, Sequence):
+        raise ValueError("surfaces must be a sequence of RectangularSurface3D")
+    if any(not isinstance(surface, RectangularSurface3D) for surface in surfaces):
+        raise ValueError("surfaces must contain only RectangularSurface3D instances")
+    if isinstance(receiver_ids, (str, bytes)) or not isinstance(
+        receiver_ids, Sequence
+    ):
+        raise ValueError("receiver_ids must be a sequence of strings")
+    if any(not isinstance(receiver_id, str) for receiver_id in receiver_ids):
+        raise ValueError("receiver_ids must contain only strings")
+
+    surface_ids = [surface.id for surface in surfaces]
+    duplicate_surface_ids = sorted(
+        surface_id
+        for surface_id, count in Counter(surface_ids).items()
+        if count > 1
+    )
+    if duplicate_surface_ids:
+        raise ValueError(
+            "surfaces contains duplicate ids: " + ", ".join(duplicate_surface_ids)
+        )
+
+    duplicate_receiver_ids = sorted(
+        receiver_id
+        for receiver_id, count in Counter(receiver_ids).items()
+        if count > 1
+    )
+    if duplicate_receiver_ids:
+        raise ValueError(
+            "receiver_ids contains duplicate ids: "
+            + ", ".join(duplicate_receiver_ids)
+        )
+
+    surfaces_by_id = {surface.id: surface for surface in surfaces}
+    missing_receiver_ids = sorted(set(receiver_ids) - set(surfaces_by_id))
+    if missing_receiver_ids:
+        raise ValueError(
+            "receiver_ids are absent from surfaces: "
+            + ", ".join(missing_receiver_ids)
+        )
+
+    rows: list[dict[str, str | float | int | bool]] = []
+    for receiver_id in receiver_ids:
+        receiver = surfaces_by_id[receiver_id]
+        origins = _receiver_sample_points(receiver, samples_u, samples_v)
+        for sample_index, origin in enumerate(origins):
+            sample_u_index, sample_v_index = divmod(sample_index, int(samples_v))
+            beam_shaded = any(
+                occluder.id != receiver_id
+                and _ray_intersects_rectangle(origin, direction, occluder)
+                for occluder in surfaces
+            )
+            rows.append(
+                {
+                    "receiver_id": receiver_id,
+                    "sample_index": sample_index,
+                    "sample_u_index": sample_u_index,
+                    "sample_v_index": sample_v_index,
+                    "sample_east_m": float(origin[0]),
+                    "sample_north_m": float(origin[1]),
+                    "sample_up_m": float(origin[2]),
+                    "beam_visible": not beam_shaded,
+                    "beam_shaded": beam_shaded,
+                }
+            )
+
+    result = pd.DataFrame(rows, columns=_VISIBILITY_MAP_COLUMNS)
+    result["receiver_id"] = result["receiver_id"].astype(object)
+    for column in ("sample_index", "sample_u_index", "sample_v_index"):
+        result[column] = pd.array(result[column], dtype="int64")
+    for column in ("sample_east_m", "sample_north_m", "sample_up_m"):
+        result[column] = pd.array(result[column], dtype="float64")
+    for column in ("beam_visible", "beam_shaded"):
+        result[column] = pd.array(result[column], dtype="bool")
+    return result
 
 
 def _validated_tuple_vector(
