@@ -3,6 +3,7 @@
 from dataclasses import FrozenInstanceError
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from heliotelligence.geometry import (
@@ -73,6 +74,10 @@ def test_coordinate_reference_preserves_valid_source_metadata_and_transform() ->
     assert reference.source_to_canonical_transform is not None
     assert reference.source_to_canonical_transform[0, 0] == 1.0
     assert not reference.source_to_canonical_transform.flags.writeable
+    with pytest.raises(ValueError):
+        reference.source_to_canonical_transform.flags.writeable = True
+    with pytest.raises(ValueError, match="read-only"):
+        reference.source_to_canonical_transform[0, 0] = 4.0
 
 
 @pytest.mark.parametrize("scale", [0, -1, np.nan, np.inf, True, "1"])
@@ -100,15 +105,17 @@ def test_coordinate_reference_requires_complete_valid_origin() -> None:
         np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 1, 1]]),
     ],
 )
-def test_coordinate_reference_rejects_invalid_affine_transform(transform: np.ndarray) -> None:
+def test_coordinate_reference_rejects_invalid_affine_transform(
+    transform: npt.NDArray[np.generic],
+) -> None:
     with pytest.raises(ValueError, match="source_to_canonical_transform"):
-        CoordinateReference(source_to_canonical_transform=transform)
+        CoordinateReference(source_to_canonical_transform=transform)  # type: ignore[arg-type]
 
 
 def test_mesh_is_float64_int64_defensive_and_read_only() -> None:
     vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.int32)
     faces = np.array([[0, 1, 2]], dtype=np.int16)
-    mesh = TriangleMesh(vertices, faces)
+    mesh = TriangleMesh(vertices, faces)  # type: ignore[arg-type]
     vertices[0, 0] = 20
     faces[0, 0] = 2
     assert mesh.vertices_enu_m.dtype == np.float64
@@ -117,6 +124,10 @@ def test_mesh_is_float64_int64_defensive_and_read_only() -> None:
     assert mesh.faces[0, 0] == 0
     assert not mesh.vertices_enu_m.flags.writeable
     assert not mesh.faces.flags.writeable
+    with pytest.raises(ValueError):
+        mesh.vertices_enu_m.flags.writeable = True
+    with pytest.raises(ValueError):
+        mesh.faces.flags.writeable = True
     with pytest.raises(ValueError, match="read-only"):
         mesh.vertices_enu_m[0, 0] = 4.0
     with pytest.raises(ValueError, match="read-only"):
@@ -145,10 +156,12 @@ def test_empty_mesh_has_stable_shapes() -> None:
     ],
 )
 def test_mesh_rejects_malformed_arrays(
-    vertices: np.ndarray, faces: np.ndarray, message: str
+    vertices: npt.NDArray[np.generic],
+    faces: npt.NDArray[np.generic],
+    message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        TriangleMesh(vertices, faces)
+        TriangleMesh(vertices, faces)  # type: ignore[arg-type]
 
 
 def test_mesh_rejects_mixed_empty_state() -> None:
@@ -230,7 +243,7 @@ def test_valid_minimal_site_geometry_allows_empty_optional_collections() -> None
 
 @pytest.mark.parametrize("category", ["receiver", "terrain", "shading", "global"])
 def test_site_rejects_duplicate_ids(category: str) -> None:
-    receivers = (_receiver("same"),)
+    receivers: tuple[PVReceiver, ...] = (_receiver("same"),)
     terrains: tuple[TerrainSurface, ...] = ()
     shading: tuple[ShadingObject, ...] = ()
     if category == "receiver":

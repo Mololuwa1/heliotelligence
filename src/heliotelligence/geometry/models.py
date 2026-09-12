@@ -115,7 +115,6 @@ class CoordinateReference:
                 atol=_AFFINE_TOLERANCE,
             ):
                 raise ValueError("source_to_canonical_transform must be homogeneous affine")
-            transform_copy.flags.writeable = False
             object.__setattr__(self, "source_to_canonical_transform", transform_copy)
 
     def __eq__(self, other: object) -> bool:
@@ -160,7 +159,7 @@ class TriangleMesh:
             faces_value.dtype, np.integer
         ):
             raise ValueError("faces must contain integers")
-        faces = np.array(faces_value, dtype=np.int64, copy=True)
+        faces = np.ascontiguousarray(faces_value, dtype=np.int64)
         if faces.ndim != 2 or faces.shape[1:] != (3,):
             raise ValueError("faces must have shape (M, 3)")
 
@@ -182,10 +181,8 @@ class TriangleMesh:
             ):
                 raise ValueError("each triangle must reference three distinct vertices")
 
-        vertices.flags.writeable = False
-        faces.flags.writeable = False
         object.__setattr__(self, "vertices_enu_m", vertices)
-        object.__setattr__(self, "faces", faces)
+        object.__setattr__(self, "faces", _immutable_int64_array(faces))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TriangleMesh):
@@ -304,10 +301,28 @@ def _numeric_array(value: object, name: str) -> npt.NDArray[np.float64]:
         raise ValueError(f"{name} must contain real numeric values")
     if np.issubdtype(value.dtype, np.complexfloating):
         raise ValueError(f"{name} must contain real numeric values")
-    result = np.array(value, dtype=np.float64, copy=True)
+    result = np.ascontiguousarray(value, dtype=np.float64)
     if not np.isfinite(result).all():
         raise ValueError(f"{name} must contain only finite values")
-    return result
+    return _immutable_float64_array(result)
+
+
+def _immutable_float64_array(
+    value: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Copy an array onto immutable bytes-backed storage."""
+    contiguous = np.ascontiguousarray(value, dtype=np.float64)
+    backing = contiguous.tobytes(order="C")
+    return np.frombuffer(backing, dtype=np.float64).reshape(contiguous.shape)
+
+
+def _immutable_int64_array(
+    value: npt.NDArray[np.int64],
+) -> npt.NDArray[np.int64]:
+    """Copy an array onto immutable bytes-backed storage."""
+    contiguous = np.ascontiguousarray(value, dtype=np.int64)
+    backing = contiguous.tobytes(order="C")
+    return np.frombuffer(backing, dtype=np.int64).reshape(contiguous.shape)
 
 
 def _finite_real(value: object, name: str) -> float:
