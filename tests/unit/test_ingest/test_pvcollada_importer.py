@@ -26,6 +26,35 @@ from heliotelligence.ingest.pvcollada.transforms import node_transform
 _FIXTURES = Path(__file__).parent / "fixtures" / "pvcollada"
 _FIXED = (_FIXTURES / "official_fixed.pvc2").read_bytes()
 _TRACKERS = (_FIXTURES / "official_trackers.pvc2").read_bytes()
+_COLLADA_NAMESPACE = "http://www.collada.org/2008/03/COLLADASchema"
+_C = f"{{{_COLLADA_NAMESPACE}}}"
+
+
+def _with_instance_graph(
+    graph: dict[str, tuple[str, ...]], *, attach_to_table: bool
+) -> bytes:
+    """Add a small, schema-valid reusable-node graph to the fixed fixture."""
+    root = etree.fromstring(_FIXED)
+    library = root.find(f"{_C}library_nodes")
+    assert library is not None
+    for identifier, references in graph.items():
+        node = etree.SubElement(library, f"{_C}node", id=identifier)
+        for reference in references:
+            etree.SubElement(node, f"{_C}instance_node", url=f"#{reference}")
+
+    target: etree._Element
+    if attach_to_table:
+        found = library.find(f"{_C}node[@id='TableModel1']")
+        assert found is not None
+        target = found
+    else:
+        scene = root.find(f"{_C}library_visual_scenes/{_C}visual_scene")
+        assert scene is not None
+        target = etree.SubElement(scene, f"{_C}node", id="CycleRoot")
+    instance = etree.Element(f"{_C}instance_node", url="#B")
+    extra = target.find(f"{_C}extra")
+    target.insert(target.index(extra), instance) if extra is not None else target.append(instance)
+    return bytes(etree.tostring(root))
 
 
 def test_official_fixed_example_imports_to_canonical_enu_metres() -> None:
@@ -141,6 +170,46 @@ def test_structural_resource_limit_is_enforced(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(validation, "MAX_GEOMETRIES", 1)
     with pytest.raises(PVColladaResourceLimitError, match="geometry"):
         import_pvcollada_2(_FIXED, geometry_revision="many")
+
+
+def test_nested_table_self_cycle_is_rejected_without_recursing() -> None:
+    source = _with_instance_graph({"B": ("B",)}, attach_to_table=True)
+    with pytest.raises(PVColladaValidationError, match="cyclic instance_node reference"):
+        import_pvcollada_2(source, geometry_revision="self-cycle")
+
+
+def test_nested_table_multi_node_cycle_is_rejected_without_recursing() -> None:
+    source = _with_instance_graph({"B": ("C",), "C": ("B",)}, attach_to_table=True)
+    with pytest.raises(PVColladaValidationError, match="cyclic instance_node reference"):
+        import_pvcollada_2(source, geometry_revision="multi-cycle")
+
+
+def test_ordinary_instance_node_cycle_is_rejected_without_recursing() -> None:
+    source = _with_instance_graph({"B": ("B",)}, attach_to_table=False)
+    with pytest.raises(PVColladaValidationError, match="cyclic instance_node reference"):
+        import_pvcollada_2(source, geometry_revision="ordinary-cycle")
+
+
+def test_resolved_instance_node_limit_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _with_instance_graph({"B": ("C",), "C": ()}, attach_to_table=True)
+    monkeypatch.setattr(validation, "MAX_RESOLVED_NODE_INSTANCES", 1)
+    with pytest.raises(PVColladaResourceLimitError, match="instance_node count"):
+        import_pvcollada_2(source, geometry_revision="node-amplification")
+
+
+def test_resolved_geometry_instance_limit_is_enforced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(validation, "MAX_RESOLVED_GEOMETRY_INSTANCES", 0)
+    with pytest.raises(PVColladaResourceLimitError, match="geometry-instance count"):
+        import_pvcollada_2(_FIXED, geometry_revision="geometry-amplification")
+
+
+def test_instance_node_depth_limit_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _with_instance_graph({"B": ("C",), "C": ()}, attach_to_table=True)
+    monkeypatch.setattr(validation, "MAX_INSTANCE_DEPTH", 1)
+    with pytest.raises(PVColladaResourceLimitError, match="instance_node depth"):
+        import_pvcollada_2(source, geometry_revision="instance-depth")
 
 
 def test_wrong_collada_version_is_rejected() -> None:

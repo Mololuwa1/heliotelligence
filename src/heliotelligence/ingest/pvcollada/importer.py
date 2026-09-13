@@ -20,6 +20,7 @@ from heliotelligence.geometry import (
     TerrainSurface,
     TriangleMesh,
 )
+from heliotelligence.ingest.pvcollada import validation as _limits
 from heliotelligence.ingest.pvcollada.mesh import ParsedMesh, parse_geometry
 from heliotelligence.ingest.pvcollada.transforms import node_transform, transform_vertices
 from heliotelligence.ingest.pvcollada.validation import (
@@ -71,6 +72,40 @@ class PVColladaImportResult:
 
 
 @dataclass
+class _ExpansionBudget:
+    """Bound resolved scene expansion independently of source XML size."""
+
+    node_instances: int = 0
+    geometry_instances: int = 0
+
+    def follow_instance(
+        self, reference: str, active_instance_stack: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if reference in active_instance_stack:
+            raise PVColladaValidationError("cyclic instance_node reference")
+        next_stack = active_instance_stack + (reference,)
+        if len(next_stack) > _limits.MAX_INSTANCE_DEPTH:
+            raise PVColladaResourceLimitError(
+                f"resolved instance_node depth exceeds {_limits.MAX_INSTANCE_DEPTH}"
+            )
+        self.node_instances += 1
+        if self.node_instances > _limits.MAX_RESOLVED_NODE_INSTANCES:
+            raise PVColladaResourceLimitError(
+                "resolved instance_node count exceeds "
+                f"{_limits.MAX_RESOLVED_NODE_INSTANCES}"
+            )
+        return next_stack
+
+    def resolve_geometry(self) -> None:
+        self.geometry_instances += 1
+        if self.geometry_instances > _limits.MAX_RESOLVED_GEOMETRY_INSTANCES:
+            raise PVColladaResourceLimitError(
+                "resolved geometry-instance count exceeds "
+                f"{_limits.MAX_RESOLVED_GEOMETRY_INSTANCES}"
+            )
+
+
+@dataclass
 class _SceneBuilder:
     root: etree._Element
     geometry_revision: str
@@ -83,6 +118,7 @@ class _SceneBuilder:
     terrains: list[TerrainSurface]
     receivers: list[PVReceiver]
     shading: list[ShadingObject]
+    budget: _ExpansionBudget
 
     def provenance(self, source_object_id: str | None = None) -> SourceProvenance:
         return SourceProvenance(
@@ -99,7 +135,7 @@ class _SceneBuilder:
         node: etree._Element,
         parent_transform: npt.NDArray[np.float64],
         path: str,
-        stack: tuple[str, ...] = (),
+        active_instance_stack: tuple[str, ...] = (),
     ) -> None:
         transform = parent_transform @ node_transform(node)
         node_id = node.get("id") or path
@@ -112,13 +148,12 @@ class _SceneBuilder:
             tag = etree.QName(child).localname
             child_path = f"{path}/{position}"
             if tag == "node":
-                self.walk_node(child, transform, child_path, stack)
+                self.walk_node(child, transform, child_path, active_instance_stack)
             elif tag == "instance_geometry":
                 self.add_geometry_instance(child, transform, node_id, node_name, child_path)
             elif tag == "instance_node":
                 reference = _internal_reference(child.get("url"), "instance_node")
-                if reference in stack:
-                    raise PVColladaValidationError("cyclic instance_node reference")
+                next_stack = self.budget.follow_instance(reference, active_instance_stack)
                 try:
                     referenced = self.library_nodes[reference]
                 except KeyError as exc:
@@ -130,9 +165,9 @@ class _SceneBuilder:
                     namespaces=_NS,
                 )
                 if table is not None:
-                    self.add_table(referenced, transform, table, node_name, stack + (reference,))
+                    self.add_table(referenced, transform, table, node_name, next_stack)
                 else:
-                    self.walk_node(referenced, transform, child_path, stack + (reference,))
+                    self.walk_node(referenced, transform, child_path, next_stack)
 
     def add_table(
         self,
@@ -140,7 +175,7 @@ class _SceneBuilder:
         transform: npt.NDArray[np.float64],
         instance_table: etree._Element,
         source_name: str | None,
-        stack: tuple[str, ...],
+        active_instance_stack: tuple[str, ...],
     ) -> None:
         table_id = _required_id(instance_table, "instance_table")
         model_type = model.findtext(
@@ -155,7 +190,12 @@ class _SceneBuilder:
             raise PVColladaValidationError("table type must be fixed or tracker")
         rack_parts: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.int64]]] = []
 
-        def collect(node: etree._Element, parent: npt.NDArray[np.float64], path: str) -> None:
+        def collect(
+            node: etree._Element,
+            parent: npt.NDArray[np.float64],
+            path: str,
+            stack: tuple[str, ...],
+        ) -> None:
             current = parent @ node_transform(node)
             for position, child in enumerate(node):
                 if not isinstance(child.tag, str):
@@ -165,10 +205,11 @@ class _SceneBuilder:
                 tag = etree.QName(child).localname
                 child_path = f"{path}/{position}"
                 if tag == "node":
-                    collect(child, current, child_path)
+                    collect(child, current, child_path, stack)
                 elif tag == "instance_geometry":
                     marker = _pvc_instance_marker(child)
                     if marker == "instance_rack":
+                        self.budget.resolve_geometry()
                         geometry_id, parsed = self.resolve_geometry(child)
                         rack_type = self.geometry_elements[geometry_id].findtext(
                             f"c:extra/c:technique[@profile='{PVCOLLADA_PROFILE}']/pv:rack/pv:rack_type",
@@ -195,17 +236,16 @@ class _SceneBuilder:
                         )
                 elif tag == "instance_node":
                     reference = _internal_reference(child.get("url"), "instance_node")
-                    if reference in stack:
-                        raise PVColladaValidationError("cyclic instance_node reference")
+                    next_stack = self.budget.follow_instance(reference, stack)
                     try:
                         nested = self.library_nodes[reference]
                     except KeyError as exc:
                         raise PVColladaValidationError(
                             f"dangling instance_node reference: {reference}"
                         ) from exc
-                    collect(nested, current, child_path)
+                    collect(nested, current, child_path, next_stack)
 
-        collect(model, transform, table_id)
+        collect(model, transform, table_id, active_instance_stack)
         if not rack_parts:
             raise PVColladaValidationError(f"table {table_id} has no rack receiving geometry")
         mesh = _combine_meshes(rack_parts)
@@ -245,6 +285,7 @@ class _SceneBuilder:
         source_name: str | None,
         path: str,
     ) -> None:
+        self.budget.resolve_geometry()
         geometry_id, parsed = self.resolve_geometry(instance)
         vertices = transform_vertices(parsed.vertices, transform, self.unit_to_m)
         mesh = TriangleMesh(vertices, parsed.faces)
@@ -322,6 +363,7 @@ def import_pvcollada_2(data: bytes, *, geometry_revision: str) -> PVColladaImpor
         terrains=[],
         receivers=[],
         shading=[],
+        budget=_ExpansionBudget(),
     )
     scene_instance = root.find("c:scene/c:instance_visual_scene", namespaces=_NS)
     if scene_instance is None:
