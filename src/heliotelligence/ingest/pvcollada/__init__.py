@@ -1,5 +1,24 @@
 """Secure PVCollada 2.0 geometry ingestion."""
 
+from heliotelligence.ingest.pvcollada.acceptance import (
+    AcceptanceCheck,
+    AcceptanceStatus,
+    BoundingBox,
+    BoundingBoxExpectation,
+    GeolocationExpectation,
+    PVColladaAcceptanceExpectations,
+    PVColladaAcceptanceReport,
+    PVColladaCanonicalSummary,
+    ReceiverExpectation,
+    ReceiverOrientation,
+    ReceiverSummary,
+    TerrainElevationExpectation,
+    acceptance_report_dict,
+    derive_receiver_orientation,
+    evaluate_pvcollada_acceptance,
+    parse_acceptance_expectations,
+    summarize_site_geometry,
+)
 from heliotelligence.ingest.pvcollada.importer import (
     PVColladaDiagnostic,
     PVColladaImportError,
@@ -12,6 +31,14 @@ from heliotelligence.ingest.pvcollada.importer import (
 )
 
 __all__ = [
+    "AcceptanceCheck",
+    "AcceptanceStatus",
+    "BoundingBox",
+    "BoundingBoxExpectation",
+    "GeolocationExpectation",
+    "PVColladaAcceptanceExpectations",
+    "PVColladaAcceptanceReport",
+    "PVColladaCanonicalSummary",
     "PVColladaDiagnostic",
     "PVColladaImportError",
     "PVColladaImportResult",
@@ -19,5 +46,14 @@ __all__ = [
     "PVColladaResourceLimitError",
     "PVColladaUnsupportedError",
     "PVColladaValidationError",
+    "ReceiverExpectation",
+    "ReceiverOrientation",
+    "ReceiverSummary",
+    "TerrainElevationExpectation",
+    "acceptance_report_dict",
+    "derive_receiver_orientation",
+    "evaluate_pvcollada_acceptance",
     "import_pvcollada_2",
+    "parse_acceptance_expectations",
+    "summarize_site_geometry",
 ]
