@@ -1,0 +1,16 @@
+PVCollada validation and support resources
+==========================================
+
+The COLLADA XSD, PVCollada XSD, and three PVCollada Schematron files in this
+directory are copied without modification from https://github.com/pvlib/pvcollada at commit
+2fcb4616f77ea26c875a758d11f7061fd41a2250.
+
+The exact upstream PVCollada BSD 2-Clause LICENSE is included as
+LICENSE.pvcollada.txt.
+
+The COLLADA XSD imports the W3C XML namespace schema and the optional MathML
+formula namespace by remote URL. xml.xsd is separately sourced from W3C.
+mathml2_geometry_stub.xsd is a Heliotelligence-created local support resource
+that prevents runtime network resolution of the optional MathML schema. S3
+does not interpret COLLADA formula or kinematics payloads; formula content
+remains outside the supported geometry contract.

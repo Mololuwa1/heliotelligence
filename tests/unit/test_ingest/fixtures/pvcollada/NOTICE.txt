@@ -1,0 +1,3 @@
+Official PVCollada 2.0 examples copied without modification from
+https://github.com/pvlib/pvcollada at commit
+2fcb4616f77ea26c875a758d11f7061fd41a2250 under its BSD 2-Clause License.
