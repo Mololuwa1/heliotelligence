@@ -114,6 +114,20 @@ def _parse_source(source: etree._Element) -> npt.NDArray[np.float64]:
     if len(arrays) != 1 or accessor is None:
         raise PVColladaValidationError("position source requires one float_array and accessor")
     array = arrays[0]
+    array_id = _required_id(array)
+    accessor_source = accessor.get("source")
+    if (
+        not accessor_source
+        or not accessor_source.startswith("#")
+        or len(accessor_source) == 1
+    ):
+        raise PVColladaValidationError(
+            "accessor source must be an internal float_array reference"
+        )
+    if accessor_source[1:] != array_id:
+        raise PVColladaValidationError(
+            "accessor source must reference its local float_array"
+        )
     values = _float_text(array, "float_array")
     declared = _positive_int(array.get("count"), "float_array count", allow_zero=True)
     if declared != len(values):

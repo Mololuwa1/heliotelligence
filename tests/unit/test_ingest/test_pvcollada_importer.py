@@ -265,6 +265,24 @@ def test_malformed_geometry_data_is_rejected(old: bytes, new: bytes, match: str)
         import_pvcollada_2(_FIXED.replace(old, new, 1), geometry_revision="bad-mesh")
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (b'source="#terrain1FloatArray"', b'source="#danglingFloatArray"'),
+        (b' source="#terrain1FloatArray"', b""),
+        (
+            b'source="#terrain1FloatArray"',
+            b'source="https://example.invalid/array"',
+        ),
+        (b'source="#terrain1FloatArray"', b'source="#rack1FloatArray"'),
+    ],
+)
+def test_invalid_accessor_source_reference_is_rejected(old: bytes, new: bytes) -> None:
+    source = _FIXED.replace(old, new, 1)
+    with pytest.raises(PVColladaValidationError, match="accessor source|attribute 'source'"):
+        import_pvcollada_2(source, geometry_revision="bad-accessor-reference")
+
+
 def test_external_geometry_reference_is_rejected() -> None:
     source = _FIXED.replace(b'url="#Terrain1"', b'url="https://example.invalid/terrain"', 1)
     with pytest.raises((PVColladaUnsupportedError, PVColladaValidationError)):
