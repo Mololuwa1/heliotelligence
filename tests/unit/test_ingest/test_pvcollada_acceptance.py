@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
@@ -425,3 +426,171 @@ def test_cli_returns_distinct_nonzero_for_import_failure(tmp_path: Path) -> None
     text = report.read_text(encoding="utf-8")
     assert "<private customer xml" not in text
     assert str(tmp_path) not in text
+
+
+def test_cli_rejects_report_input_collision_without_overwriting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "confidential-site.pvc2"
+    manifest = tmp_path / "private-expectations.json"
+    source.write_bytes(_FIXED)
+    manifest.write_text('{"expected_receiver_count": 3}', encoding="utf-8")
+    original_source = source.read_bytes()
+    assert (
+        cli_main(
+            [
+                "--input",
+                str(source),
+                "--geometry-revision",
+                "private-revision",
+                "--expectations",
+                str(manifest),
+                "--report",
+                str(source),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert source.read_bytes() == original_source
+    assert "Traceback" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert captured.out == ""
+
+
+def test_cli_rejects_report_expectations_collision_without_overwriting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "confidential-site.pvc2"
+    manifest = tmp_path / "private-expectations.json"
+    source.write_bytes(_FIXED)
+    manifest.write_text('{"expected_receiver_count": 3}', encoding="utf-8")
+    original_manifest = manifest.read_bytes()
+    assert (
+        cli_main(
+            [
+                "--input",
+                str(source.resolve()),
+                "--geometry-revision",
+                "private-revision",
+                "--expectations",
+                str(manifest.resolve()),
+                "--report",
+                str(tmp_path / "." / manifest.name),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert manifest.read_bytes() == original_manifest
+    assert "Traceback" not in captured.err
+    assert str(tmp_path) not in captured.err
+
+
+def test_cli_rejects_symlink_alias_without_overwriting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "confidential-site.pvc2"
+    manifest = tmp_path / "private-expectations.json"
+    alias = tmp_path / "private-report.json"
+    source.write_bytes(_FIXED)
+    manifest.write_text("{}", encoding="utf-8")
+    try:
+        alias.symlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {type(exc).__name__}")
+    original_source = source.read_bytes()
+    assert (
+        cli_main(
+            [
+                "--input",
+                str(source),
+                "--geometry-revision",
+                "private-revision",
+                "--expectations",
+                str(manifest),
+                "--report",
+                str(alias),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert source.read_bytes() == original_source
+    assert "Traceback" not in captured.err
+    assert str(tmp_path) not in captured.err
+
+
+def test_cli_rejects_hard_link_alias_without_overwriting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "confidential-site.pvc2"
+    manifest = tmp_path / "private-expectations.json"
+    alias = tmp_path / "private-report.json"
+    source.write_bytes(_FIXED)
+    manifest.write_text("{}", encoding="utf-8")
+    try:
+        os.link(source, alias)
+    except OSError as exc:
+        pytest.skip(f"hard links unavailable: {type(exc).__name__}")
+    original_source = source.read_bytes()
+    assert (
+        cli_main(
+            [
+                "--input",
+                str(source),
+                "--geometry-revision",
+                "private-revision",
+                "--expectations",
+                str(manifest),
+                "--report",
+                str(alias),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert source.read_bytes() == original_source
+    assert "Traceback" not in captured.err
+    assert str(tmp_path) not in captured.err
+
+
+def test_cli_handles_report_write_failure_without_path_leak(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "confidential-site.pvc2"
+    manifest = tmp_path / "private-expectations.json"
+    report = tmp_path / "private-report.json"
+    source.write_bytes(_FIXED)
+    manifest.write_text('{"expected_receiver_count": 3}', encoding="utf-8")
+    original_source = source.read_bytes()
+    original_manifest = manifest.read_bytes()
+
+    def fail_write(self: Path, data: str, *, encoding: str) -> int:
+        del self, data, encoding
+        raise OSError("private filesystem path should not escape")
+
+    monkeypatch.setattr(Path, "write_text", fail_write)
+    assert (
+        cli_main(
+            [
+                "--input",
+                str(source),
+                "--geometry-revision",
+                "private-revision",
+                "--expectations",
+                str(manifest),
+                "--report",
+                str(report),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.err == "unable to write acceptance report\n"
+    assert "Traceback" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert source.read_bytes() == original_source
+    assert manifest.read_bytes() == original_manifest
