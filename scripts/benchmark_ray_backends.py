@@ -44,10 +44,22 @@ class FirstHits:
     object_id: IntArray
 
 
+@dataclass(frozen=True)
+class AllHits:
+    """All intersections, ordered by ray then increasing distance."""
+
+    ray_index: IntArray
+    distance_m: FloatArray
+    primitive_index: IntArray
+    object_id: IntArray
+
+
 class RayBackend(Protocol):
     """Minimum candidate behavior exercised by this spike."""
 
     def cast_first(self, origins: FloatArray, directions: FloatArray) -> FirstHits: ...
+
+    def cast_all(self, origins: FloatArray, directions: FloatArray) -> AllHits: ...
 
     def cast_any(
         self,
@@ -101,6 +113,51 @@ def grid_scene(nx: int, ny: int, *, z_m: float = 1.0, origin_m: float = 0.0) -> 
     return MeshScene(vertices, face_array, np.zeros(len(face_array), dtype=np.int64))
 
 
+def rectangle_scene(
+    *,
+    center_enu_m: tuple[float, float, float],
+    u_axis_enu: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    v_axis_enu: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    span_u_m: float = 2.0,
+    span_v_m: float = 2.0,
+    object_id: int = 0,
+) -> MeshScene:
+    """Represent a deterministic rectangle as two triangles."""
+    center = np.asarray(center_enu_m, dtype=np.float64)
+    half_u = np.asarray(u_axis_enu, dtype=np.float64) * span_u_m / 2.0
+    half_v = np.asarray(v_axis_enu, dtype=np.float64) * span_v_m / 2.0
+    vertices = np.asarray(
+        (center - half_u - half_v, center + half_u - half_v,
+         center + half_u + half_v, center - half_u + half_v),
+        dtype=np.float64,
+    )
+    return MeshScene(
+        vertices,
+        np.asarray(((0, 1, 2), (0, 2, 3)), dtype=np.int64),
+        np.full(2, object_id, dtype=np.int64),
+    )
+
+
+def combine_scenes(*scenes: MeshScene) -> MeshScene:
+    """Concatenate logical objects while retaining deterministic face ownership."""
+    if not scenes:
+        return MeshScene(
+            np.empty((0, 3), dtype=np.float64),
+            np.empty((0, 3), dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+        )
+    vertices: list[FloatArray] = []
+    faces: list[IntArray] = []
+    objects: list[IntArray] = []
+    offset = 0
+    for scene in scenes:
+        vertices.append(scene.vertices)
+        faces.append(scene.faces + offset)
+        objects.append(scene.face_object_ids)
+        offset += len(scene.vertices)
+    return MeshScene(np.vstack(vertices), np.vstack(faces), np.concatenate(objects))
+
+
 def benchmark_rays(
     count: int, nx: int, ny: int, *, origin_m: float = 0.0
 ) -> tuple[FloatArray, FloatArray]:
@@ -144,6 +201,21 @@ class TrimeshEmbreexBackend:
         objects[hit] = self._objects[primitive[hit]]
         return FirstHits(hit, distance, primitive, objects)
 
+    def cast_all(self, origins: FloatArray, directions: FloatArray) -> AllHits:
+        origins, directions = validate_rays(origins, directions)
+        primitive, ray, locations = self._intersector.intersects_id(
+            origins, directions, return_locations=True, multiple_hits=True
+        )
+        primitive = np.asarray(primitive, dtype=np.int64)
+        ray = np.asarray(ray, dtype=np.int64)
+        locations = np.asarray(locations, dtype=np.float64)
+        distance = np.linalg.norm(locations - origins[ray], axis=1)
+        order = np.lexsort((primitive, distance, ray))
+        primitive = primitive[order]
+        ray = ray[order]
+        distance = distance[order]
+        return AllHits(ray, distance, primitive, self._objects[primitive])
+
     def cast_any(
         self,
         origins: FloatArray,
@@ -152,9 +224,13 @@ class TrimeshEmbreexBackend:
         t_min_m: float = 0.0,
         t_max_m: float | None = None,
     ) -> BoolArray:
-        first = self.cast_first(origins, directions)
+        origins, directions = validate_rays(origins, directions)
+        hits = self.cast_all(origins, directions)
         upper = np.inf if t_max_m is None else t_max_m
-        return first.hit & (first.distance_m >= t_min_m) & (first.distance_m <= upper)
+        valid = (hits.distance_m >= t_min_m) & (hits.distance_m <= upper)
+        result = np.zeros(len(origins), dtype=np.bool_)
+        result[hits.ray_index[valid]] = True
+        return result
 
 
 class Open3DBackend:
@@ -185,6 +261,18 @@ class Open3DBackend:
         objects = np.full(len(distance), -1, dtype=np.int64)
         objects[hit] = self._objects[primitive[hit]]
         return FirstHits(hit, distance, primitive, objects)
+
+    def cast_all(self, origins: FloatArray, directions: FloatArray) -> AllHits:
+        rays = self._rays(origins, directions)
+        answer = self._scene.list_intersections(rays)
+        ray = answer["ray_ids"].numpy().astype(np.int64)
+        distance = answer["t_hit"].numpy().astype(np.float64)
+        primitive = answer["primitive_ids"].numpy().astype(np.int64)
+        order = np.lexsort((primitive, distance, ray))
+        ray = ray[order]
+        distance = distance[order]
+        primitive = primitive[order]
+        return AllHits(ray, distance, primitive, self._objects[primitive])
 
     def cast_any(
         self,
@@ -228,6 +316,162 @@ def correctness_cases(backend: RayBackend) -> dict[str, object]:
         "primitive_indices": first.primitive_index.tolist(),
         "object_ids": first.object_id.tolist(),
         "bounded_0_5m": backend.cast_any(origins, directions, t_max_m=0.5).tolist(),
+    }
+
+
+def rectangular_oracle_case() -> tuple[MeshScene, FloatArray, FloatArray, BoolArray]:
+    """Construct the 100-ray reference-oracle inputs independently of a candidate."""
+    from heliotelligence.physics.shading import (  # type: ignore[import-untyped]
+        RectangularSurface3D,
+        calculate_direct_beam_visibility_map,
+        solar_direction_enu,
+    )
+
+    receiver = RectangularSurface3D(
+        "receiver", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), 2.0, 2.0
+    )
+    blocker = RectangularSurface3D(
+        "blocker", (0.55, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), 0.8, 2.4
+    )
+    reference = calculate_direct_beam_visibility_map(
+        [receiver, blocker],
+        ["receiver"],
+        solar_zenith_deg=0.0,
+        solar_azimuth_deg=180.0,
+        samples_u=10,
+        samples_v=10,
+    )
+    scene = rectangle_scene(
+        center_enu_m=blocker.center_enu_m,
+        span_u_m=blocker.span_u_m,
+        span_v_m=blocker.span_v_m,
+        object_id=20,
+    )
+    origins = reference[["sample_east_m", "sample_north_m", "sample_up_m"]].to_numpy()
+    direction = np.asarray(solar_direction_enu(0.0, 180.0), dtype=np.float64)
+    directions = np.tile(direction, (len(origins), 1))
+    expected = reference["beam_shaded"].to_numpy(dtype=np.bool_)
+    return scene, origins, directions, expected
+
+
+def rectangular_oracle_comparison(name: str) -> dict[str, object]:
+    """Compare a 10x10 partial-blocker scene with the production reference oracle."""
+    scene, origins, directions, expected = rectangular_oracle_case()
+    actual = make_backend(name, scene).cast_any(origins, directions, t_min_m=1e-9)
+    mismatches = np.flatnonzero(actual != expected)
+    return {
+        "reference_function": "calculate_direct_beam_visibility_map",
+        "comparable_rays": int(len(origins)),
+        "excluded_ambiguous_rays": 0,
+        "mismatch_count": int(len(mismatches)),
+        "mismatch_indices": mismatches.tolist(),
+    }
+
+
+def synthetic_correctness_suite(name: str) -> dict[str, object]:
+    """Run the material S5A synthetic correctness and feasibility cases."""
+    up = np.asarray(((0.0, 0.0, 1.0),), dtype=np.float64)
+    down = np.asarray(((0.0, 0.0, -1.0),), dtype=np.float64)
+    center = np.asarray(((0.25, 0.25, 0.0),), dtype=np.float64)
+    plane = rectangle_scene(center_enu_m=(0.0, 0.0, 1.0), object_id=10)
+    plane_backend = make_backend(name, plane)
+
+    full = bool(plane_backend.cast_any(center, up)[0])
+    partial_origins = np.asarray(((0.25, 0.25, 0.0), (1.25, 0.25, 0.0)))
+    partial = plane_backend.cast_any(partial_origins, np.tile(up, (2, 1))).tolist()
+    parallel = bool(plane_backend.cast_any(center, np.asarray(((1.0, 0.0, 0.0),)))[0])
+    away = bool(plane_backend.cast_any(center, down)[0])
+    close = bool(
+        plane_backend.cast_any(
+            np.asarray(((0.25, 0.25, 1.0 - 1e-6),)), up, t_min_m=1e-9
+        )[0]
+    )
+    backface = bool(
+        plane_backend.cast_any(np.asarray(((0.25, 0.25, 2.0),)), down, t_min_m=1e-9)[0]
+    )
+
+    rotated = rectangle_scene(
+        center_enu_m=(0.0, 0.0, 1.0),
+        u_axis_enu=(1.0, 0.0, 0.0),
+        v_axis_enu=(0.0, 2**-0.5, 2**-0.5),
+        object_id=30,
+    )
+    rotated_hit = bool(make_backend(name, rotated).cast_any(center, up)[0])
+
+    arbitrary = MeshScene(
+        np.asarray(((-0.5, -0.5, 1.0), (0.75, -0.5, 1.0), (0.0, 0.75, 1.0))),
+        np.asarray(((0, 1, 2),), dtype=np.int64),
+        np.asarray((40,), dtype=np.int64),
+    )
+    arbitrary_hit = bool(make_backend(name, arbitrary).cast_any(center, up)[0])
+
+    stacked = combine_scenes(
+        rectangle_scene(center_enu_m=(0.0, 0.0, 0.001), object_id=101),
+        rectangle_scene(center_enu_m=(0.0, 0.0, 2.0), object_id=202),
+    )
+    stacked_backend = make_backend(name, stacked)
+    stacked_first = stacked_backend.cast_first(center, up)
+    stacked_all = stacked_backend.cast_all(center, up)
+    repeated_first = stacked_backend.cast_first(center, up)
+    bounded = {
+        "first_below_t_min_second_valid": bool(
+            stacked_backend.cast_any(center, up, t_min_m=0.01, t_max_m=3.0)[0]
+        ),
+        "all_below_t_min": bool(stacked_backend.cast_any(center, up, t_min_m=3.0)[0]),
+        "nearest_beyond_t_max": bool(stacked_backend.cast_any(center, up, t_max_m=0.0005)[0]),
+        "valid_between_bounds": bool(
+            stacked_backend.cast_any(center, up, t_min_m=1.0, t_max_m=3.0)[0]
+        ),
+    }
+
+    self_scene = combine_scenes(
+        rectangle_scene(center_enu_m=(0.0, 0.0, 0.0), object_id=301),
+        rectangle_scene(center_enu_m=(0.0, 0.0, 2.0), object_id=302),
+    )
+    self_hits = make_backend(name, self_scene).cast_all(center, up)
+    surviving = self_hits.object_id != 301
+
+    terrain = grid_scene(4, 5, z_m=0.5)
+    terrain_hit = bool(make_backend(name, terrain).cast_any(center, up)[0])
+    disconnected = combine_scenes(
+        rectangle_scene(center_enu_m=(0.0, 0.0, 1.0), object_id=401),
+        rectangle_scene(center_enu_m=(4.0, 0.0, 1.0), object_id=402),
+    )
+    disconnected_backend = make_backend(name, disconnected)
+    disconnected_origins = np.asarray(((0.25, 0.25, 0.0), (4.25, 0.25, 0.0)))
+    disconnected_first = disconnected_backend.cast_first(
+        disconnected_origins, np.tile(up, (2, 1))
+    )
+
+    return {
+        "no_occluder": {"logical_empty_result": False, "adapter_short_circuit_required": True},
+        "one_rectangle": full,
+        "full_blocker": full,
+        "partial_blocker": partial,
+        "rotated_blocker": rotated_hit,
+        "multiple_disconnected_object_ids": disconnected_first.object_id.tolist(),
+        "stacked_first_object_id": int(stacked_first.object_id[0]),
+        "stacked_repeated_identity": bool(
+            np.array_equal(stacked_first.object_id, repeated_first.object_id)
+            and np.array_equal(stacked_first.primitive_index, repeated_first.primitive_index)
+        ),
+        "stacked_all_distances_m": stacked_all.distance_m.tolist(),
+        "stacked_all_primitive_indices": stacked_all.primitive_index.tolist(),
+        "stacked_all_object_ids": stacked_all.object_id.tolist(),
+        "parallel_hit": parallel,
+        "away_hit": away,
+        "close_hit": close,
+        "terrain_like_hit": terrain_hit,
+        "arbitrary_triangle_hit": arbitrary_hit,
+        "two_sided_backface_hit": backface,
+        "bounded": bounded,
+        "self_hit": {
+            "distances_m": self_hits.distance_m.tolist(),
+            "primitive_indices": self_hits.primitive_index.tolist(),
+            "object_ids": self_hits.object_id.tolist(),
+            "surviving_distances_m": self_hits.distance_m[surviving].tolist(),
+            "surviving_object_ids": self_hits.object_id[surviving].tolist(),
+        },
     }
 
 
@@ -279,6 +523,8 @@ def main() -> int:
         "platform": platform.platform(),
         "python": sys.version.split()[0],
         "correctness": correctness_cases(backend),
+        "rectangular_oracle": rectangular_oracle_comparison(args.backend),
+        "synthetic_correctness": synthetic_correctness_suite(args.backend),
         "small": run_benchmark(args.backend, 5, 10, counts, origin_m=0.0),
         "representative": run_benchmark(args.backend, 100, 250, counts, origin_m=0.0),
         "translated_1km": run_benchmark(args.backend, 5, 10, [10_000], origin_m=1_000.0),

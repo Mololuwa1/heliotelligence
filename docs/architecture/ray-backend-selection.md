@@ -48,22 +48,52 @@ minimum distance, and optional maximum distance. Trimesh exposes `intersects_fir
 concatenated mesh permits a face-index-to-canonical-object lookup. Open3D exposes
 `cast_rays` and `test_occlusions`, with geometry and primitive IDs directly.
 
-The synthetic review covered: no occluder; two-triangle rectangles; full and partial
-blocking; a rotated plane; multiple and disconnected objects; stacked first-hit
-objects; parallel and away-pointing rays; close origins; a triangulated grid; and an
-arbitrary triangle. Exact edge/vertex rays were excluded because ownership at a
-shared mathematical boundary is backend-dependent. Independently calculated
-interior hit/miss and first-distance cases agreed for both candidates.
+The committed harness reproduces: a logical empty scene; two-triangle rectangles;
+full and partial blocking; a rotated plane; multiple/disconnected objects; stacked
+first-hit objects; parallel, away-pointing, and close-origin rays; a terrain-like
+triangulated grid; an arbitrary triangle; two-sided/backface intersection; and an
+origin-on-triangle self-hit probe. Exact edge/vertex rays are excluded only when a
+case lands on a shared mathematical boundary. The current oracle case has no such
+samples.
 
-The repository rectangular oracle was evaluated with a 10x10 receiver grid and a
-half-width rectangular blocker represented by two triangles. Both candidates matched
-all 100 non-edge shaded/unshaded classifications (0 mismatches). The benchmark
-script's additional four-ray analytical check also had 0 mismatches for each engine.
+The repository's public `calculate_direct_beam_visibility_map` function is called
+directly with a 10x10 receiver grid and a partial rectangular blocker represented by
+two triangles. Both candidates produced 100 comparable rays, 0 ambiguous exclusions,
+and 0 mismatches. Mismatch indices are included in the structured output. The
+additional four-ray analytical check also had 0 mismatches for each engine.
+
+Reproduction commands from repository root, after installing a candidate in an
+isolated environment, are:
+
+```text
+PYTHONPATH=src <candidate-python> scripts/benchmark_ray_backends.py \
+  --backend trimesh-embreex --full
+PYTHONPATH=src <candidate-python> scripts/benchmark_ray_backends.py \
+  --backend open3d --full
+```
+
+The selected environment used Python 3.11.8, NumPy 2.4.6, Trimesh 5.1.0, and embreex
+4.4.0. Its optional wrapper tests were executed explicitly with the selected packages:
+13 passed. Normal project CI runs 11 dependency-neutral tests and reports the two
+candidate tests as skipped because optional packages are intentionally absent; those
+skips are not the selected-backend validation evidence.
 
 Both engines treat triangles as opaque from either side in the tested CPU paths and
-support non-watertight/disconnected meshes. Empty-scene behavior should be handled by
-the future adapter as an immediate all-miss result rather than asking either engine
-to build an empty acceleration structure.
+support non-watertight/disconnected meshes. Empty-scene behavior is explicitly a
+logical adapter short-circuit to all-miss rather than construction of an empty engine
+scene.
+
+The bounded-ray probe contains stacked hits at 0.001 m (object 101) and 2.0 m (object
+202). With `t_min=0.01` and `t_max=3.0`, both engines return true by continuing to the
+second hit. All hits below `t_min` returns false, the nearest hit beyond `t_max` returns
+false, and a hit within both bounds returns true. The Trimesh spike wrapper now uses
+`intersects_id(..., multiple_hits=True)` rather than filtering only the raw first hit.
+
+The self-hit probe reports primitive indices `[0, 2]`, object IDs `[301, 302]`, and
+distances `[0.0, 2.0]` with Trimesh+embreex. Excluding originating object 301 leaves
+the genuine object-302 hit at 2.0 m. Repeated stacked queries return identical
+primitive and object identity. Open3D returned the same ownership with the second
+distance at approximately 1.99999988 m.
 
 ## Numerical observations
 
