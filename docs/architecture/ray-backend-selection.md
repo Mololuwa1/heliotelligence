@@ -1,6 +1,6 @@
 # S5A production mesh ray-backend selection
 
-Date: 2026-09-14  
+Date: 2026-09-14
 Base: `aabf52468a51252cc2dcbd1c8e239ab1cd92daf2`
 
 ## Decision
