@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from itertools import permutations
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
@@ -135,6 +136,58 @@ def test_sampler_area_distribution_translation_and_input_immutability() -> None:
     np.testing.assert_array_equal(mesh.vertices_enu_m, before)
 
 
+@pytest.mark.parametrize("count", [1, 7, 64])
+def test_single_triangle_all_vertex_permutations_are_invariant(count: int) -> None:
+    vertices = np.asarray(
+        ((-1.25, 0.5, 2.0), (3.75, -2.0, 4.5), (0.25, 5.0, -1.0)),
+        dtype=np.float64,
+    )
+    expected = sample_triangle_mesh(
+        TriangleMesh(vertices, np.asarray(((0, 1, 2),))), count
+    )
+    for permutation in permutations((0, 1, 2)):
+        mesh = TriangleMesh(vertices, np.asarray((permutation,), dtype=np.int64))
+        np.testing.assert_array_equal(sample_triangle_mesh(mesh, count), expected)
+
+
+def test_rectangle_winding_and_face_order_are_invariant() -> None:
+    vertices = _rectangle().vertices_enu_m.copy()
+    face_variants = (
+        ((0, 1, 2), (0, 2, 3)),
+        ((0, 2, 1), (0, 3, 2)),
+        ((0, 2, 3), (0, 1, 2)),
+        ((0, 3, 2), (0, 2, 1)),
+    )
+    expected = sample_triangle_mesh(
+        TriangleMesh(vertices, np.asarray(face_variants[0], dtype=np.int64)), 127
+    )
+    for faces in face_variants[1:]:
+        mesh = TriangleMesh(vertices, np.asarray(faces, dtype=np.int64))
+        np.testing.assert_array_equal(sample_triangle_mesh(mesh, 127), expected)
+
+
+def test_vertex_index_renumbering_is_invariant() -> None:
+    original = _rectangle()
+    permutation = np.asarray((2, 0, 3, 1), dtype=np.int64)
+    inverse = np.empty_like(permutation)
+    inverse[permutation] = np.arange(len(permutation))
+    renumbered = TriangleMesh(
+        original.vertices_enu_m[permutation], inverse[original.faces]
+    )
+    np.testing.assert_array_equal(
+        sample_triangle_mesh(original, 93), sample_triangle_mesh(renumbered, 93)
+    )
+
+
+def test_duplicate_geometric_triangles_are_deterministic() -> None:
+    vertices = np.asarray(((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+    first = TriangleMesh(vertices, np.asarray(((0, 1, 2), (2, 1, 0))))
+    second = TriangleMesh(vertices, np.asarray(((1, 0, 2), (0, 2, 1))))
+    np.testing.assert_array_equal(
+        sample_triangle_mesh(first, 31), sample_triangle_mesh(second, 31)
+    )
+
+
 @pytest.mark.parametrize(
     ("role", "expected_shaded"),
     [
@@ -214,6 +267,57 @@ def test_occluder_input_order_does_not_change_nonambiguous_physics() -> None:
         first_result.samples["blocking_distance_m"],
         second_result.samples["blocking_distance_m"],
     )
+
+
+def test_receiver_representation_does_not_change_physics() -> None:
+    vertices = _rectangle().vertices_enu_m.copy()
+    normal = TriangleMesh(vertices, np.asarray(((0, 1, 2), (0, 2, 3))))
+    reversed_and_swapped = TriangleMesh(
+        vertices, np.asarray(((0, 3, 2), (0, 2, 1)))
+    )
+    blocker = _object("partial", center=(-0.5, 0.0, 1.0), width=1.0)
+    scenes = (
+        NearObjectBeamScene([_receiver(mesh=normal)], [blocker], samples_per_receiver=127),
+        NearObjectBeamScene(
+            [_receiver(mesh=reversed_and_swapped)], [blocker], samples_per_receiver=127
+        ),
+    )
+    visibility = tuple(
+        scene.calculate_visibility(
+            apparent_solar_zenith_deg=0.0, solar_azimuth_deg=180.0
+        )
+        for scene in scenes
+    )
+    columns = ["sample_east_m", "sample_north_m", "sample_up_m"]
+    np.testing.assert_array_equal(
+        visibility[0].samples[columns].to_numpy(),
+        visibility[1].samples[columns].to_numpy(),
+    )
+    np.testing.assert_array_equal(
+        visibility[0].samples["beam_visible"], visibility[1].samples["beam_visible"]
+    )
+    np.testing.assert_array_equal(
+        visibility[0].samples["beam_shaded"], visibility[1].samples["beam_shaded"]
+    )
+    assert visibility[0].samples["blocking_object_id"].equals(
+        visibility[1].samples["blocking_object_id"]
+    )
+    np.testing.assert_array_equal(
+        visibility[0].samples["blocking_distance_m"],
+        visibility[1].samples["blocking_distance_m"],
+    )
+    pd.testing.assert_frame_equal(visibility[0].receivers, visibility[1].receivers)
+
+    raw, zenith, azimuth = _timeseries([800.0])
+    coupled = tuple(
+        calculate_near_object_direct_beam_shading(raw, zenith, azimuth, scene=scene)
+        for scene in scenes
+    )
+    for column in (
+        "poa_direct_near_object_visible_wm2",
+        "near_object_shading_loss_wm2",
+    ):
+        np.testing.assert_array_equal(coupled[0][column], coupled[1][column])
 
 
 def test_backface_arbitrary_blocker_and_tracker_pose_are_supported() -> None:

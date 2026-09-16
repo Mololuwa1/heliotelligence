@@ -207,7 +207,7 @@ def sample_triangle_mesh(
     count = _positive_integer(samples_per_receiver, "samples_per_receiver")
     if len(mesh.faces) == 0:
         raise ValueError("receiver mesh must be non-empty")
-    triangles = mesh.vertices_enu_m[mesh.faces]
+    triangles = _canonical_triangles(mesh.vertices_enu_m[mesh.faces])
     doubled_area_vectors = np.cross(
         triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]
     )
@@ -224,6 +224,19 @@ def sample_triangle_mesh(
     barycentric = np.column_stack((1.0 - root_u, root_u * (1.0 - v), root_u * v))
     selected = triangles[triangle_indices]
     return np.asarray(np.einsum("ni,nij->nj", barycentric, selected), dtype=np.float64)
+
+
+def _canonical_triangles(
+    triangles: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Canonicalize triangle vertices and triangle order from ENU coordinates."""
+    canonical = np.empty_like(triangles)
+    for index, triangle in enumerate(triangles):
+        vertex_order = np.lexsort((triangle[:, 2], triangle[:, 1], triangle[:, 0]))
+        canonical[index] = triangle[vertex_order]
+    keys = canonical.reshape((len(canonical), 9))
+    triangle_order = np.lexsort(tuple(keys[:, column] for column in range(8, -1, -1)))
+    return np.asarray(canonical[triangle_order], dtype=np.float64)
 
 
 def calculate_near_object_direct_beam_shading(
