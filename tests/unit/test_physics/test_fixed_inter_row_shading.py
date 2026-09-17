@@ -128,6 +128,70 @@ def test_array_topology_validation() -> None:
             _array(rows, axis_tilt=tilt)
 
 
+def test_two_row_reverse_cycle_is_rejected() -> None:
+    rows = (_row("A", "a"), _row("B", "b"))
+    pairs = (
+        FixedRowBlockingPair("A", "B", 3.0),
+        FixedRowBlockingPair("B", "A", 3.0),
+    )
+    with pytest.raises(ValueError, match="must be acyclic"):
+        _array(rows, pairs)
+
+
+def test_longer_cross_axis_cycle_is_rejected() -> None:
+    rows = (_row("A", "a"), _row("B", "b"), _row("C", "c"))
+    pairs = (
+        FixedRowBlockingPair("A", "B", 3.0),
+        FixedRowBlockingPair("B", "C", 3.0),
+        FixedRowBlockingPair("C", "A", 3.0),
+    )
+    with pytest.raises(ValueError, match="must be acyclic"):
+        _array(rows, pairs)
+
+
+def test_transitive_and_disconnected_dags_are_accepted() -> None:
+    transitive_rows = (_row("A", "a"), _row("B", "b"), _row("C", "c"))
+    transitive_pairs = (
+        FixedRowBlockingPair("A", "B", 3.0),
+        FixedRowBlockingPair("B", "C", 3.0),
+        FixedRowBlockingPair("A", "C", 6.0),
+    )
+    assert _array(transitive_rows, transitive_pairs).blocking_pairs == transitive_pairs
+
+    disconnected_rows = (
+        _row("A", "a"),
+        _row("B", "b"),
+        _row("C", "c"),
+        _row("D", "d"),
+    )
+    disconnected_pairs = (
+        FixedRowBlockingPair("A", "B", 3.0),
+        FixedRowBlockingPair("C", "D", 4.0),
+    )
+    assert _array(disconnected_rows, disconnected_pairs).blocking_pairs == disconnected_pairs
+
+
+def test_valid_dag_pair_order_does_not_change_physics() -> None:
+    receivers = [_receiver("a"), _receiver("b"), _receiver("c")]
+    rows = (_row("A", "a"), _row("B", "b"), _row("C", "c"))
+    pairs = (
+        FixedRowBlockingPair("A", "B", 3.0),
+        FixedRowBlockingPair("B", "C", 3.0),
+        FixedRowBlockingPair("A", "C", 6.0),
+    )
+    forward = (
+        FixedInterRowScene(receivers, [_array(rows, pairs)])
+        .calculate_visibility(apparent_solar_zenith_deg=80.0, solar_azimuth_deg=90.0)
+        .receivers
+    )
+    reversed_order = (
+        FixedInterRowScene(receivers, [_array(rows, tuple(reversed(pairs)))])
+        .calculate_visibility(apparent_solar_zenith_deg=80.0, solar_azimuth_deg=90.0)
+        .receivers
+    )
+    pd.testing.assert_frame_equal(forward, reversed_order)
+
+
 def test_blocking_pair_rejects_unequal_collector_widths() -> None:
     rows = (
         _row("target", "target", width=2.0),

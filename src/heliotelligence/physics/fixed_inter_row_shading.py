@@ -182,6 +182,7 @@ class FixedRowArrayDefinition:
                 raise ValueError("fixed-row blocking pairs require equal collector widths")
             pair_keys.append((pair.negative_side_row_id, pair.positive_side_row_id))
         _require_unique(pair_keys, "blocking pairs")
+        _require_acyclic_row_order(row_ids, pair_keys)
 
 
 @dataclass(frozen=True)
@@ -570,6 +571,27 @@ def _require_unique(values: Iterable[object], label: str) -> None:
     items = tuple(values)
     if any(count > 1 for count in Counter(items).values()):
         raise ValueError(f"{label} must be unique")
+
+
+def _require_acyclic_row_order(row_ids: tuple[str, ...], pair_keys: list[tuple[str, str]]) -> None:
+    """Require a consistent negative-to-positive cross-axis partial order."""
+    outgoing = {row_id: set[str]() for row_id in row_ids}
+    indegree = {row_id: 0 for row_id in row_ids}
+    for negative_row_id, positive_row_id in pair_keys:
+        outgoing[negative_row_id].add(positive_row_id)
+        indegree[positive_row_id] += 1
+    ready = sorted(row_id for row_id, count in indegree.items() if count == 0)
+    visited = 0
+    while ready:
+        row_id = ready.pop(0)
+        visited += 1
+        for positive_row_id in sorted(outgoing[row_id]):
+            indegree[positive_row_id] -= 1
+            if indegree[positive_row_id] == 0:
+                ready.append(positive_row_id)
+                ready.sort()
+    if visited != len(row_ids):
+        raise ValueError("fixed-row blocking-pair topology must be acyclic")
 
 
 def _validated_sequence(value: object, kind: type[_T], name: str) -> tuple[_T, ...]:
