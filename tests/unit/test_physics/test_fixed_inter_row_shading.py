@@ -72,7 +72,13 @@ def _three_row_scene(
 
 
 def _geometric_fraction(
-    *, zenith: float, pitch: float, rotation: float, width: float, count: int = 100_000
+    *,
+    zenith: float,
+    pitch: float,
+    rotation: float,
+    width: float,
+    blocker_width: float | None = None,
+    count: int = 100_000,
 ) -> float:
     """Independent 2-D ray/segment oracle for a north-axis, east-sun pair."""
     angle = np.radians(rotation)
@@ -82,7 +88,8 @@ def _geometric_fraction(
     origins = locations[:, None] * row_vector
     system = np.column_stack((sun, -row_vector))
     solutions = np.linalg.solve(system, (np.asarray((pitch, 0.0)) - origins).T).T
-    hits = (solutions[:, 0] > 0.0) & (np.abs(solutions[:, 1]) <= width / 2.0)
+    blocking_width = width if blocker_width is None else blocker_width
+    hits = (solutions[:, 0] > 0.0) & (np.abs(solutions[:, 1]) <= blocking_width / 2.0)
     return float(np.mean(hits))
 
 
@@ -119,6 +126,46 @@ def test_array_topology_validation() -> None:
     for tilt in (-91.0, 91.0, np.inf, True):
         with pytest.raises(ValueError):
             _array(rows, axis_tilt=tilt)
+
+
+def test_blocking_pair_rejects_unequal_collector_widths() -> None:
+    rows = (
+        _row("target", "target", width=2.0),
+        _row("blocker", "blocker", width=0.5),
+    )
+    pair = FixedRowBlockingPair("target", "blocker", 3.0)
+    with pytest.raises(ValueError, match="require equal collector widths"):
+        _array(rows, (pair,))
+
+
+def test_pair_width_constraint_is_local_to_each_array() -> None:
+    array_a = _array(
+        (_row("a-negative", "a0", width=2.0), _row("a-positive", "a1", width=2.0)),
+        (FixedRowBlockingPair("a-negative", "a-positive", 3.0),),
+        array_id="array-a",
+    )
+    array_b = _array(
+        (_row("b-negative", "b0", width=2.5), _row("b-positive", "b1", width=2.5)),
+        (FixedRowBlockingPair("b-negative", "b-positive", 4.0),),
+        array_id="array-b",
+    )
+    scene = FixedInterRowScene(
+        [_receiver("a0"), _receiver("a1"), _receiver("b0"), _receiver("b1")],
+        [array_a, array_b],
+    )
+    assert scene.receiver_ids == ("a0", "a1", "b0", "b1")
+
+
+def test_independent_geometry_proves_blocker_width_materially_changes_shade() -> None:
+    equal_width = _geometric_fraction(
+        zenith=75.0, pitch=3.0, rotation=30.0, width=2.0, blocker_width=2.0
+    )
+    narrow_blocker = _geometric_fraction(
+        zenith=75.0, pitch=3.0, rotation=30.0, width=2.0, blocker_width=0.5
+    )
+    assert equal_width == pytest.approx(0.45096, abs=2e-5)
+    assert narrow_blocker == pytest.approx(0.07596, abs=2e-5)
+    assert equal_width - narrow_blocker > 0.20
 
 
 @pytest.mark.parametrize(
@@ -265,7 +312,7 @@ def test_pitch_solar_elevation_and_nonuniform_pitch_effects() -> None:
 def test_parameter_mapping_different_rotations_slope_and_axis_tilt() -> None:
     rows = (
         _row("target", "target", rotation=50.0, width=2.5),
-        _row("blocker", "blocker", rotation=30.0, width=9.0),
+        _row("blocker", "blocker", rotation=30.0, width=2.5),
     )
     pair = FixedRowBlockingPair("target", "blocker", 4.0, 7.0)
     scene = FixedInterRowScene(

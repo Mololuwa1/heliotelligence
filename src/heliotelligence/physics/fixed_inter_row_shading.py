@@ -1,8 +1,10 @@
 """Analytical fixed inter-row direct-beam shading over explicit row topology.
 
-This module implements the one-dimensional parallel-row mechanism only. It
-does not infer rows from canonical geometry and applies no terrain, near-object,
-tracker, diffuse, rear-side, IAM, or electrical model.
+This module implements the one-dimensional parallel-row mechanism only. S6B
+v1 requires equal collector width within every explicit blocking pair because
+pvlib's analytical model accepts one collector-width parameter. It does not
+infer rows from canonical geometry and applies no terrain, near-object, tracker,
+diffuse, rear-side, IAM, or electrical model.
 
 The positive cross-axis side is 90 degrees clockwise from ``axis_azimuth_deg``
 when projected horizontally. A positive projected solar zenith therefore makes
@@ -28,6 +30,8 @@ from heliotelligence.geometry import PVReceiver, ReceiverKind
 MODEL_ID = "pvlib_shaded_fraction1d_fixed_inter_row_v1"
 _BOUND_TOLERANCE = 1e-12
 _SIDE_TOLERANCE_DEG = 1e-12
+_PAIR_WIDTH_RTOL = 1e-12
+_PAIR_WIDTH_ATOL_M = 1e-12
 _T = TypeVar("_T")
 
 _VISIBILITY_COLUMNS = [
@@ -159,6 +163,7 @@ class FixedRowArrayDefinition:
         row_ids = tuple(row.row_id for row in self.rows)
         _require_unique(row_ids, "row IDs within an array")
         row_id_set = set(row_ids)
+        rows_by_id = {row.row_id: row for row in self.rows}
         pair_keys: list[tuple[str, str]] = []
         for pair in self.blocking_pairs:
             if (
@@ -166,6 +171,15 @@ class FixedRowArrayDefinition:
                 or pair.positive_side_row_id not in row_id_set
             ):
                 raise ValueError("blocking pairs must refer to rows in their array")
+            negative_width = rows_by_id[pair.negative_side_row_id].collector_width_m
+            positive_width = rows_by_id[pair.positive_side_row_id].collector_width_m
+            if not np.isclose(
+                negative_width,
+                positive_width,
+                rtol=_PAIR_WIDTH_RTOL,
+                atol=_PAIR_WIDTH_ATOL_M,
+            ):
+                raise ValueError("fixed-row blocking pairs require equal collector widths")
             pair_keys.append((pair.negative_side_row_id, pair.positive_side_row_id))
         _require_unique(pair_keys, "blocking pairs")
 
