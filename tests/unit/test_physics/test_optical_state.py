@@ -42,13 +42,18 @@ from heliotelligence.physics.terrain_horizon import (
 )
 
 
-def _receiver(identifier: str, *, kind: ReceiverKind = ReceiverKind.FIXED_TABLE) -> PVReceiver:
+def _receiver(
+    identifier: str,
+    *,
+    kind: ReceiverKind = ReceiverKind.FIXED_TABLE,
+    normal: tuple[float, float, float] = (0.0, 0.0, 1.0),
+) -> PVReceiver:
     vertices = np.asarray(((0.0, 0.0, 1.0), (0.0, 1.0, 1.0), (1.0, 0.0, 1.0)))
     return PVReceiver(
         identifier,
         TriangleMesh(vertices, np.asarray(((0, 1, 2),))),
         (1 / 3, 1 / 3, 1.0),
-        (0.0, 0.0, 1.0),
+        normal,
         kind,
     )
 
@@ -154,6 +159,103 @@ def test_aoi_and_iam_consistency_gates() -> None:
     iam["a"].iloc[0, iam["a"].columns.get_loc("aoi_deg")] += 1.0
     bundle["beam_iam_by_receiver"] = iam
     with pytest.raises(ValueError, match="IAM AOI"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "ghi_wm2",
+        "dhi_wm2",
+        "dni_wm2",
+        "apparent_solar_zenith_deg",
+        "solar_azimuth_deg",
+        "dni_extra_wm2",
+    ],
+)
+def test_common_front_meteorology_and_solar_state_is_required(column: str) -> None:
+    bundle = _bundle()
+    frame = bundle["front_poa_by_receiver"]["b"]
+    frame.iloc[0, frame.columns.get_loc(column)] += 1.0
+    with pytest.raises(ValueError, match="inconsistent receiver front meteorology/solar state"):
+        _assemble(bundle)
+
+
+def test_common_front_irradiance_nan_pattern_is_required() -> None:
+    bundle = _bundle()
+    bundle["front_poa_by_receiver"]["b"].iloc[0, 0] = np.nan
+    with pytest.raises(ValueError, match="inconsistent receiver front meteorology/solar state"):
+        _assemble(bundle)
+
+
+def test_receiver_specific_orientation_poa_and_aoi_remain_valid() -> None:
+    bundle = _bundle()
+    tilted = _receiver("b", normal=(0.0, -0.5, float(np.sqrt(3.0) / 2.0)))
+    bundle["receivers"] = [bundle["receivers"][1], tilted]
+    ghi, dhi, dni, zenith, azimuth = _inputs()
+    tilted_front = calculate_raw_poa_transposition(
+        ghi,
+        dhi,
+        dni,
+        zenith,
+        azimuth,
+        surface_tilt_deg=30.0,
+        surface_azimuth_deg=180.0,
+        albedo=0.2,
+        model="perez-driesse",
+    )
+    bundle["front_poa_by_receiver"]["b"] = tilted_front
+    bundle["beam_iam_by_receiver"]["b"] = calculate_beam_iam(
+        tilted_front["aoi_deg"], model="ashrae", model_parameters={"b": 0.05}
+    )
+    for mechanism in ("terrain_horizon", "fixed_inter_row", "near_object"):
+        for timestamp in tilted_front.index:
+            bundle[mechanism].loc[(timestamp, "b"), "poa_direct_raw_wm2"] = tilted_front.loc[
+                timestamp, "poa_direct_raw_wm2"
+            ]
+    bundle["diffuse_sky_visibility"] = DiffuseSkyScene(
+        bundle["receivers"],
+        samples_per_receiver=2,
+        sky_direction_count=8,
+        max_rays_per_batch=7,
+    ).calculate_visibility()
+    state = _assemble(bundle).state
+    assert not np.allclose(
+        state.loc[(slice(None), "a"), "aoi_deg"],
+        state.loc[(slice(None), "b"), "aoi_deg"],
+    )
+    assert not np.allclose(
+        state.loc[(slice(None), "a"), "poa_global_raw_wm2"],
+        state.loc[(slice(None), "b"), "poa_global_raw_wm2"],
+    )
+
+
+@pytest.mark.parametrize("factor", [-0.1, 1.1, np.inf, -np.inf, True, "0.5"])
+def test_resolved_iam_factor_must_be_physical(factor: object) -> None:
+    bundle = _bundle()
+    frame = bundle["beam_iam_by_receiver"]["a"]
+    frame["beam_iam_factor"] = frame["beam_iam_factor"].astype(object)
+    frame.iloc[0, frame.columns.get_loc("beam_iam_factor")] = factor
+    with pytest.raises(ValueError, match="beam IAM factor"):
+        _assemble(bundle)
+
+
+def test_unresolved_iam_factor_is_preserved_without_replacement() -> None:
+    bundle = _bundle()
+    frame = bundle["beam_iam_by_receiver"]["a"]
+    frame.loc[frame.index[0], "beam_iam_resolved"] = False
+    frame.loc[frame.index[0], "beam_iam_factor"] = np.nan
+    row = _assemble(bundle).state.loc[(frame.index[0], "a")]
+    assert not bool(row["beam_iam_resolved"])
+    assert np.isnan(row["beam_iam_factor"])
+    assert "poa_direct_after_iam_wm2" not in row.index
+
+
+def test_diffuse_receiver_normal_identity_is_required() -> None:
+    bundle = _bundle()
+    diffuse = bundle["diffuse_sky_visibility"]
+    diffuse.receivers.loc[0, "receiver_normal_east"] += 0.1
+    with pytest.raises(ValueError, match="receiver normal"):
         _assemble(bundle)
 
 
@@ -318,6 +420,7 @@ def test_unresolved_front_irradiance_is_not_filled() -> None:
     front = bundle["front_poa_by_receiver"]["a"]
     front.loc[key[0], ["ghi_wm2", "poa_direct_raw_wm2", "poa_global_raw_wm2"]] = np.nan
     front.loc[key[0], "poa_transposition_resolved"] = False
+    bundle["front_poa_by_receiver"]["b"].loc[key[0], "ghi_wm2"] = np.nan
     for name in ("terrain_horizon", "fixed_inter_row", "near_object"):
         bundle[name].loc[key, "poa_direct_raw_wm2"] = np.nan
     row = _assemble(bundle).state.loc[key]

@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
 from typing import Any, Literal, TypeVar, cast
 
 import numpy as np
@@ -25,6 +26,14 @@ DIFFUSE_SKY_ROLE = "geometric_visibility_only_not_scalar_perez_attenuation"
 RearOpticalMode = Literal["not_applicable", "fixed_bifacial_rear"]
 _TOLERANCE = 1e-9
 _ANGULAR_TOLERANCE_DEG = 1e-8
+_COMMON_FRONT_COLUMNS = (
+    "ghi_wm2",
+    "dhi_wm2",
+    "dni_wm2",
+    "apparent_solar_zenith_deg",
+    "solar_azimuth_deg",
+    "dni_extra_wm2",
+)
 _T = TypeVar("_T")
 
 _FRONT_COLUMNS = [
@@ -187,7 +196,7 @@ def assemble_receiver_optical_state(
     terrain = _validated_mechanism_frame(terrain_horizon, canonical_index, "terrain_horizon")
     fixed = _validated_mechanism_frame(fixed_inter_row, canonical_index, "fixed_inter_row")
     near = _validated_mechanism_frame(near_object, canonical_index, "near_object")
-    diffuse = _validated_diffuse(diffuse_sky_visibility, receiver_ids)
+    diffuse = _validated_diffuse(diffuse_sky_visibility, receiver_ids, receivers_by_id)
     rear_ids = tuple(
         identifier
         for identifier in receiver_ids
@@ -278,6 +287,32 @@ def _validated_front_frames(
         elif not index.equals(reference) or index.name != reference.name:
             raise ValueError("all front POA frames must use the exact same timestamp index")
     assert reference is not None
+    reference_frame = frames[receiver_ids[0]]
+    for receiver_id in receiver_ids[1:]:
+        candidate = frames[receiver_id]
+        for column in _COMMON_FRONT_COLUMNS:
+            reference_values = reference_frame[column].to_numpy(dtype=np.float64)
+            candidate_values = candidate[column].to_numpy(dtype=np.float64)
+            if column in ("ghi_wm2", "dhi_wm2", "dni_wm2"):
+                valid = np.isnan(reference_values) == np.isnan(candidate_values)
+                finite = np.isfinite(reference_values) | np.isnan(reference_values)
+                candidate_finite = np.isfinite(candidate_values) | np.isnan(candidate_values)
+            else:
+                valid = np.ones(len(reference_values), dtype=bool)
+                finite = np.isfinite(reference_values)
+                candidate_finite = np.isfinite(candidate_values)
+            equal = np.isclose(
+                reference_values,
+                candidate_values,
+                rtol=1e-12,
+                atol=_TOLERANCE,
+                equal_nan=True,
+            )
+            if not np.all(valid & finite & candidate_finite & equal):
+                raise ValueError(
+                    "inconsistent receiver front meteorology/solar state: "
+                    f"{column} differs for receiver {receiver_id!r}"
+                )
     return reference
 
 
@@ -294,6 +329,13 @@ def _validated_iam_row(
     row = frame.loc[timestamp]
     if not _same_number(row["aoi_deg"], front["aoi_deg"], _ANGULAR_TOLERANCE_DEG):
         raise ValueError("beam IAM AOI must match front POA AOI")
+    if bool(row["beam_iam_resolved"]):
+        factor = row["beam_iam_factor"]
+        if isinstance(factor, (bool, np.bool_)) or not isinstance(factor, Real):
+            raise ValueError("resolved beam IAM factor must be a finite real in [0, 1]")
+        factor_value = float(factor)
+        if not np.isfinite(factor_value) or not (-_TOLERANCE <= factor_value <= 1.0 + _TOLERANCE):
+            raise ValueError("resolved beam IAM factor must be a finite real in [0, 1]")
     return row
 
 
@@ -346,15 +388,32 @@ def _validated_mechanism_frame(
     return frame.reindex(canonical)
 
 
-def _validated_diffuse(value: object, receiver_ids: tuple[str, ...]) -> pd.DataFrame:
+def _validated_diffuse(
+    value: object,
+    receiver_ids: tuple[str, ...],
+    receivers_by_id: Mapping[str, PVReceiver],
+) -> pd.DataFrame:
     if not isinstance(value, DiffuseSkyVisibility):
         raise ValueError("diffuse_sky_visibility must be a DiffuseSkyVisibility")
     frame = value.receivers
-    required = _DIFFUSE_COLUMNS[:-1]
+    normal_columns = (
+        "receiver_normal_east",
+        "receiver_normal_north",
+        "receiver_normal_up",
+    )
+    required = [*_DIFFUSE_COLUMNS[:-1], *normal_columns]
     _require_columns(frame, required, "diffuse sky visibility")
     if frame["receiver_id"].duplicated().any() or set(frame["receiver_id"]) != set(receiver_ids):
         raise ValueError("diffuse sky visibility requires exactly one row per receiver")
-    return frame.set_index("receiver_id").reindex(receiver_ids)
+    ordered = frame.set_index("receiver_id").reindex(receiver_ids)
+    for receiver_id in receiver_ids:
+        supplied = ordered.loc[receiver_id, list(normal_columns)].to_numpy(dtype=np.float64)
+        expected = np.asarray(receivers_by_id[receiver_id].normal_enu, dtype=np.float64)
+        if not np.all(np.isfinite(supplied)) or not np.allclose(
+            supplied, expected, rtol=1e-12, atol=_TOLERANCE
+        ):
+            raise ValueError("diffuse sky receiver normal does not match canonical PVReceiver")
+    return ordered
 
 
 def _validated_rear(
