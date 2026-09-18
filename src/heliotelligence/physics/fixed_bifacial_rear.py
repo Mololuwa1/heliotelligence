@@ -52,6 +52,7 @@ _COLUMNS = [
     "row_center_height_m",
     "albedo",
     "poa_rear_direct_raw_wm2",
+    "poa_rear_circumsolar_diffuse_raw_wm2",
     "poa_rear_sky_diffuse_raw_wm2",
     "poa_rear_ground_diffuse_raw_wm2",
     "poa_rear_diffuse_raw_wm2",
@@ -240,7 +241,15 @@ def calculate_fixed_bifacial_rear_irradiance(
                 npoints=scene._view_factor_points,
                 vectorize=False,
             )
-            by_array[summary.array_id] = _validated_pvlib_output(raw, np.count_nonzero(complete))
+            by_array[summary.array_id] = _classified_pvlib_output(
+                raw,
+                np.count_nonzero(complete),
+                summary,
+                zenith[complete],
+                azimuth[complete],
+                dni[complete],
+                model,
+            )
     return _result_frame(
         scene,
         index,
@@ -342,9 +351,16 @@ def _require_normal_consistency(receiver: PVReceiver, summary: _ArraySummary) ->
         raise ValueError("canonical receiver normal conflicts with fixed-row orientation")
 
 
-def _validated_pvlib_output(
-    raw: dict[str, object], count: int
+def _classified_pvlib_output(
+    raw: dict[str, object],
+    count: int,
+    summary: _ArraySummary,
+    zenith: npt.NDArray[np.float64],
+    azimuth: npt.NDArray[np.float64],
+    original_dni: npt.NDArray[np.float64],
+    model: RearDiffuseModel,
 ) -> dict[str, npt.NDArray[np.float64]]:
+    """Validate pvlib energy and classify Hay-Davies circumsolar as diffuse."""
     keys = (
         "poa_direct",
         "poa_sky_diffuse",
@@ -373,7 +389,51 @@ def _validated_pvlib_output(
         atol=_CLOSURE_ATOL,
     ):
         raise RuntimeError("pvlib rear irradiance components do not close")
-    return output
+    shaded = np.clip(output["shaded_fraction"], 0.0, 1.0)
+    if model == "haydavies":
+        unshaded_beam = np.asarray(
+            _pvlib_irradiance.beam_component(
+                summary.rear_surface_tilt_deg,
+                summary.rear_surface_azimuth_deg,
+                zenith,
+                azimuth,
+                original_dni,
+            ),
+            dtype=np.float64,
+        )
+        true_beam = unshaded_beam * (1.0 - shaded)
+        circumsolar = output["poa_direct"] - true_beam
+        if np.any(circumsolar < -_CLOSURE_ATOL):
+            raise RuntimeError("pvlib Hay-Davies circumsolar classification is negative")
+        circumsolar = np.maximum(circumsolar, 0.0)
+    else:
+        true_beam = output["poa_direct"].copy()
+        circumsolar = np.zeros(count, dtype=np.float64)
+    sky = output["poa_sky_diffuse"] + circumsolar
+    ground = output["poa_ground_diffuse"].copy()
+    diffuse = sky + ground
+    global_total = true_beam + diffuse
+    if not np.allclose(
+        true_beam + circumsolar,
+        output["poa_direct"],
+        rtol=1e-12,
+        atol=_CLOSURE_ATOL,
+    ) or not np.allclose(
+        global_total,
+        output["poa_global"],
+        rtol=1e-12,
+        atol=_CLOSURE_ATOL,
+    ):
+        raise RuntimeError("corrected rear irradiance classification does not conserve energy")
+    return {
+        "direct": true_beam,
+        "circumsolar": circumsolar,
+        "sky": sky,
+        "ground": ground,
+        "diffuse": diffuse,
+        "global": global_total,
+        "shaded_fraction": shaded,
+    }
 
 
 def _result_frame(
@@ -398,7 +458,7 @@ def _result_frame(
     columns["solar_azimuth_deg"] = np.repeat(azimuth, len(receiver_ids))
     columns["dni_extra_wm2"] = np.repeat(dni_extra, len(receiver_ids))
     float_static = {name: np.full(shape, np.nan) for name in _COLUMNS[7:18]}
-    result_values = {name: np.full(shape, np.nan) for name in _COLUMNS[18:24]}
+    result_values = {name: np.full(shape, np.nan) for name in _COLUMNS[18:25]}
     array_ids = np.full(shape, None, dtype=object)
     for position, receiver_id in enumerate(receiver_ids):
         summary = scene._receiver_summary[receiver_id]
@@ -421,13 +481,14 @@ def _result_frame(
         if np.any(complete):
             output = by_array[summary.array_id]
             for name, key in zip(
-                _COLUMNS[18:24],
+                _COLUMNS[18:25],
                 (
-                    "poa_direct",
-                    "poa_sky_diffuse",
-                    "poa_ground_diffuse",
-                    "poa_diffuse",
-                    "poa_global",
+                    "direct",
+                    "circumsolar",
+                    "sky",
+                    "ground",
+                    "diffuse",
+                    "global",
                     "shaded_fraction",
                 ),
                 strict=True,
@@ -498,7 +559,7 @@ def _receiver_time_index(index: pd.DatetimeIndex, receiver_ids: list[str]) -> pd
 
 
 def _typed_result(result: pd.DataFrame) -> pd.DataFrame:
-    float_columns = _COLUMNS[:6] + _COLUMNS[7:24]
+    float_columns = _COLUMNS[:6] + _COLUMNS[7:25]
     for column in float_columns:
         result[column] = result[column].astype("float64")
     result["rear_irradiance_resolved"] = result["rear_irradiance_resolved"].astype("bool")

@@ -164,6 +164,7 @@ def test_albedo_zero_and_linear_scaling() -> None:
     doubled = _calculate(inputs=_inputs(scale=2.0))
     for column in (
         "poa_rear_direct_raw_wm2",
+        "poa_rear_circumsolar_diffuse_raw_wm2",
         "poa_rear_sky_diffuse_raw_wm2",
         "poa_rear_ground_diffuse_raw_wm2",
         "poa_rear_diffuse_raw_wm2",
@@ -175,8 +176,11 @@ def test_albedo_zero_and_linear_scaling() -> None:
 @pytest.mark.parametrize("model", ["isotropic", "haydavies"])
 def test_direct_pvlib_reference_parity(model: str) -> None:
     scene = _scene(points=31)
-    result = _calculate(scene, model=model).xs("r0", level="receiver_id")
     ghi, dhi, dni, zenith, azimuth = _inputs()
+    zenith = pd.Series((70.0, 75.0), index=zenith.index)
+    azimuth = pd.Series((270.0, 270.0), index=azimuth.index)
+    reference_inputs = (ghi, dhi, dni, zenith, azimuth)
+    result = _calculate(scene, model=model, inputs=reference_inputs).xs("r0", level="receiver_id")
     dni_extra = irradiance.get_extra_radiation(ghi.index) if model == "haydavies" else None
     reference = get_irradiance_poa(
         150.0,
@@ -196,17 +200,64 @@ def test_direct_pvlib_reference_parity(model: str) -> None:
         npoints=31,
         vectorize=False,
     )
-    mapping = {
-        "poa_rear_direct_raw_wm2": "poa_direct",
-        "poa_rear_sky_diffuse_raw_wm2": "poa_sky_diffuse",
-        "poa_rear_ground_diffuse_raw_wm2": "poa_ground_diffuse",
-        "poa_rear_diffuse_raw_wm2": "poa_diffuse",
-        "poa_rear_global_raw_wm2": "poa_global",
-        "rear_direct_shaded_fraction": "shaded_fraction",
-    }
-    for output, source in mapping.items():
-        np.testing.assert_allclose(result[output], reference[source], rtol=1e-12, atol=1e-9)
-    if model == "haydavies":
+    np.testing.assert_allclose(
+        result["poa_rear_ground_diffuse_raw_wm2"],
+        reference["poa_ground_diffuse"],
+        rtol=1e-12,
+        atol=1e-9,
+    )
+    np.testing.assert_allclose(
+        result["rear_direct_shaded_fraction"],
+        reference["shaded_fraction"],
+        rtol=1e-12,
+        atol=1e-9,
+    )
+    np.testing.assert_allclose(
+        result["poa_rear_global_raw_wm2"], reference["poa_global"], rtol=1e-12, atol=1e-9
+    )
+    if model == "isotropic":
+        assert (result["poa_rear_circumsolar_diffuse_raw_wm2"] == 0.0).all()
+        np.testing.assert_allclose(
+            result["poa_rear_direct_raw_wm2"], reference["poa_direct"], rtol=1e-12, atol=1e-9
+        )
+        np.testing.assert_allclose(
+            result["poa_rear_sky_diffuse_raw_wm2"],
+            reference["poa_sky_diffuse"],
+            rtol=1e-12,
+            atol=1e-9,
+        )
+    else:
+        unshaded_original_beam = irradiance.beam_component(
+            150.0,
+            270.0,
+            zenith.to_numpy(),
+            azimuth.to_numpy(),
+            dni.to_numpy(),
+        )
+        true_beam = unshaded_original_beam * (1.0 - reference["shaded_fraction"])
+        circumsolar = reference["poa_direct"] - true_beam
+        assert np.any(circumsolar > 0.0)
+        np.testing.assert_allclose(
+            result["poa_rear_direct_raw_wm2"], true_beam, rtol=1e-12, atol=1e-9
+        )
+        np.testing.assert_allclose(
+            result["poa_rear_circumsolar_diffuse_raw_wm2"],
+            circumsolar,
+            rtol=1e-12,
+            atol=1e-9,
+        )
+        np.testing.assert_allclose(
+            result["poa_rear_direct_raw_wm2"] + result["poa_rear_circumsolar_diffuse_raw_wm2"],
+            reference["poa_direct"],
+            rtol=1e-12,
+            atol=1e-9,
+        )
+        np.testing.assert_allclose(
+            result["poa_rear_sky_diffuse_raw_wm2"],
+            reference["poa_sky_diffuse"] + circumsolar,
+            rtol=1e-12,
+            atol=1e-9,
+        )
         assert np.isfinite(result["dni_extra_wm2"]).all()
 
 
