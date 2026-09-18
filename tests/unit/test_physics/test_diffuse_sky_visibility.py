@@ -197,7 +197,26 @@ def test_receiver_blocking_is_explicit_and_self_excluded() -> None:
     )
     assert _fraction(_scene(receivers=[target, blocker])) == 1.0
     assert _fraction(_scene(receivers=[target], receiver_occluders=[blocker])) < 0.75
-    assert _fraction(_scene(receivers=[target], receiver_occluders=[target])) == 1.0
+    reconstructed_target = _receiver("target")
+    assert reconstructed_target == target
+    assert reconstructed_target is not target
+    assert (
+        _fraction(_scene(receivers=[target], receiver_occluders=[reconstructed_target]))
+        == 1.0
+    )
+
+
+def test_conflicting_receiver_occluder_identity_is_rejected() -> None:
+    target = _receiver("shared")
+    conflicting = PVReceiver(
+        "shared",
+        _east_wall(),
+        (0.5, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        ReceiverKind.FIXED_TABLE,
+    )
+    with pytest.raises(ValueError, match="must match the same canonical PVReceiver"):
+        _scene(receivers=[target], receiver_occluders=[conflicting])
 
 
 @pytest.mark.parametrize(

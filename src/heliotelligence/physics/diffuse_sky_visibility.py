@@ -123,6 +123,14 @@ class DiffuseSkyScene:
             raise ValueError("target and non-receiver occluder canonical IDs must be unique")
         _require_fixed(self._receivers, "target receiver")
         _require_fixed(receiver_blockers, "receiver occluder")
+        targets_by_id = {item.id: item for item in self._receivers}
+        for blocker in receiver_blockers:
+            target = targets_by_id.get(blocker.id)
+            if target is not None and blocker != target:
+                raise ValueError(
+                    "receiver occluder sharing a target receiver ID must match "
+                    "the same canonical PVReceiver"
+                )
 
         self._samples_per_receiver = _positive_integer(samples_per_receiver, "samples_per_receiver")
         self._sky_direction_count = _positive_integer(sky_direction_count, "sky_direction_count")
