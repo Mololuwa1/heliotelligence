@@ -17,7 +17,10 @@ from heliotelligence.physics.diffuse_iam import (
     DiffuseIAMResult,
     calculate_diffuse_iam,
 )
-from heliotelligence.physics.diffuse_sky_visibility import DiffuseComponentVisibility
+from heliotelligence.physics.diffuse_sky_visibility import (
+    DIFFUSE_JOINT_OPTICAL_MODEL_ID,
+    DiffuseComponentOpticalTransmission,
+)
 from heliotelligence.physics.iam import BeamIAMModel, calculate_beam_iam
 from heliotelligence.physics.optical_state import STATE_CONTRACT_ID, OpticalStateResult
 
@@ -49,9 +52,16 @@ _OUTPUT_COLUMNS = [
     "poa_front_horizon_after_geometry_wm2",
     "poa_front_ground_diffuse_after_geometry_wm2",
     "beam_iam_factor",
-    "diffuse_sky_iam_factor",
-    "diffuse_horizon_iam_factor",
-    "diffuse_ground_iam_factor",
+    "diffuse_sky_marion_unobstructed_iam_reference",
+    "diffuse_horizon_marion_unobstructed_iam_reference",
+    "diffuse_ground_marion_unobstructed_iam_reference",
+    "diffuse_sky_visible_region_iam_factor",
+    "diffuse_horizon_visible_region_iam_factor",
+    "diffuse_ground_visible_region_iam_factor",
+    "diffuse_sky_joint_optical_transmission_factor",
+    "diffuse_horizon_joint_optical_transmission_factor",
+    "diffuse_ground_joint_optical_transmission_factor",
+    "diffuse_joint_optical_model",
     "diffuse_iam_model",
     "iam_parameter_resolution_method",
     "iam_parameter_source_label",
@@ -78,6 +88,33 @@ _OUTPUT_COLUMNS = [
     "effective_irradiance_scope",
 ]
 
+_GEOMETRY_COLUMNS = (
+    "poa_front_direct_after_geometry_wm2",
+    "poa_front_circumsolar_after_geometry_wm2",
+    "poa_front_isotropic_after_geometry_wm2",
+    "poa_front_horizon_after_geometry_wm2",
+    "poa_front_ground_diffuse_after_geometry_wm2",
+)
+_EFFECTIVE_COMPONENT_COLUMNS = (
+    "poa_front_direct_effective_wm2",
+    "poa_front_circumsolar_effective_wm2",
+    "poa_front_isotropic_effective_wm2",
+    "poa_front_horizon_effective_wm2",
+    "poa_front_ground_diffuse_effective_wm2",
+)
+_RESOLVED_COMPONENT_COLUMNS = (
+    "front_direct_effective_resolved",
+    "front_circumsolar_effective_resolved",
+    "front_isotropic_effective_resolved",
+    "front_horizon_effective_resolved",
+    "front_ground_diffuse_effective_resolved",
+)
+_TOTAL_COLUMNS = (
+    "poa_front_sky_diffuse_effective_wm2",
+    "poa_front_diffuse_effective_wm2",
+    "poa_front_effective_optical_wm2",
+)
+
 
 @dataclass(frozen=True)
 class FrontEffectiveIrradianceDiagnostics:
@@ -99,7 +136,7 @@ class FrontEffectiveIrradianceResult:
 def calculate_front_effective_irradiance(
     receivers: Sequence[PVReceiver],
     optical_state: OpticalStateResult,
-    diffuse_component_visibility: DiffuseComponentVisibility,
+    diffuse_component_visibility: DiffuseComponentOpticalTransmission,
     *,
     beam_iam_parameters_by_receiver: Mapping[str, Mapping[str, object]],
 ) -> FrontEffectiveIrradianceResult:
@@ -135,6 +172,13 @@ def calculate_front_effective_irradiance(
         parameters = _validated_parameter_resolution(beam_iam_parameters_by_receiver[receiver_id])
         receiver_state = _receiver_state(state, receiver_id)
         model = cast(BeamIAMModel, parameters["model"])
+        visibility_row = visibility.loc[receiver_id]
+        if visibility_row["diffuse_joint_beam_iam_model"] != model or visibility_row[
+            "diffuse_joint_beam_iam_parameter_signature"
+        ] != _parameter_signature(cast(Mapping[str, object], parameters["model_parameters"])):
+            raise ValueError(
+                "joint diffuse optical IAM parameters do not match beam IAM parameters"
+            )
         reproduced = calculate_beam_iam(
             pd.Series(
                 receiver_state["aoi_deg"].to_numpy(dtype=np.float64),
@@ -237,8 +281,10 @@ def _validated_component_visibility(
     receivers_by_id: Mapping[str, PVReceiver],
     state: pd.DataFrame,
 ) -> pd.DataFrame:
-    if not isinstance(value, DiffuseComponentVisibility):
-        raise ValueError("diffuse_component_visibility must be DiffuseComponentVisibility")
+    if not isinstance(value, DiffuseComponentOpticalTransmission):
+        raise ValueError(
+            "diffuse_component_visibility must be DiffuseComponentOpticalTransmission"
+        )
     frame = value.receivers
     required = {
         "receiver_id",
@@ -264,7 +310,20 @@ def _validated_component_visibility(
         "diffuse_ground_model",
         "diffuse_ground_coverage_scope",
         "ground_plane_z_m",
+        "diffuse_joint_optical_model",
+        "diffuse_joint_beam_iam_model",
+        "diffuse_joint_beam_iam_parameter_signature",
     }
+    for component in ("sky", "horizon", "ground"):
+        required.update(
+            {
+                f"diffuse_{component}_unobstructed_iam_factor",
+                f"diffuse_{component}_visible_region_iam_factor",
+                f"diffuse_{component}_joint_optical_transmission_factor",
+                f"diffuse_{component}_joint_optical_resolved",
+                f"diffuse_{component}_joint_optical_state",
+            }
+        )
     if not isinstance(frame, pd.DataFrame) or not required.issubset(frame.columns):
         raise ValueError("diffuse component visibility is missing required columns")
     if frame["receiver_id"].duplicated().any() or set(frame["receiver_id"]) != set(receiver_ids):
@@ -300,7 +359,21 @@ def _validated_component_visibility(
                 raise ValueError("S7B-1 sky provenance does not match admitted S7A S6D state")
         for component in ("sky", "horizon", "ground"):
             _validate_visibility_factor(row, component)
+            _validate_joint_factor(row, component)
+        if row["diffuse_joint_optical_model"] != DIFFUSE_JOINT_OPTICAL_MODEL_ID:
+            raise ValueError("diffuse joint optical model is not supported")
     return ordered
+
+
+def _validate_joint_factor(row: pd.Series, component: str) -> None:
+    if not bool(row[f"diffuse_{component}_joint_optical_resolved"]):
+        return
+    factor = row[f"diffuse_{component}_joint_optical_transmission_factor"]
+    if isinstance(factor, (bool, np.bool_)) or pd.isna(factor):
+        raise ValueError(f"resolved diffuse {component} joint optical factor is invalid")
+    value = float(cast(Any, factor))
+    if not np.isfinite(value) or value < -_TOLERANCE or value > 1.0 + _TOLERANCE:
+        raise ValueError(f"resolved diffuse {component} joint optical factor is invalid")
 
 
 def _validated_parameter_resolution(value: object) -> Mapping[str, object]:
@@ -327,6 +400,10 @@ def _validated_parameter_resolution(value: object) -> Mapping[str, object]:
     if not isinstance(value["is_fallback"], bool):
         raise ValueError("beam IAM parameter is_fallback must be Boolean")
     return value
+
+
+def _parameter_signature(parameters: Mapping[str, object]) -> str:
+    return repr(tuple(sorted(parameters.items())))
 
 
 def _receiver_state(state: pd.DataFrame, receiver_id: str) -> pd.DataFrame:
@@ -500,23 +577,33 @@ def _effective_row(
         horizon_geometry,
         ground_geometry,
     )
-    for column, result in zip(_OUTPUT_COLUMNS[15:20], geometry, strict=True):
+    for column, result in zip(_GEOMETRY_COLUMNS, geometry, strict=True):
         row[column] = result[0]
-    iam_values = (
+    direct_iam_values = (
         (source["beam_iam_factor"], bool(source["beam_iam_resolved"])),
         (source["beam_iam_factor"], bool(source["beam_iam_resolved"])),
-        (diffuse_iam.diffuse_sky_iam_factor, diffuse_iam.resolved),
-        (diffuse_iam.diffuse_horizon_iam_factor, diffuse_iam.resolved),
-        (diffuse_iam.diffuse_ground_iam_factor, diffuse_iam.resolved),
     )
-    effective = tuple(
+    direct_effective = tuple(
         _apply_factor(geometry_result[0], factor, geometry_result[1] and resolved)
-        for geometry_result, (factor, resolved) in zip(geometry, iam_values, strict=True)
+        for geometry_result, (factor, resolved) in zip(
+            geometry[:2], direct_iam_values, strict=True
+        )
     )
-    effective_columns = _OUTPUT_COLUMNS[29:34]
-    resolved_columns = _OUTPUT_COLUMNS[37:42]
+    diffuse_effective = tuple(
+        _apply_factor(
+            raw,
+            visibility[f"diffuse_{component}_joint_optical_transmission_factor"],
+            bool(visibility[f"diffuse_{component}_joint_optical_resolved"]),
+        )
+        for raw, component in (
+            (isotropic, "sky"),
+            (horizon, "horizon"),
+            (ground, "ground"),
+        )
+    )
+    effective = direct_effective + diffuse_effective
     for column, resolved_column, result in zip(
-        effective_columns, resolved_columns, effective, strict=True
+        _EFFECTIVE_COMPONENT_COLUMNS, _RESOLVED_COMPONENT_COLUMNS, effective, strict=True
     ):
         row[column] = result[0]
         row[resolved_column] = result[1]
@@ -583,9 +670,32 @@ def _base_row(
         "poa_front_horizon_after_geometry_wm2": np.nan,
         "poa_front_ground_diffuse_after_geometry_wm2": np.nan,
         "beam_iam_factor": source["beam_iam_factor"],
-        "diffuse_sky_iam_factor": diffuse_iam.diffuse_sky_iam_factor,
-        "diffuse_horizon_iam_factor": diffuse_iam.diffuse_horizon_iam_factor,
-        "diffuse_ground_iam_factor": diffuse_iam.diffuse_ground_iam_factor,
+        "diffuse_sky_marion_unobstructed_iam_reference": diffuse_iam.diffuse_sky_iam_factor,
+        "diffuse_horizon_marion_unobstructed_iam_reference": (
+            diffuse_iam.diffuse_horizon_iam_factor
+        ),
+        "diffuse_ground_marion_unobstructed_iam_reference": (
+            diffuse_iam.diffuse_ground_iam_factor
+        ),
+        "diffuse_sky_visible_region_iam_factor": visibility[
+            "diffuse_sky_visible_region_iam_factor"
+        ],
+        "diffuse_horizon_visible_region_iam_factor": visibility[
+            "diffuse_horizon_visible_region_iam_factor"
+        ],
+        "diffuse_ground_visible_region_iam_factor": visibility[
+            "diffuse_ground_visible_region_iam_factor"
+        ],
+        "diffuse_sky_joint_optical_transmission_factor": visibility[
+            "diffuse_sky_joint_optical_transmission_factor"
+        ],
+        "diffuse_horizon_joint_optical_transmission_factor": visibility[
+            "diffuse_horizon_joint_optical_transmission_factor"
+        ],
+        "diffuse_ground_joint_optical_transmission_factor": visibility[
+            "diffuse_ground_joint_optical_transmission_factor"
+        ],
+        "diffuse_joint_optical_model": visibility["diffuse_joint_optical_model"],
         "diffuse_iam_model": diffuse_iam.model,
         "iam_parameter_resolution_method": parameters["resolution_method"],
         "iam_parameter_source_label": parameters["source_label"],
@@ -609,9 +719,11 @@ def _apply_factor(raw: object, factor: object, resolved: bool) -> tuple[float, b
 
 def _unresolved_effective(state: str) -> dict[str, object]:
     values: dict[str, object] = {
-        column: np.nan for column in _OUTPUT_COLUMNS[15:20] + _OUTPUT_COLUMNS[29:37]
+        column: np.nan
+        for column in _GEOMETRY_COLUMNS + _EFFECTIVE_COMPONENT_COLUMNS + _TOTAL_COLUMNS
     }
-    values.update({column: False for column in _OUTPUT_COLUMNS[37:43]})
+    values.update({column: False for column in _RESOLVED_COMPONENT_COLUMNS})
+    values["front_effective_irradiance_resolved"] = False
     values["front_effective_irradiance_state"] = state
     return values
 

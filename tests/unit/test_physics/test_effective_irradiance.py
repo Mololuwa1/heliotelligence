@@ -10,7 +10,7 @@ import pytest
 
 from heliotelligence.geometry import PVReceiver, ReceiverKind, TriangleMesh
 from heliotelligence.physics.diffuse_sky_visibility import (
-    DiffuseComponentVisibility,
+    DiffuseComponentOpticalTransmission,
     DiffuseSkyScene,
 )
 from heliotelligence.physics.effective_irradiance import (
@@ -86,7 +86,9 @@ def _bundle(
     missing: bool = False,
     tilt_deg: float = 30.0,
     inputs: tuple[pd.Series, ...] | None = None,
-) -> tuple[list[PVReceiver], OpticalStateResult, DiffuseComponentVisibility, dict[str, object]]:
+) -> tuple[
+    list[PVReceiver], OpticalStateResult, DiffuseComponentOpticalTransmission, dict[str, object]
+]:
     receiver = _receiver(horizontal=horizontal, tilt_deg=tilt_deg)
     inputs = _inputs(missing=missing) if inputs is None else inputs
     tilt = 0.0 if horizontal else tilt_deg
@@ -137,18 +139,23 @@ def _bundle(
         diffuse_scene.calculate_visibility(),
         rear_mode_by_receiver={receiver.id: "not_applicable"},
     )
-    components = diffuse_scene.calculate_component_visibility(
+    components = diffuse_scene.calculate_component_optical_transmission(
         horizon_zenith_count=2,
         horizon_azimuth_count=36,
         ground_direction_count=128,
         ground_plane_z_m=0.0,
+        beam_iam_model_by_receiver={receiver.id: "ashrae"},
+        model_parameters_by_receiver={receiver.id: {"b": 0.05}},
     )
     return [receiver], optical, components, parameters
 
 
 def _calculate(
     bundle: tuple[
-        list[PVReceiver], OpticalStateResult, DiffuseComponentVisibility, dict[str, object]
+        list[PVReceiver],
+        OpticalStateResult,
+        DiffuseComponentOpticalTransmission,
+        dict[str, object],
     ],
 ) -> FrontEffectiveIrradianceResult:
     receivers, optical, components, parameters = bundle
@@ -181,7 +188,7 @@ def test_beam_iam_parameter_reproduction_gate() -> None:
     receivers, optical, components, parameters = _bundle()
     wrong = deepcopy(parameters)
     wrong["model_parameters"] = {"b": 0.2}
-    with pytest.raises(ValueError, match="do not reproduce"):
+    with pytest.raises(ValueError, match="do not match|do not reproduce"):
         calculate_front_effective_irradiance(
             receivers,
             optical,
@@ -202,31 +209,34 @@ def test_component_classification_and_output_closure() -> None:
     component_frame.loc[0, "diffuse_horizon_blocked_fraction"] = 0.6
     component_frame.loc[0, "diffuse_ground_visible_fraction"] = 0.2
     component_frame.loc[0, "diffuse_ground_blocked_fraction"] = 0.8
+    component_frame.loc[0, "diffuse_sky_joint_optical_transmission_factor"] = 0.21
+    component_frame.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = 0.31
+    component_frame.loc[0, "diffuse_ground_joint_optical_transmission_factor"] = 0.11
     # Keep S7A/S7B-1 sky identity consistent while testing component classification.
     state.loc[:, "diffuse_sky_visible_fraction"] = 0.3
     state.loc[:, "diffuse_sky_blocked_fraction"] = 0.7
     result = calculate_front_effective_irradiance(
         receivers,
         OpticalStateResult(state, optical.diagnostics),
-        DiffuseComponentVisibility(component_frame),
+        DiffuseComponentOpticalTransmission(component_frame),
         beam_iam_parameters_by_receiver={receivers[0].id: parameters},
     ).irradiance.loc[key]
     direct_expected = result["poa_front_direct_raw_wm2"] * 0.5 * result["beam_iam_factor"]
     circumsolar_expected = result["poa_front_circumsolar_raw_wm2"] * 0.5 * result["beam_iam_factor"]
-    isotropic_expected = (
-        result["poa_front_isotropic_raw_wm2"] * 0.3 * result["diffuse_sky_iam_factor"]
-    )
-    horizon_expected = (
-        result["poa_front_horizon_raw_wm2"] * 0.4 * result["diffuse_horizon_iam_factor"]
-    )
-    ground_expected = (
-        result["poa_front_ground_diffuse_raw_wm2"] * 0.2 * result["diffuse_ground_iam_factor"]
-    )
+    isotropic_expected = result["poa_front_isotropic_raw_wm2"] * 0.21
+    horizon_expected = result["poa_front_horizon_raw_wm2"] * 0.31
+    ground_expected = result["poa_front_ground_diffuse_raw_wm2"] * 0.11
     assert result["poa_front_direct_effective_wm2"] == pytest.approx(direct_expected)
     assert result["poa_front_circumsolar_effective_wm2"] == pytest.approx(circumsolar_expected)
     assert result["poa_front_isotropic_effective_wm2"] == pytest.approx(isotropic_expected)
     assert result["poa_front_horizon_effective_wm2"] == pytest.approx(horizon_expected)
     assert result["poa_front_ground_diffuse_effective_wm2"] == pytest.approx(ground_expected)
+    separable_isotropic = (
+        result["poa_front_isotropic_raw_wm2"]
+        * 0.3
+        * result["diffuse_sky_marion_unobstructed_iam_reference"]
+    )
+    assert abs(isotropic_expected - separable_isotropic) > 0.1
     assert result["poa_front_sky_diffuse_effective_wm2"] == pytest.approx(
         circumsolar_expected + isotropic_expected + horizon_expected
     )
@@ -286,7 +296,7 @@ def test_component_visibility_identity_gates() -> None:
         calculate_front_effective_irradiance(
             receivers,
             optical,
-            DiffuseComponentVisibility(changed),
+            DiffuseComponentOpticalTransmission(changed),
             beam_iam_parameters_by_receiver={receivers[0].id: parameters},
         )
     changed = components.receivers.copy()
@@ -295,7 +305,7 @@ def test_component_visibility_identity_gates() -> None:
         calculate_front_effective_irradiance(
             receivers,
             optical,
-            DiffuseComponentVisibility(changed),
+            DiffuseComponentOpticalTransmission(changed),
             beam_iam_parameters_by_receiver={receivers[0].id: parameters},
         )
 
@@ -391,7 +401,8 @@ def test_negative_perez_horizon_is_preserved_and_scaled() -> None:
         result["poa_front_horizon_raw_wm2"] * 0.5
     )
     assert result["poa_front_horizon_effective_wm2"] == pytest.approx(
-        result["poa_front_horizon_raw_wm2"] * 0.5 * result["diffuse_horizon_iam_factor"]
+        result["poa_front_horizon_raw_wm2"]
+        * result["diffuse_horizon_joint_optical_transmission_factor"]
     )
     assert result["poa_front_effective_optical_wm2"] >= 0.0
 
@@ -402,10 +413,12 @@ def test_horizon_visibility_zero_dependency() -> None:
     changed.loc[0, "diffuse_horizon_visibility_resolved"] = False
     changed.loc[0, "diffuse_horizon_visible_fraction"] = np.nan
     changed.loc[0, "diffuse_horizon_blocked_fraction"] = np.nan
+    changed.loc[0, "diffuse_horizon_joint_optical_resolved"] = False
+    changed.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = np.nan
     result = calculate_front_effective_irradiance(
         receivers,
         optical,
-        DiffuseComponentVisibility(changed),
+        DiffuseComponentOpticalTransmission(changed),
         beam_iam_parameters_by_receiver={receivers[0].id: parameters},
     ).irradiance
     assert np.isnan(result.iloc[0]["poa_front_horizon_effective_wm2"])
@@ -418,7 +431,7 @@ def test_determinism_and_empty_timestamp_output() -> None:
     bundle = _bundle()
     first = _calculate(bundle).irradiance
     receivers, optical, components, parameters = bundle
-    reversed_components = DiffuseComponentVisibility(components.receivers.iloc[::-1])
+    reversed_components = DiffuseComponentOpticalTransmission(components.receivers.iloc[::-1])
     second = calculate_front_effective_irradiance(
         list(reversed(receivers)),
         optical,
