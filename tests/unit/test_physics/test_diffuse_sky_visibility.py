@@ -19,6 +19,10 @@ from heliotelligence.geometry import (
 )
 from heliotelligence.physics.diffuse_sky_visibility import (
     COVERAGE_SCOPE,
+    GROUND_COVERAGE_SCOPE,
+    GROUND_VISIBILITY_MODEL_ID,
+    HORIZON_COVERAGE_SCOPE,
+    HORIZON_VISIBILITY_MODEL_ID,
     MODEL_ID,
     DiffuseSkyScene,
 )
@@ -31,9 +35,7 @@ def _mesh(
     return TriangleMesh(np.asarray(vertices, dtype=float), np.asarray(faces, dtype=np.int64))
 
 
-def _plane(
-    *, offset: npt.NDArray[np.float64] | None = None, reverse: bool = False
-) -> TriangleMesh:
+def _plane(*, offset: npt.NDArray[np.float64] | None = None, reverse: bool = False) -> TriangleMesh:
     shift = np.zeros(3) if offset is None else offset
     vertices = (
         np.asarray(((-0.2, -0.2, 0.0), (0.2, -0.2, 0.0), (0.2, 0.2, 0.0), (-0.2, 0.2, 0.0))) + shift
@@ -75,6 +77,39 @@ def _east_wall(
     if reverse:
         faces = faces[::-1, ::-1]
     return TriangleMesh(vertices, faces)
+
+
+def _tilted_receiver(receiver_id: str = "tilted") -> PVReceiver:
+    centre = np.asarray((0.0, 0.0, 2.0))
+    across = np.asarray((0.0, 0.5, 0.0))
+    slope = np.asarray((0.5 / np.sqrt(2.0), 0.0, -0.5 / np.sqrt(2.0)))
+    vertices = np.asarray(
+        (
+            centre - across - slope,
+            centre + across - slope,
+            centre + across + slope,
+            centre - across + slope,
+        )
+    )
+    return PVReceiver(
+        receiver_id,
+        TriangleMesh(vertices, np.asarray(((0, 1, 2), (0, 2, 3)))),
+        tuple(centre),
+        (1 / np.sqrt(2.0), 0.0, 1 / np.sqrt(2.0)),
+        ReceiverKind.FIXED_TABLE,
+    )
+
+
+def _horizontal_plate(z: float, half_size: float = 0.8) -> TriangleMesh:
+    return _mesh(
+        (
+            (-half_size, -half_size, z),
+            (half_size, -half_size, z),
+            (half_size, half_size, z),
+            (-half_size, half_size, z),
+        ),
+        ((0, 1, 2), (0, 2, 3)),
+    )
 
 
 def _box() -> TriangleMesh:
@@ -127,6 +162,15 @@ def _scene(
 
 def _fraction(scene: DiffuseSkyScene) -> float:
     return float(scene.calculate_visibility().receivers.iloc[0]["diffuse_sky_visible_fraction"])
+
+
+def _components(scene: DiffuseSkyScene, *, ground_plane: float = 0.0) -> pd.DataFrame:
+    return scene.calculate_component_visibility(
+        horizon_zenith_count=3,
+        horizon_azimuth_count=72,
+        ground_direction_count=512,
+        ground_plane_z_m=ground_plane,
+    ).receivers
 
 
 def test_unobstructed_sky_and_typed_schema() -> None:
@@ -200,10 +244,7 @@ def test_receiver_blocking_is_explicit_and_self_excluded() -> None:
     reconstructed_target = _receiver("target")
     assert reconstructed_target == target
     assert reconstructed_target is not target
-    assert (
-        _fraction(_scene(receivers=[target], receiver_occluders=[reconstructed_target]))
-        == 1.0
-    )
+    assert _fraction(_scene(receivers=[target], receiver_occluders=[reconstructed_target])) == 1.0
 
 
 def test_conflicting_receiver_occluder_identity_is_rejected() -> None:
@@ -241,9 +282,7 @@ def test_repeated_calls_input_order_and_batch_size_are_invariant() -> None:
         "distant-b", _east_wall(offset=np.asarray((4.0, 0.0, 0.0))), ShadowRole.OCCLUDER
     )
     first_scene = _scene(terrain=[terrain], shading=[distant_a, distant_b], batch=17)
-    second_scene = _scene(
-        terrain=[terrain], shading=[distant_b, distant_a], batch=10_000
-    )
+    second_scene = _scene(terrain=[terrain], shading=[distant_b, distant_a], batch=10_000)
     first = first_scene.calculate_visibility().receivers
     pd.testing.assert_frame_equal(first, first_scene.calculate_visibility().receivers)
     pd.testing.assert_frame_equal(first, second_scene.calculate_visibility().receivers)
@@ -336,3 +375,199 @@ def test_no_upper_sky_front_exposure_fails_explicitly() -> None:
     )
     with pytest.raises(ValueError, match="no front-side upper-sky exposure"):
         _scene(receivers=[downward]).calculate_visibility()
+
+
+def test_component_visibility_preserves_existing_sky_exactly() -> None:
+    blocker = ShadingObject("wall", _east_wall(), ShadowRole.OCCLUDER)
+    scene = _scene(receivers=[_tilted_receiver()], shading=[blocker], directions=1024, batch=37)
+    sky = scene.calculate_visibility().receivers.iloc[0]
+    component = _components(scene).iloc[0]
+    for column in (
+        "diffuse_sky_visible_fraction",
+        "diffuse_sky_blocked_fraction",
+        "visible_weight",
+        "blocked_weight",
+        "unobstructed_weight",
+    ):
+        assert component[column] == sky[column]
+    assert component["diffuse_sky_model"] == MODEL_ID
+    assert component["diffuse_sky_coverage_scope"] == COVERAGE_SCOPE
+
+
+def test_clear_component_scene_resolves_all_exposures() -> None:
+    row = _components(_scene(receivers=[_tilted_receiver()])).iloc[0]
+    for component in ("sky", "horizon", "ground"):
+        assert row[f"diffuse_{component}_visible_fraction"] == pytest.approx(1.0)
+        assert row[f"diffuse_{component}_blocked_fraction"] == pytest.approx(0.0)
+        assert bool(row[f"diffuse_{component}_visibility_resolved"])
+    assert row["diffuse_horizon_model"] == HORIZON_VISIBILITY_MODEL_ID
+    assert row["diffuse_horizon_coverage_scope"] == HORIZON_COVERAGE_SCOPE
+    assert row["diffuse_ground_model"] == GROUND_VISIBILITY_MODEL_ID
+    assert row["diffuse_ground_coverage_scope"] == GROUND_COVERAGE_SCOPE
+
+
+def test_horizon_terrain_blocks_but_never_enters_ground_scene() -> None:
+    receiver = _tilted_receiver()
+    clear = _components(_scene(receivers=[receiver])).iloc[0]
+    terrain_scene = _scene(receivers=[receiver], terrain=[TerrainSurface("ridge", _east_wall())])
+    first = _components(terrain_scene).iloc[0]
+    second = _components(terrain_scene).iloc[0]
+    assert first["diffuse_horizon_visible_fraction"] < 1.0
+    assert first["diffuse_horizon_visible_fraction"] == second["diffuse_horizon_visible_fraction"]
+    assert first["diffuse_ground_visible_fraction"] == clear["diffuse_ground_visible_fraction"]
+
+
+def test_ground_occluder_blocks_only_before_explicit_ground_intersection() -> None:
+    receiver = _tilted_receiver()
+    clear = _components(_scene(receivers=[receiver])).iloc[0]
+    between = ShadingObject("between", _horizontal_plate(1.0, 2.0), ShadowRole.OCCLUDER)
+    blocked = _components(_scene(receivers=[receiver], shading=[between])).iloc[0]
+    assert 0.0 < blocked["diffuse_ground_visible_fraction"] < 1.0
+    assert blocked["diffuse_ground_visible_fraction"] < clear["diffuse_ground_visible_fraction"]
+
+    behind = ShadingObject("behind", _horizontal_plate(-1.0, 100.0), ShadowRole.OCCLUDER)
+    behind_result = _components(_scene(receivers=[receiver], shading=[behind])).iloc[0]
+    assert behind_result["diffuse_ground_visible_fraction"] == pytest.approx(1.0)
+
+
+def test_component_shadow_roles_and_explicit_receiver_policy() -> None:
+    receiver = _tilted_receiver()
+    wall = _east_wall()
+    eligible = _components(
+        _scene(
+            receivers=[receiver],
+            shading=[ShadingObject("yes", wall, ShadowRole.OCCLUDER)],
+        )
+    ).iloc[0]
+    ignored = _components(
+        _scene(
+            receivers=[receiver],
+            shading=[
+                ShadingObject("no", wall, ShadowRole.NON_OCCLUDER),
+                ShadingObject("unknown", wall, ShadowRole.UNKNOWN),
+            ],
+        )
+    ).iloc[0]
+    assert eligible["diffuse_horizon_visible_fraction"] < 1.0
+    assert ignored["diffuse_horizon_visible_fraction"] == pytest.approx(1.0)
+
+    blocker = PVReceiver(
+        "blocker", wall, (0.5, 0.0, 2.0), (1.0, 0.0, 0.0), ReceiverKind.FIXED_TABLE
+    )
+    automatic = _components(_scene(receivers=[receiver, blocker]), ground_plane=-200.0).set_index(
+        "receiver_id"
+    )
+    explicit = _components(
+        _scene(receivers=[receiver], receiver_occluders=[blocker]), ground_plane=-200.0
+    ).iloc[0]
+    assert automatic.loc[receiver.id, "diffuse_horizon_visible_fraction"] == pytest.approx(1.0)
+    assert explicit["diffuse_horizon_visible_fraction"] < 1.0
+
+
+def test_component_self_exclusion_and_identity_validation() -> None:
+    receiver = _tilted_receiver("same")
+    self_result = _components(
+        _scene(receivers=[receiver], receiver_occluders=[_tilted_receiver("same")])
+    ).iloc[0]
+    assert self_result["diffuse_horizon_visible_fraction"] == pytest.approx(1.0)
+    assert self_result["diffuse_ground_visible_fraction"] == pytest.approx(1.0)
+    conflicting = PVReceiver(
+        "same", _east_wall(), (0.5, 0.0, 2.0), (1.0, 0.0, 0.0), ReceiverKind.FIXED_TABLE
+    )
+    with pytest.raises(ValueError, match="same canonical PVReceiver"):
+        _scene(receivers=[receiver], receiver_occluders=[conflicting])
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, True, "0"])
+def test_component_ground_plane_validation(value: object) -> None:
+    with pytest.raises(ValueError, match="ground_plane_z_m"):
+        _scene(receivers=[_tilted_receiver()]).calculate_component_visibility(
+            horizon_zenith_count=1,
+            horizon_azimuth_count=4,
+            ground_direction_count=4,
+            ground_plane_z_m=value,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("horizon_zenith_count", 0),
+        ("horizon_azimuth_count", True),
+        ("ground_direction_count", -1),
+    ],
+)
+def test_component_direction_controls_are_positive_integers(name: str, value: object) -> None:
+    controls: dict[str, object] = {
+        "horizon_zenith_count": 2,
+        "horizon_azimuth_count": 8,
+        "ground_direction_count": 16,
+        "ground_plane_z_m": 0.0,
+    }
+    controls[name] = value
+    with pytest.raises(ValueError, match="positive integer"):
+        _scene(receivers=[_tilted_receiver()]).calculate_component_visibility(
+            **controls  # type: ignore[arg-type]
+        )
+
+
+def test_component_rejects_surface_at_or_below_ground_plane() -> None:
+    with pytest.raises(ValueError, match="strictly above"):
+        _components(_scene(receivers=[_tilted_receiver()]), ground_plane=2.0)
+
+
+def test_horizontal_receiver_has_no_front_side_ground_view() -> None:
+    row = _components(_scene(receivers=[_receiver(offset=np.asarray((0.0, 0.0, 1.0)))])).iloc[0]
+    assert np.isnan(row["diffuse_ground_visible_fraction"])
+    assert np.isnan(row["diffuse_ground_blocked_fraction"])
+    assert not bool(row["diffuse_ground_visibility_resolved"])
+    assert row["diffuse_ground_state"] == "not_applicable_no_front_side_ground_view"
+
+
+def test_component_order_batch_and_face_representation_are_invariant() -> None:
+    receiver_a = _tilted_receiver("a")
+    receiver_b = _tilted_receiver("b")
+    terrain_a = TerrainSurface("a-terrain", _east_wall())
+    terrain_b = TerrainSurface(
+        "b-terrain", _east_wall(offset=np.asarray((2.0, 0.0, 0.0)), reverse=True)
+    )
+    shading_a = ShadingObject("a-shade", _horizontal_plate(1.0, 0.3), ShadowRole.OCCLUDER)
+    shading_b = ShadingObject("b-shade", _horizontal_plate(0.8, 0.2), ShadowRole.OCCLUDER)
+    first = _components(
+        _scene(
+            receivers=[receiver_b, receiver_a],
+            terrain=[terrain_b, terrain_a],
+            shading=[shading_b, shading_a],
+            batch=11,
+        )
+    )
+    second = _components(
+        _scene(
+            receivers=[receiver_a, receiver_b],
+            terrain=[terrain_a, terrain_b],
+            shading=[shading_a, shading_b],
+            batch=100_000,
+        )
+    )
+    pd.testing.assert_frame_equal(first, second)
+    assert first["receiver_id"].tolist() == ["a", "b"]
+
+
+def test_component_empty_receivers_and_factor_closure() -> None:
+    empty = _components(_scene(receivers=[]))
+    assert empty.empty
+    assert str(empty["diffuse_ground_visible_fraction"].dtype) == "float64"
+
+    row = _components(
+        _scene(
+            receivers=[_tilted_receiver()],
+            shading=[ShadingObject("plate", _horizontal_plate(1.0, 0.4), ShadowRole.OCCLUDER)],
+        )
+    ).iloc[0]
+    for component in ("horizon", "ground"):
+        assert row[f"diffuse_{component}_visible_fraction"] + row[
+            f"diffuse_{component}_blocked_fraction"
+        ] == pytest.approx(1.0, abs=1e-12)
+        assert row[f"diffuse_{component}_visible_weight"] + row[
+            f"diffuse_{component}_blocked_weight"
+        ] == pytest.approx(row[f"diffuse_{component}_unobstructed_weight"], abs=1e-12)
