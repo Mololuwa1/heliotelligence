@@ -212,6 +212,9 @@ def test_component_classification_and_output_closure() -> None:
     component_frame.loc[0, "diffuse_sky_joint_optical_transmission_factor"] = 0.21
     component_frame.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = 0.31
     component_frame.loc[0, "diffuse_ground_joint_optical_transmission_factor"] = 0.11
+    component_frame.loc[0, "diffuse_sky_visible_region_iam_factor"] = 0.70
+    component_frame.loc[0, "diffuse_horizon_visible_region_iam_factor"] = 0.775
+    component_frame.loc[0, "diffuse_ground_visible_region_iam_factor"] = 0.55
     # Keep S7A/S7B-1 sky identity consistent while testing component classification.
     state.loc[:, "diffuse_sky_visible_fraction"] = 0.3
     state.loc[:, "diffuse_sky_blocked_fraction"] = 0.7
@@ -310,6 +313,42 @@ def test_component_visibility_identity_gates() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "joint_factor",
+        "visible_iam",
+        "impossible_full_block",
+        "contradictory_resolution",
+    ],
+)
+def test_tampered_joint_optical_state_is_rejected(mutation: str) -> None:
+    receivers, optical, components, parameters = _bundle()
+    changed = components.receivers.copy()
+    if mutation == "joint_factor":
+        changed.loc[0, "diffuse_sky_joint_optical_transmission_factor"] *= 0.8
+    elif mutation == "visible_iam":
+        changed.loc[0, "diffuse_horizon_visible_region_iam_factor"] *= 0.8
+    elif mutation == "impossible_full_block":
+        changed.loc[0, "diffuse_sky_visible_fraction"] = 0.0
+        changed.loc[0, "diffuse_sky_blocked_fraction"] = 1.0
+        changed.loc[0, "diffuse_sky_joint_optical_transmission_factor"] = 0.2
+        optical_state = optical.state.copy()
+        optical_state.loc[:, "diffuse_sky_visible_fraction"] = 0.0
+        optical_state.loc[:, "diffuse_sky_blocked_fraction"] = 1.0
+        optical = OpticalStateResult(optical_state, optical.diagnostics)
+    else:
+        changed.loc[0, "diffuse_horizon_visibility_resolved"] = False
+        changed.loc[0, "diffuse_horizon_joint_optical_resolved"] = True
+    with pytest.raises(ValueError, match="joint|closure|inconsistent"):
+        calculate_front_effective_irradiance(
+            receivers,
+            optical,
+            DiffuseComponentOpticalTransmission(changed),
+            beam_iam_parameters_by_receiver={receivers[0].id: parameters},
+        )
+
+
 def test_unresolved_upstream_irradiance_remains_nan() -> None:
     result = _calculate(_bundle(missing=True)).irradiance.iloc[0]
     assert np.isnan(result["poa_front_circumsolar_raw_wm2"])
@@ -390,6 +429,9 @@ def test_negative_perez_horizon_is_preserved_and_scaled() -> None:
     )
     components.receivers.loc[0, "diffuse_horizon_visible_fraction"] = 0.5
     components.receivers.loc[0, "diffuse_horizon_blocked_fraction"] = 0.5
+    components.receivers.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = (
+        0.5 * components.receivers.loc[0, "diffuse_horizon_visible_region_iam_factor"]
+    )
     result = calculate_front_effective_irradiance(
         receivers,
         optical,
@@ -415,6 +457,11 @@ def test_horizon_visibility_zero_dependency() -> None:
     changed.loc[0, "diffuse_horizon_blocked_fraction"] = np.nan
     changed.loc[0, "diffuse_horizon_joint_optical_resolved"] = False
     changed.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = np.nan
+    changed.loc[0, "diffuse_horizon_visible_region_iam_factor"] = np.nan
+    changed.loc[0, "diffuse_horizon_unobstructed_iam_factor"] = np.nan
+    changed.loc[0, "diffuse_horizon_joint_optical_state"] = (
+        "not_applicable_no_front_side_view"
+    )
     result = calculate_front_effective_irradiance(
         receivers,
         optical,

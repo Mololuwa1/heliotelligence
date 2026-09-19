@@ -366,14 +366,60 @@ def _validated_component_visibility(
 
 
 def _validate_joint_factor(row: pd.Series, component: str) -> None:
-    if not bool(row[f"diffuse_{component}_joint_optical_resolved"]):
+    visibility_resolved = bool(row[f"diffuse_{component}_visibility_resolved"])
+    joint_resolved = bool(row[f"diffuse_{component}_joint_optical_resolved"])
+    joint = row[f"diffuse_{component}_joint_optical_transmission_factor"]
+    visible_iam = row[f"diffuse_{component}_visible_region_iam_factor"]
+    state = row[f"diffuse_{component}_joint_optical_state"]
+    if not visibility_resolved:
+        if (
+            joint_resolved
+            or not pd.isna(joint)
+            or not pd.isna(visible_iam)
+            or not isinstance(state, str)
+            or not state.startswith("not_applicable_")
+        ):
+            raise ValueError(
+                f"unresolved diffuse {component} joint optical state is inconsistent"
+            )
         return
-    factor = row[f"diffuse_{component}_joint_optical_transmission_factor"]
-    if isinstance(factor, (bool, np.bool_)) or pd.isna(factor):
-        raise ValueError(f"resolved diffuse {component} joint optical factor is invalid")
-    value = float(cast(Any, factor))
-    if not np.isfinite(value) or value < -_TOLERANCE or value > 1.0 + _TOLERANCE:
-        raise ValueError(f"resolved diffuse {component} joint optical factor is invalid")
+    if not joint_resolved:
+        raise ValueError(
+            f"resolved diffuse {component} visibility requires resolved joint optics"
+        )
+    _bounded_joint_value(
+        row[f"diffuse_{component}_unobstructed_iam_factor"],
+        f"diffuse {component} unobstructed IAM factor",
+    )
+    joint_value = _bounded_joint_value(joint, f"diffuse {component} joint optical factor")
+    visible_fraction = float(cast(Any, row[f"diffuse_{component}_visible_fraction"]))
+    if visible_fraction <= _TOLERANCE:
+        if (
+            abs(joint_value) > _TOLERANCE
+            or not pd.isna(visible_iam)
+            or state != "resolved_no_visible_angular_field"
+        ):
+            raise ValueError(f"fully blocked diffuse {component} joint state is inconsistent")
+        return
+    visible_iam_value = _bounded_joint_value(
+        visible_iam, f"diffuse {component} visible-region IAM factor"
+    )
+    if state != "resolved" or not np.isclose(
+        joint_value,
+        visible_fraction * visible_iam_value,
+        rtol=1e-12,
+        atol=_TOLERANCE,
+    ):
+        raise ValueError(f"diffuse {component} joint optical closure failed")
+
+
+def _bounded_joint_value(value: object, label: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or pd.isna(value):
+        raise ValueError(f"{label} is invalid")
+    result = float(cast(Any, value))
+    if not np.isfinite(result) or result < -_TOLERANCE or result > 1.0 + _TOLERANCE:
+        raise ValueError(f"{label} is invalid")
+    return float(np.clip(result, 0.0, 1.0))
 
 
 def _validated_parameter_resolution(value: object) -> Mapping[str, object]:
