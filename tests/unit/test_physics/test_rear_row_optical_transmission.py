@@ -134,6 +134,15 @@ def _calculate(
     )
 
 
+def _with_state(result: RearOpticalStateResult, frame: pd.DataFrame) -> RearOpticalStateResult:
+    return RearOpticalStateResult(frame, result.diagnostics)
+
+
+def _tamper(result: RearOpticalStateResult, column: str, value: object) -> None:
+    result.state[column] = result.state[column].astype(object)
+    result.state.loc[result.state.index[0], column] = value
+
+
 def test_s6e_public_optical_geometry_is_deterministic_and_immutable() -> None:
     scene, _, _ = _bundle()
     first = scene.optical_geometry
@@ -327,3 +336,186 @@ def test_inadequate_or_boolean_quadrature_is_rejected(rows: object, directions: 
 def test_determinism() -> None:
     bundle = _bundle()
     pd.testing.assert_frame_equal(_calculate(bundle).transmission, _calculate(bundle).transmission)
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "rear_optical_state_contract",
+        "rear_optical_state_model",
+        "rear_optical_state_coverage_scope",
+        "rear_irradiance_model",
+        "rear_coverage_scope",
+        "rear_row_geometry_model",
+    ],
+)
+@pytest.mark.parametrize("bad", [pd.NA, None, np.nan])
+def test_null_contract_provenance_is_rejected(column: str, bad: object) -> None:
+    scene, state, mapping = _bundle()
+    state.state.loc[state.state.index[0], column] = bad
+    with pytest.raises(ValueError, match="incompatible"):
+        _calculate((scene, state, mapping))
+
+
+@pytest.mark.parametrize("bad", [pd.NA, "perez"])
+def test_invalid_rear_diffuse_model_is_rejected(bad: object) -> None:
+    scene, state, mapping = _bundle()
+    state.state.loc[state.state.index[0], "rear_diffuse_model"] = bad
+    with pytest.raises(ValueError, match="diffuse model"):
+        _calculate((scene, state, mapping))
+
+
+def test_mixed_rear_diffuse_models_are_rejected() -> None:
+    scene, state, mapping = _bundle()
+    state.state.loc[state.state.index[-1], "rear_diffuse_model"] = "haydavies"
+    with pytest.raises(ValueError, match="one common"):
+        _calculate((scene, state, mapping))
+
+
+def test_reversed_state_is_canonicalized() -> None:
+    bundle = _bundle()
+    expected = _calculate(bundle).transmission
+    scene, state, mapping = bundle
+    state = _with_state(state, state.state.iloc[::-1])
+    pd.testing.assert_frame_equal(_calculate((scene, state, mapping)).transmission, expected)
+
+
+def test_duplicate_and_missing_state_rows_are_rejected() -> None:
+    scene, state, mapping = _bundle()
+    state = _with_state(state, pd.concat((state.state, state.state.iloc[[0]])))
+    with pytest.raises(ValueError, match="duplicate"):
+        _calculate((scene, state, mapping))
+    scene, state, mapping = _bundle()
+    state = _with_state(state, state.state.iloc[:-1])
+    with pytest.raises(ValueError, match="every timestamp"):
+        _calculate((scene, state, mapping))
+
+
+def test_naive_nat_and_malformed_indexes_are_rejected() -> None:
+    scene, state, mapping = _bundle()
+    timestamps = state.state.index.get_level_values(0).tz_localize(None)
+    receivers = state.state.index.get_level_values(1)
+    frame = state.state.copy()
+    frame.index = pd.MultiIndex.from_arrays((timestamps, receivers), names=state.state.index.names)
+    state = _with_state(state, frame)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _calculate((scene, state, mapping))
+    scene, state, mapping = _bundle()
+    timestamps = list(state.state.index.get_level_values(0))
+    timestamps[0] = pd.NaT
+    frame = state.state.copy()
+    frame.index = pd.MultiIndex.from_arrays(
+        (timestamps, state.state.index.get_level_values(1)), names=state.state.index.names
+    )
+    state = _with_state(state, frame)
+    with pytest.raises(ValueError, match="NaT"):
+        _calculate((scene, state, mapping))
+    scene, state, mapping = _bundle()
+    frame = state.state.copy()
+    frame.index = pd.Index(range(len(state.state)))
+    state = _with_state(state, frame)
+    with pytest.raises(ValueError, match="MultiIndex"):
+        _calculate((scene, state, mapping))
+
+
+def test_missing_consumed_column_is_value_error() -> None:
+    scene, state, mapping = _bundle()
+    state = _with_state(state, state.state.drop(columns="rear_aoi_deg"))
+    with pytest.raises(ValueError, match="missing required columns"):
+        _calculate((scene, state, mapping))
+
+
+@pytest.mark.parametrize("column", ["rear_irradiance_resolved", "rear_beam_iam_resolved"])
+@pytest.mark.parametrize("bad", [1, 0, "True", "False", pd.NA])
+def test_boolean_coercion_is_rejected(column: str, bad: object) -> None:
+    scene, state, mapping = _bundle()
+    _tamper(state, column, bad)
+    with pytest.raises(ValueError, match="Boolean"):
+        _calculate((scene, state, mapping))
+
+
+@pytest.mark.parametrize("bad", [1, "True", pd.NA])
+def test_embedded_flag_coercion_is_rejected(bad: object) -> None:
+    scene, state, mapping = _bundle()
+    _tamper(state, "rear_row_sky_view_factor_embedded", bad)
+    with pytest.raises(ValueError, match="Boolean"):
+        _calculate((scene, state, mapping))
+
+
+@pytest.mark.parametrize(
+    ("resolved", "state_value"),
+    [(True, "unresolved_missing_irradiance"), (False, "resolved")],
+)
+def test_rear_irradiance_state_contradiction_is_rejected(resolved: bool, state_value: str) -> None:
+    scene, state, mapping = _bundle()
+    index = state.state.index[0]
+    state.state.loc[index, "rear_irradiance_resolved"] = resolved
+    state.state.loc[index, "rear_irradiance_state"] = state_value
+    with pytest.raises(ValueError, match="resolution and state"):
+        _calculate((scene, state, mapping))
+
+
+@pytest.mark.parametrize(
+    ("key", "bad"),
+    [
+        ("resolution_method", "other"),
+        ("resolution_method", 1),
+        ("source_label", ""),
+        ("source_label", None),
+        ("source_reference", ""),
+        ("source_reference", pd.NA),
+        ("is_fallback", 1),
+    ],
+)
+def test_invalid_explicit_iam_provenance_is_rejected(key: str, bad: object) -> None:
+    scene, state, mapping = _bundle()
+    changed = {identifier: dict(value) for identifier, value in mapping.items()}
+    changed["r0"][key] = bad
+    with pytest.raises(ValueError, match="rear IAM"):
+        _calculate((scene, state, changed))
+
+
+@pytest.mark.parametrize(("method", "fallback"), [("direct", True), ("explicit_fallback", False)])
+def test_inconsistent_fallback_provenance_is_rejected(method: str, fallback: bool) -> None:
+    scene, state, mapping = _bundle()
+    changed = {identifier: dict(value) for identifier, value in mapping.items()}
+    changed["r0"]["resolution_method"] = method
+    changed["r0"]["is_fallback"] = fallback
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _calculate((scene, state, changed))
+
+
+def test_empty_state_still_validates_parameter_provenance() -> None:
+    scene, state, mapping = _bundle(periods=0)
+    changed = {identifier: dict(value) for identifier, value in mapping.items()}
+    changed["r0"]["source_label"] = " "
+    with pytest.raises(ValueError, match="source_label"):
+        _calculate((scene, state, changed))
+
+
+@pytest.mark.parametrize(
+    ("column", "bad"),
+    [
+        ("surface_tilt_deg", True),
+        ("rear_surface_tilt_deg", np.nan),
+        ("surface_azimuth_deg", np.inf),
+        ("rear_surface_azimuth_deg", -1.0),
+        ("rear_aoi_deg", True),
+    ],
+)
+def test_geometry_type_and_range_safety(column: str, bad: object) -> None:
+    scene, state, mapping = _bundle()
+    _tamper(state, column, bad)
+    with pytest.raises(ValueError, match="finite|range"):
+        _calculate((scene, state, mapping))
+
+
+def test_iam_state_and_model_tampering_are_rejected() -> None:
+    scene, state, mapping = _bundle()
+    state.state.loc[state.state.index[0], "rear_beam_iam_state"] = "tampered"
+    with pytest.raises(ValueError, match="reproduce|resolved state"):
+        _calculate((scene, state, mapping))
+    scene, state, mapping = _bundle()
+    state.state.loc[state.state.index[0], "rear_beam_iam_model"] = "physical"
+    with pytest.raises(ValueError, match="provenance|reproduce"):
+        _calculate((scene, state, mapping))

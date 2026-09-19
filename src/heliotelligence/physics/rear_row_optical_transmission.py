@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from numbers import Integral
+from numbers import Integral, Real
 from typing import cast
 
 import numpy as np
@@ -39,6 +39,36 @@ _MIN_DIRECTIONS = 2048
 _VF_TOLERANCE = 1e-3
 _TOLERANCE = 1e-9
 _GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
+_IAM_MODELS = ("physical", "ashrae", "martin-ruiz")
+_REQUIRED_STATE_COLUMNS = {
+    "fixed_row_array_id",
+    "surface_tilt_deg",
+    "surface_azimuth_deg",
+    "rear_surface_tilt_deg",
+    "rear_surface_azimuth_deg",
+    "rear_aoi_deg",
+    "rear_irradiance_resolved",
+    "rear_irradiance_state",
+    "rear_irradiance_model",
+    "rear_diffuse_model",
+    "rear_coverage_scope",
+    "rear_row_direct_shading_embedded",
+    "rear_row_sky_view_factor_embedded",
+    "rear_ground_row_shadowing_embedded",
+    "rear_row_ground_view_factor_embedded",
+    "rear_row_geometry_model",
+    "rear_beam_iam_factor",
+    "rear_beam_iam_resolved",
+    "rear_beam_iam_state",
+    "rear_beam_iam_model",
+    "rear_iam_parameter_resolution_method",
+    "rear_iam_parameter_source_label",
+    "rear_iam_parameter_source_reference",
+    "rear_iam_parameter_is_fallback",
+    "rear_optical_state_contract",
+    "rear_optical_state_model",
+    "rear_optical_state_coverage_scope",
+}
 _OUTPUT_COLUMNS = (
     "fixed_row_array_id",
     "rear_surface_tilt_deg",
@@ -414,11 +444,42 @@ def _hemisphere(count: int, *, upper: bool) -> npt.NDArray[np.float64]:
 
 
 def _validated_state(frame: pd.DataFrame, receiver_ids: tuple[str, ...]) -> pd.DataFrame:
-    if not isinstance(frame, pd.DataFrame) or not isinstance(frame.index, pd.MultiIndex):
-        raise ValueError("rear optical state must use a MultiIndex")
+    if (
+        not isinstance(frame, pd.DataFrame)
+        or not isinstance(frame.index, pd.MultiIndex)
+        or frame.index.nlevels != 2
+        or frame.index.names[1] != "receiver_id"
+    ):
+        raise ValueError("rear optical state must use a two-level timestamp/receiver_id MultiIndex")
+    if not _REQUIRED_STATE_COLUMNS.issubset(frame.columns):
+        missing = sorted(_REQUIRED_STATE_COLUMNS - set(frame.columns))
+        raise ValueError(f"rear optical state is missing required columns: {missing}")
     result = frame.copy()
-    if len(result) and set(result.index.get_level_values("receiver_id")) != set(receiver_ids):
-        raise ValueError("rear optical state receiver IDs must exactly match scene receiver IDs")
+    timestamps = result.index.get_level_values(0)
+    if not isinstance(timestamps, pd.DatetimeIndex) or timestamps.tz is None:
+        raise ValueError("rear optical state timestamps must be timezone-aware")
+    if timestamps.hasnans or result.index.has_duplicates:
+        raise ValueError("rear optical state index must not contain NaT or duplicate rows")
+    if len(result):
+        state_receiver_ids = result.index.get_level_values("receiver_id")
+        if any(not isinstance(value, str) for value in state_receiver_ids) or set(
+            state_receiver_ids
+        ) != set(receiver_ids):
+            raise ValueError(
+                "rear optical state receiver IDs must exactly match scene receiver IDs"
+            )
+        canonical_timestamps = pd.DatetimeIndex(timestamps.unique()).sort_values()
+        expected_index = pd.MultiIndex.from_product(
+            (canonical_timestamps, sorted(receiver_ids)), names=result.index.names
+        )
+        if set(result.index) != set(expected_index):
+            raise ValueError("rear optical state must contain every timestamp/receiver combination")
+        result = result.reindex(expected_index)
+    elif (
+        not isinstance(result.index.levels[0], pd.DatetimeIndex)
+        or result.index.levels[0].tz is None
+    ):
+        raise ValueError("empty rear optical state timestamps must be timezone-aware")
     required_values = {
         "rear_optical_state_contract": REAR_OPTICAL_STATE_CONTRACT_ID,
         "rear_optical_state_model": REAR_OPTICAL_STATE_MODEL_ID,
@@ -428,18 +489,30 @@ def _validated_state(frame: pd.DataFrame, receiver_ids: tuple[str, ...]) -> pd.D
         "rear_row_geometry_model": S6E_MODEL_ID,
     }
     for column, expected in required_values.items():
-        if column not in result or not (result[column] == expected).all():
-            raise ValueError(f"rear optical state {column} is incompatible")
+        for value in result[column].array:
+            if not isinstance(value, str) or value != expected:
+                raise ValueError(f"rear optical state {column} is incompatible")
+    diffuse_models: set[str] = set()
     for _, row in result.iterrows():
-        if bool(row["rear_irradiance_resolved"]):
-            for flag in (
-                "rear_row_direct_shading_embedded",
-                "rear_row_sky_view_factor_embedded",
-                "rear_ground_row_shadowing_embedded",
-                "rear_row_ground_view_factor_embedded",
-            ):
-                if not bool(row[flag]):
-                    raise ValueError("resolved rear state must preserve embedded row physics")
+        diffuse_model = row["rear_diffuse_model"]
+        if not isinstance(diffuse_model, str) or diffuse_model not in ("isotropic", "haydavies"):
+            raise ValueError("rear diffuse model must be isotropic or haydavies")
+        diffuse_models.add(diffuse_model)
+        resolved = _strict_bool(row["rear_irradiance_resolved"], "rear_irradiance_resolved")
+        expected_state = "resolved" if resolved else "unresolved_missing_irradiance"
+        if row["rear_irradiance_state"] != expected_state:
+            raise ValueError("rear irradiance resolution and state are inconsistent")
+        for flag in (
+            "rear_row_direct_shading_embedded",
+            "rear_row_sky_view_factor_embedded",
+            "rear_ground_row_shadowing_embedded",
+            "rear_row_ground_view_factor_embedded",
+        ):
+            if _strict_bool(row[flag], flag) is not resolved:
+                raise ValueError("embedded row physics flags must exactly match rear resolution")
+        _validate_iam_state(row)
+    if len(diffuse_models) > 1:
+        raise ValueError("rear optical state must use one common rear diffuse model")
     return result
 
 
@@ -449,15 +522,21 @@ def _validate_state_geometry(
 ) -> None:
     for (_, receiver_value), row in state.iterrows():
         geometry = geometry_by_receiver[str(receiver_value)]
-        if row["fixed_row_array_id"] != geometry.array_id:
+        array_id = row["fixed_row_array_id"]
+        if not isinstance(array_id, str) or not array_id.strip():
+            raise ValueError("fixed_row_array_id must be a non-empty string")
+        if array_id != geometry.array_id:
             raise ValueError("rear state array ID conflicts with scene geometry")
         for column in ("surface_tilt_deg", "rear_surface_tilt_deg"):
-            if not np.isclose(float(row[column]), getattr(geometry, column), atol=1e-10):
+            value = _bounded_real(row[column], column, 0.0, 180.0)
+            if not np.isclose(value, getattr(geometry, column), atol=1e-10):
                 raise ValueError("rear state tilt conflicts with scene geometry")
         for column in ("surface_azimuth_deg", "rear_surface_azimuth_deg"):
-            delta = ((float(row[column]) - getattr(geometry, column) + 180) % 360) - 180
+            value = _bounded_real(row[column], column, 0.0, 360.0, upper_inclusive=False)
+            delta = ((value - getattr(geometry, column) + 180) % 360) - 180
             if abs(delta) > 1e-10:
                 raise ValueError("rear state azimuth conflicts with scene geometry")
+        _bounded_real(row["rear_aoi_deg"], "rear_aoi_deg", 0.0, 180.0)
 
 
 def _validated_parameters(value: object) -> Mapping[str, object]:
@@ -471,9 +550,23 @@ def _validated_parameters(value: object) -> Mapping[str, object]:
     }
     if not isinstance(value, Mapping) or not required.issubset(value):
         raise ValueError("rear IAM parameters are missing required provenance")
-    if value["model"] not in ("physical", "ashrae", "martin-ruiz"):
+    if not isinstance(value["model"], str) or value["model"] not in _IAM_MODELS:
         raise ValueError("rear IAM model is invalid")
-    if (value["resolution_method"] == "explicit_fallback") != value["is_fallback"]:
+    if not isinstance(value["model_parameters"], Mapping):
+        raise ValueError("rear IAM model_parameters must be a mapping")
+    method = value["resolution_method"]
+    if not isinstance(method, str) or method not in ("direct", "measured_fit", "explicit_fallback"):
+        raise ValueError("rear IAM resolution_method is invalid")
+    label = value["source_label"]
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("rear IAM source_label must be a non-empty string")
+    reference = value["source_reference"]
+    if reference is not None and (not isinstance(reference, str) or not reference.strip()):
+        raise ValueError("rear IAM source_reference must be None or a non-empty string")
+    fallback = value["is_fallback"]
+    if not isinstance(fallback, bool):
+        raise ValueError("rear IAM is_fallback must be a Boolean")
+    if (method == "explicit_fallback") is not fallback:
         raise ValueError("rear IAM fallback provenance is inconsistent")
     # Empty evaluation invokes the canonical model-parameter validator.
     calculate_beam_iam(
@@ -493,8 +586,18 @@ def _validate_parameter_parity(state: pd.DataFrame, parameters: Mapping[str, obj
         "rear_iam_parameter_is_fallback": "is_fallback",
     }
     for state_column, parameter_key in provenance.items():
-        if len(state) and not (state[state_column] == parameters[parameter_key]).all():
-            raise ValueError("rear IAM parameter provenance does not match S7C-0")
+        for actual in state[state_column].array:
+            expected = parameters[parameter_key]
+            if expected is None:
+                matches = actual is None or pd.isna(actual)
+            elif isinstance(expected, bool):
+                matches = isinstance(actual, (bool, np.bool_)) and bool(actual) is expected
+            elif isinstance(expected, str):
+                matches = isinstance(actual, str) and actual == expected
+            else:
+                matches = type(actual) is type(expected) and actual == expected
+            if not matches:
+                raise ValueError("rear IAM parameter provenance does not match S7C-0")
     if state.empty:
         return
     reproduced = calculate_beam_iam(
@@ -502,15 +605,67 @@ def _validate_parameter_parity(state: pd.DataFrame, parameters: Mapping[str, obj
         model=cast(BeamIAMModel, parameters["model"]),
         model_parameters=cast(Mapping[str, object], parameters["model_parameters"]),
     )
-    if not np.array_equal(
-        reproduced["beam_iam_resolved"], state["rear_beam_iam_resolved"]
-    ) or not np.allclose(
-        reproduced.loc[reproduced["beam_iam_resolved"], "beam_iam_factor"],
-        state.loc[state["rear_beam_iam_resolved"], "rear_beam_iam_factor"],
+    actual_resolved = state["rear_beam_iam_resolved"].to_numpy(dtype=bool)
+    reproduced_resolved = reproduced["beam_iam_resolved"].to_numpy(dtype=bool)
+    factors_match = np.allclose(
+        reproduced["beam_iam_factor"].to_numpy(float),
+        state["rear_beam_iam_factor"].to_numpy(float),
         rtol=1e-12,
         atol=_TOLERANCE,
+        equal_nan=True,
+    )
+    if (
+        not np.array_equal(reproduced_resolved, actual_resolved)
+        or not factors_match
+        or not np.array_equal(
+            reproduced["beam_iam_state"].to_numpy(str), state["rear_beam_iam_state"].to_numpy(str)
+        )
+        or not np.array_equal(
+            reproduced["beam_iam_model"].to_numpy(str), state["rear_beam_iam_model"].to_numpy(str)
+        )
     ):
         raise ValueError("rear IAM parameters do not reproduce S7C-0 beam IAM")
+
+
+def _validate_iam_state(row: pd.Series) -> None:
+    resolved = _strict_bool(row["rear_beam_iam_resolved"], "rear_beam_iam_resolved")
+    state = row["rear_beam_iam_state"]
+    model = row["rear_beam_iam_model"]
+    if not isinstance(state, str) or not state.strip():
+        raise ValueError("rear beam IAM state must be a non-empty string")
+    if not isinstance(model, str) or model not in _IAM_MODELS:
+        raise ValueError("rear beam IAM model is invalid")
+    factor = row["rear_beam_iam_factor"]
+    if resolved:
+        _bounded_real(factor, "rear_beam_iam_factor", 0.0, 1.0)
+        if state != "resolved":
+            raise ValueError("resolved rear beam IAM must have resolved state")
+    elif not pd.isna(factor) or state != "model_output_unresolved":
+        raise ValueError("unresolved rear beam IAM representation is invalid")
+
+
+def _strict_bool(value: object, name: str) -> bool:
+    if not isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{name} must be a Boolean")
+    return bool(value)
+
+
+def _bounded_real(
+    value: object,
+    name: str,
+    lower: float,
+    upper: float,
+    *,
+    upper_inclusive: bool = True,
+) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite non-Boolean real")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be a finite non-Boolean real")
+    if result < lower or (result > upper if upper_inclusive else result >= upper):
+        raise ValueError(f"{name} is outside its valid range")
+    return result
 
 
 def _receiver_state(state: pd.DataFrame, receiver_id: str) -> pd.DataFrame:
