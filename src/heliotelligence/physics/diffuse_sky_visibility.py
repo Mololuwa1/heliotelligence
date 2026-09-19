@@ -9,7 +9,7 @@ clear only relative to the explicitly supplied canonical occluders.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Integral, Real
 from typing import TypeVar
@@ -25,6 +25,7 @@ from heliotelligence.geometry import (
     ShadowRole,
     TerrainSurface,
 )
+from heliotelligence.physics.iam import BeamIAMModel, calculate_beam_iam
 from heliotelligence.physics.near_object_shading import sample_triangle_mesh
 from heliotelligence.physics.ray_backend import MeshRayScene, RaySceneObject
 
@@ -32,6 +33,9 @@ MODEL_ID = "canonical_embree_cosine_weighted_diffuse_sky_v1"
 COVERAGE_SCOPE = "supplied_explicit_diffuse_occluders_only"
 HORIZON_VISIBILITY_MODEL_ID = "canonical_embree_marion_horizon_band_visibility_v1"
 GROUND_VISIBILITY_MODEL_ID = "canonical_embree_flat_ground_visibility_v1"
+DIFFUSE_JOINT_OPTICAL_MODEL_ID = (
+    "canonical_embree_visibility_conditioned_diffuse_iam_v1"
+)
 HORIZON_COVERAGE_SCOPE = "supplied_explicit_diffuse_occluders_horizon_band_only"
 GROUND_COVERAGE_SCOPE = "supplied_explicit_nonterrain_occluders_flat_lambertian_ground_plane"
 HORIZON_MIN_ZENITH_DEG = 89.5
@@ -130,6 +134,13 @@ class DiffuseSkyVisibility:
 @dataclass(frozen=True)
 class DiffuseComponentVisibility:
     """Receiver-resolved sky, horizon-band, and flat-ground geometry."""
+
+    receivers: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class DiffuseComponentOpticalTransmission:
+    """Receiver-resolved visibility-conditioned diffuse IAM transmission."""
 
     receivers: pd.DataFrame
 
@@ -372,6 +383,166 @@ class DiffuseSkyScene:
             )
         return DiffuseComponentVisibility(_typed_component_result(rows))
 
+    def calculate_component_optical_transmission(
+        self,
+        *,
+        horizon_zenith_count: int,
+        horizon_azimuth_count: int,
+        ground_direction_count: int,
+        ground_plane_z_m: float,
+        beam_iam_model_by_receiver: Mapping[str, BeamIAMModel],
+        model_parameters_by_receiver: Mapping[str, Mapping[str, object]],
+    ) -> DiffuseComponentOpticalTransmission:
+        """Jointly integrate visibility and directional IAM over each field."""
+        receiver_ids = set(self.receiver_ids)
+        if not isinstance(beam_iam_model_by_receiver, Mapping) or set(
+            beam_iam_model_by_receiver
+        ) != receiver_ids:
+            raise ValueError("beam IAM model keys must exactly match receiver IDs")
+        if not isinstance(model_parameters_by_receiver, Mapping) or set(
+            model_parameters_by_receiver
+        ) != receiver_ids:
+            raise ValueError("beam IAM parameter keys must exactly match receiver IDs")
+
+        component = self.calculate_component_visibility(
+            horizon_zenith_count=horizon_zenith_count,
+            horizon_azimuth_count=horizon_azimuth_count,
+            ground_direction_count=ground_direction_count,
+            ground_plane_z_m=ground_plane_z_m,
+        ).receivers.set_index("receiver_id")
+        horizon_directions = _horizon_band_directions(
+            _positive_integer(horizon_zenith_count, "horizon_zenith_count"),
+            _positive_integer(horizon_azimuth_count, "horizon_azimuth_count"),
+        )
+        ground_directions = _lower_hemisphere_directions(
+            _positive_integer(ground_direction_count, "ground_direction_count")
+        )
+        ground_plane = _finite_real(ground_plane_z_m, "ground_plane_z_m")
+        receiver_indices = {receiver.id: index for index, receiver in enumerate(self._receivers)}
+        rows: list[dict[str, object]] = []
+        for receiver in sorted(self._receivers, key=lambda item: item.id):
+            points = self._sample_points[receiver_indices[receiver.id]]
+            normal = np.asarray(receiver.normal_enu, dtype=np.float64)
+            exclusion = (
+                f"receiver:{receiver.id}" if receiver.id in self._receiver_occluder_ids else None
+            )
+            model = beam_iam_model_by_receiver[receiver.id]
+            parameters = model_parameters_by_receiver[receiver.id]
+            sky = self._joint_directional_optics(
+                points, normal, self._directions, self._ray_scene, exclusion, model, parameters
+            )
+            horizon = self._joint_directional_optics(
+                points, normal, horizon_directions, self._ray_scene, exclusion, model, parameters
+            )
+            ground = self._joint_ground_optics(
+                points,
+                normal,
+                ground_directions,
+                ground_plane,
+                exclusion,
+                model,
+                parameters,
+            )
+            base = component.loc[receiver.id].to_dict()
+            base["receiver_id"] = receiver.id
+            base["diffuse_joint_optical_model"] = DIFFUSE_JOINT_OPTICAL_MODEL_ID
+            base["diffuse_joint_beam_iam_model"] = model
+            base["diffuse_joint_beam_iam_parameter_signature"] = _parameter_signature(
+                parameters
+            )
+            for name, values in (("sky", sky), ("horizon", horizon), ("ground", ground)):
+                base[f"diffuse_{name}_unobstructed_iam_factor"] = values[0]
+                base[f"diffuse_{name}_visible_region_iam_factor"] = values[1]
+                base[f"diffuse_{name}_joint_optical_transmission_factor"] = values[2]
+                base[f"diffuse_{name}_joint_optical_resolved"] = values[3]
+                base[f"diffuse_{name}_joint_optical_state"] = values[4]
+            rows.append(base)
+        return DiffuseComponentOpticalTransmission(_typed_joint_result(rows))
+
+    def _joint_directional_optics(
+        self,
+        points: npt.NDArray[np.float64],
+        normal: npt.NDArray[np.float64],
+        directions: npt.NDArray[np.float64],
+        scene: MeshRayScene,
+        exclusion: str | None,
+        model: BeamIAMModel,
+        parameters: Mapping[str, object],
+    ) -> tuple[float, float, float, bool, str]:
+        weights_all = np.maximum(0.0, directions @ normal)
+        contributing = weights_all > 0.0
+        weights = weights_all[contributing]
+        selected = directions[contributing]
+        denominator = float(len(points) * np.sum(weights))
+        if denominator <= _FRACTION_TOLERANCE:
+            return np.nan, np.nan, np.nan, False, "not_applicable_no_front_side_view"
+        iam = _directional_iam(selected, normal, model, parameters)
+        unobstructed_iam_weight = float(len(points) * np.sum(weights * iam))
+        visible_weight = denominator
+        visible_iam_weight = unobstructed_iam_weight
+        ray_count = len(points) * len(selected)
+        for start in range(0, ray_count, self._max_rays_per_batch):
+            stop = min(start + self._max_rays_per_batch, ray_count)
+            flat = np.arange(start, stop, dtype=np.int64)
+            sample_index = flat // len(selected)
+            direction_index = flat % len(selected)
+            origins = points[sample_index]
+            excluded = (exclusion,) * len(origins) if exclusion is not None else None
+            blocked = scene.cast_any(
+                origins, selected[direction_index], excluded_object_ids=excluded
+            )
+            visible_weight -= float(np.sum(weights[direction_index][blocked]))
+            visible_iam_weight -= float(
+                np.sum((weights * iam)[direction_index][blocked])
+            )
+        return _joint_factors(
+            denominator, visible_weight, unobstructed_iam_weight, visible_iam_weight
+        )
+
+    def _joint_ground_optics(
+        self,
+        points: npt.NDArray[np.float64],
+        normal: npt.NDArray[np.float64],
+        directions: npt.NDArray[np.float64],
+        ground_plane_z_m: float,
+        exclusion: str | None,
+        model: BeamIAMModel,
+        parameters: Mapping[str, object],
+    ) -> tuple[float, float, float, bool, str]:
+        weights_all = np.maximum(0.0, directions @ normal)
+        contributing = weights_all > 0.0
+        weights = weights_all[contributing]
+        selected = directions[contributing]
+        denominator = float(len(points) * np.sum(weights))
+        if denominator <= _FRACTION_TOLERANCE:
+            return np.nan, np.nan, np.nan, False, "not_applicable_no_front_side_ground_view"
+        iam = _directional_iam(selected, normal, model, parameters)
+        unobstructed_iam_weight = float(len(points) * np.sum(weights * iam))
+        visible_weight = denominator
+        visible_iam_weight = unobstructed_iam_weight
+        ray_count = len(points) * len(selected)
+        for start in range(0, ray_count, self._max_rays_per_batch):
+            stop = min(start + self._max_rays_per_batch, ray_count)
+            flat = np.arange(start, stop, dtype=np.int64)
+            sample_index = flat // len(selected)
+            direction_index = flat % len(selected)
+            origins = points[sample_index]
+            ray_directions = selected[direction_index]
+            t_ground = (ground_plane_z_m - origins[:, 2]) / ray_directions[:, 2]
+            excluded = (exclusion,) * len(origins) if exclusion is not None else None
+            hits = self._ground_ray_scene.cast_first(
+                origins, ray_directions, excluded_object_ids=excluded
+            )
+            tolerance = _FRACTION_TOLERANCE * np.maximum(1.0, t_ground)
+            blocked = hits.hit & (hits.distance_m <= t_ground + tolerance)
+            visible_weight -= float(np.sum(weights[direction_index][blocked]))
+            visible_iam_weight -= float(
+                np.sum((weights * iam)[direction_index][blocked])
+            )
+        return _joint_factors(
+            denominator, visible_weight, unobstructed_iam_weight, visible_iam_weight
+        )
+
     def _directional_visibility(
         self,
         points: npt.NDArray[np.float64],
@@ -500,6 +671,79 @@ def _lower_hemisphere_directions(count: int) -> npt.NDArray[np.float64]:
     radius = np.sqrt(1.0 - z * z)
     azimuth = index * _GOLDEN_ANGLE_RAD
     return np.column_stack((radius * np.sin(azimuth), radius * np.cos(azimuth), z))
+
+
+def _directional_iam(
+    directions: npt.NDArray[np.float64],
+    normal: npt.NDArray[np.float64],
+    model: BeamIAMModel,
+    parameters: Mapping[str, object],
+) -> npt.NDArray[np.float64]:
+    cos_aoi = np.clip(directions @ normal, -1.0, 1.0)
+    aoi = np.degrees(np.arccos(cos_aoi))
+    index = pd.date_range("2000-01-01", periods=len(aoi), freq="s", tz="UTC")
+    result = calculate_beam_iam(
+        pd.Series(aoi, index=index, dtype=float),
+        model=model,
+        model_parameters=parameters,
+    )
+    if not result["beam_iam_resolved"].all():
+        raise RuntimeError("directional diffuse IAM output is unresolved")
+    values = result["beam_iam_factor"].to_numpy(dtype=np.float64)
+    if (
+        not np.isfinite(values).all()
+        or np.any(values < -_FRACTION_TOLERANCE)
+        or np.any(values > 1.0 + _FRACTION_TOLERANCE)
+    ):
+        raise RuntimeError("directional diffuse IAM output is outside [0, 1]")
+    return np.asarray(np.clip(values, 0.0, 1.0), dtype=np.float64)
+
+
+def _parameter_signature(parameters: Mapping[str, object]) -> str:
+    return repr(tuple(sorted(parameters.items())))
+
+
+def _joint_factors(
+    denominator: float,
+    visible_weight: float,
+    unobstructed_iam_weight: float,
+    visible_iam_weight: float,
+) -> tuple[float, float, float, bool, str]:
+    unobstructed_iam = unobstructed_iam_weight / denominator
+    joint = visible_iam_weight / denominator
+    if visible_weight <= _FRACTION_TOLERANCE:
+        visible_region_iam = np.nan
+        joint = 0.0
+        state = "resolved_no_visible_angular_field"
+    else:
+        visible_region_iam = visible_iam_weight / visible_weight
+        state = "resolved"
+    finite = (unobstructed_iam, joint) + (
+        () if np.isnan(visible_region_iam) else (visible_region_iam,)
+    )
+    if any(
+        not np.isfinite(value)
+        or value < -_FRACTION_TOLERANCE
+        or value > 1.0 + _FRACTION_TOLERANCE
+        for value in finite
+    ):
+        raise RuntimeError("joint diffuse optical transmission is outside [0, 1]")
+    if visible_weight > _FRACTION_TOLERANCE and not np.isclose(
+        (visible_weight / denominator) * visible_region_iam,
+        joint,
+        rtol=1e-12,
+        atol=_FRACTION_TOLERANCE,
+    ):
+        raise RuntimeError("joint diffuse optical transmission closure failed")
+    return (
+        float(np.clip(unobstructed_iam, 0.0, 1.0)),
+        float(np.clip(visible_region_iam, 0.0, 1.0))
+        if np.isfinite(visible_region_iam)
+        else np.nan,
+        float(np.clip(joint, 0.0, 1.0)),
+        True,
+        state,
+    )
 
 
 def _resolved_component(
@@ -671,4 +915,52 @@ def _typed_component_result(rows: list[dict[str, object]]) -> pd.DataFrame:
     numeric_columns = set(result.columns) - set(boolean_columns + integer_columns + string_columns)
     for column in numeric_columns:
         result[column] = result[column].astype("float64")
+    return result
+
+
+def _typed_joint_result(rows: list[dict[str, object]]) -> pd.DataFrame:
+    base_columns = _COMPONENT_RESULT_COLUMNS
+    joint_columns = [
+        "diffuse_joint_optical_model",
+        "diffuse_joint_beam_iam_model",
+        "diffuse_joint_beam_iam_parameter_signature",
+    ]
+    for component in ("sky", "horizon", "ground"):
+        joint_columns.extend(
+            (
+                f"diffuse_{component}_unobstructed_iam_factor",
+                f"diffuse_{component}_visible_region_iam_factor",
+                f"diffuse_{component}_joint_optical_transmission_factor",
+                f"diffuse_{component}_joint_optical_resolved",
+                f"diffuse_{component}_joint_optical_state",
+            )
+        )
+    result = _typed_component_result(rows)
+    raw = pd.DataFrame(rows, columns=base_columns + joint_columns)
+    for column in joint_columns:
+        result[column] = raw[column]
+    result["diffuse_joint_optical_model"] = result["diffuse_joint_optical_model"].astype(
+        "string"
+    )
+    result["diffuse_joint_beam_iam_model"] = result["diffuse_joint_beam_iam_model"].astype(
+        "string"
+    )
+    result["diffuse_joint_beam_iam_parameter_signature"] = result[
+        "diffuse_joint_beam_iam_parameter_signature"
+    ].astype("string")
+    for component in ("sky", "horizon", "ground"):
+        result[f"diffuse_{component}_joint_optical_resolved"] = result[
+            f"diffuse_{component}_joint_optical_resolved"
+        ].astype("bool")
+        result[f"diffuse_{component}_joint_optical_state"] = result[
+            f"diffuse_{component}_joint_optical_state"
+        ].astype("string")
+        for suffix in (
+            "unobstructed_iam_factor",
+            "visible_region_iam_factor",
+            "joint_optical_transmission_factor",
+        ):
+            result[f"diffuse_{component}_{suffix}"] = result[
+                f"diffuse_{component}_{suffix}"
+            ].astype("float64")
     return result

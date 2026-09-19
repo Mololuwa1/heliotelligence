@@ -17,8 +17,10 @@ from heliotelligence.geometry import (
     TerrainSurface,
     TriangleMesh,
 )
+from heliotelligence.physics.diffuse_iam import calculate_diffuse_iam
 from heliotelligence.physics.diffuse_sky_visibility import (
     COVERAGE_SCOPE,
+    DIFFUSE_JOINT_OPTICAL_MODEL_ID,
     GROUND_COVERAGE_SCOPE,
     GROUND_VISIBILITY_MODEL_ID,
     HORIZON_COVERAGE_SCOPE,
@@ -26,6 +28,7 @@ from heliotelligence.physics.diffuse_sky_visibility import (
     MODEL_ID,
     DiffuseSkyScene,
 )
+from heliotelligence.physics.iam import BeamIAMModel
 
 
 def _mesh(
@@ -173,6 +176,27 @@ def _components(scene: DiffuseSkyScene, *, ground_plane: float = 0.0) -> pd.Data
     ).receivers
 
 
+def _optics(
+    scene: DiffuseSkyScene,
+    *,
+    model: BeamIAMModel = "ashrae",
+    parameters: dict[str, object] | None = None,
+    horizon_zenith_count: int = 3,
+    horizon_azimuth_count: int = 72,
+    ground_direction_count: int = 512,
+) -> pd.DataFrame:
+    receiver_id = scene.receiver_ids[0]
+    params = {"b": 0.05} if parameters is None else parameters
+    return scene.calculate_component_optical_transmission(
+        horizon_zenith_count=horizon_zenith_count,
+        horizon_azimuth_count=horizon_azimuth_count,
+        ground_direction_count=ground_direction_count,
+        ground_plane_z_m=0.0,
+        beam_iam_model_by_receiver={receiver_id: model},
+        model_parameters_by_receiver={receiver_id: params},
+    ).receivers
+
+
 def test_unobstructed_sky_and_typed_schema() -> None:
     result = _scene().calculate_visibility().receivers
     row = result.iloc[0]
@@ -258,6 +282,117 @@ def test_conflicting_receiver_occluder_identity_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="must match the same canonical PVReceiver"):
         _scene(receivers=[target], receiver_occluders=[conflicting])
+
+
+@pytest.mark.parametrize(
+    ("model", "parameters"),
+    [
+        ("physical", {"n": 1.526, "K": 4.0, "L": 0.002, "n_ar": None}),
+        ("ashrae", {"b": 0.05}),
+        ("martin-ruiz", {"a_r": 0.16}),
+    ],
+)
+def test_clear_joint_optics_converge_to_marion_reference(
+    model: BeamIAMModel, parameters: dict[str, object]
+) -> None:
+    receiver = _tilted_receiver()
+    scene = _scene(receivers=[receiver], directions=8192, batch=997)
+    row = _optics(
+        scene,
+        model=model,
+        parameters=parameters,
+        horizon_zenith_count=8,
+        horizon_azimuth_count=720,
+        ground_direction_count=8192,
+    ).iloc[0]
+    reference = calculate_diffuse_iam(
+        surface_tilt_deg=45.0,
+        beam_iam_model=model,
+        model_parameters=parameters,
+    )
+    assert row["diffuse_joint_optical_model"] == DIFFUSE_JOINT_OPTICAL_MODEL_ID
+    for component, expected in (
+        ("sky", reference.diffuse_sky_iam_factor),
+        ("horizon", reference.diffuse_horizon_iam_factor),
+        ("ground", reference.diffuse_ground_iam_factor),
+    ):
+        assert row[f"diffuse_{component}_visible_fraction"] == pytest.approx(1.0)
+        assert row[f"diffuse_{component}_visible_region_iam_factor"] == pytest.approx(
+            row[f"diffuse_{component}_joint_optical_transmission_factor"], abs=1e-12
+        )
+        assert row[f"diffuse_{component}_joint_optical_transmission_factor"] == pytest.approx(
+            expected, abs=0.025
+        )
+
+
+def test_joint_geometry_parity_and_nonseparable_partial_sky() -> None:
+    receiver = _tilted_receiver()
+    blocker = ShadingObject("wall", _east_wall(), ShadowRole.OCCLUDER)
+    scene = _scene(receivers=[receiver], shading=[blocker], directions=4096, batch=311)
+    geometry = _components(scene).iloc[0]
+    optical = _optics(scene).iloc[0]
+    for component in ("sky", "horizon", "ground"):
+        assert optical[f"diffuse_{component}_visible_fraction"] == pytest.approx(
+            geometry[f"diffuse_{component}_visible_fraction"], abs=1e-12
+        )
+        visible = optical[f"diffuse_{component}_visible_fraction"]
+        visible_iam = optical[f"diffuse_{component}_visible_region_iam_factor"]
+        joint = optical[f"diffuse_{component}_joint_optical_transmission_factor"]
+        if np.isfinite(visible_iam):
+            assert joint == pytest.approx(visible * visible_iam, abs=1e-12)
+    separable = (
+        optical["diffuse_sky_visible_fraction"]
+        * optical["diffuse_sky_unobstructed_iam_factor"]
+    )
+    assert abs(optical["diffuse_sky_joint_optical_transmission_factor"] - separable) > 1e-4
+
+
+def test_fully_blocked_joint_field_has_exact_zero_transmission() -> None:
+    receiver = _tilted_receiver()
+    blockers = [
+        ShadingObject("box", _box(), ShadowRole.OCCLUDER),
+        ShadingObject("ground-cover", _horizontal_plate(1.0, 20.0), ShadowRole.OCCLUDER),
+    ]
+    row = _optics(_scene(receivers=[receiver], shading=blockers)).iloc[0]
+    for component in ("sky", "horizon", "ground"):
+        assert row[f"diffuse_{component}_visible_fraction"] == pytest.approx(0.0)
+        assert row[f"diffuse_{component}_joint_optical_transmission_factor"] == 0.0
+        assert np.isnan(row[f"diffuse_{component}_visible_region_iam_factor"])
+        assert bool(row[f"diffuse_{component}_joint_optical_resolved"])
+
+
+def test_blocker_location_changes_joint_transmission_at_similar_visibility() -> None:
+    receiver = _tilted_receiver()
+    wall = ShadingObject("wall", _east_wall(), ShadowRole.OCCLUDER)
+    canopy = ShadingObject("canopy", _horizontal_plate(3.0, 3.0), ShadowRole.OCCLUDER)
+    wall_row = _optics(
+        _scene(receivers=[receiver], shading=[wall], directions=4096, batch=401)
+    ).iloc[0]
+    canopy_row = _optics(
+        _scene(receivers=[receiver], shading=[canopy], directions=4096, batch=401)
+    ).iloc[0]
+    assert wall_row["diffuse_sky_visible_fraction"] == pytest.approx(
+        canopy_row["diffuse_sky_visible_fraction"], abs=0.02
+    )
+    assert abs(
+        wall_row["diffuse_sky_joint_optical_transmission_factor"]
+        - canopy_row["diffuse_sky_joint_optical_transmission_factor"]
+    ) > 0.01
+
+
+def test_joint_optical_iam_identity_and_parameter_validation() -> None:
+    scene = _scene(receivers=[_tilted_receiver()])
+    with pytest.raises(ValueError, match="keys must exactly match"):
+        scene.calculate_component_optical_transmission(
+            horizon_zenith_count=2,
+            horizon_azimuth_count=12,
+            ground_direction_count=32,
+            ground_plane_z_m=0.0,
+            beam_iam_model_by_receiver={},
+            model_parameters_by_receiver={},
+        )
+    with pytest.raises(ValueError, match="finite real"):
+        _optics(scene, parameters={"b": True})
 
 
 @pytest.mark.parametrize(
