@@ -107,6 +107,25 @@ class FixedBifacialRearSceneDiagnostics:
 
 
 @dataclass(frozen=True)
+class FixedBifacialRearArrayOpticalGeometry:
+    """Immutable validated infinite-sheds geometry for downstream rear optics."""
+
+    array_id: str
+    receiver_ids: tuple[str, ...]
+    row_rotation_deg: float
+    axis_azimuth_deg: float
+    surface_tilt_deg: float
+    surface_azimuth_deg: float
+    rear_surface_tilt_deg: float
+    rear_surface_azimuth_deg: float
+    collector_width_m: float
+    pitch_m: float
+    gcr: float
+    row_center_height_m: float
+    albedo: float
+
+
+@dataclass(frozen=True)
 class _ArraySummary:
     array_id: str
     receiver_ids: tuple[str, ...]
@@ -186,6 +205,28 @@ class FixedBifacialRearScene:
     @property
     def diagnostics(self) -> FixedBifacialRearSceneDiagnostics:
         return self._diagnostics
+
+    @property
+    def optical_geometry(self) -> tuple[FixedBifacialRearArrayOpticalGeometry, ...]:
+        """Return deterministic immutable geometry without changing S6E physics."""
+        return tuple(
+            FixedBifacialRearArrayOpticalGeometry(
+                array_id=summary.array_id,
+                receiver_ids=summary.receiver_ids,
+                row_rotation_deg=summary.row_rotation_deg,
+                axis_azimuth_deg=summary.axis_azimuth_deg,
+                surface_tilt_deg=summary.surface_tilt_deg,
+                surface_azimuth_deg=summary.surface_azimuth_deg,
+                rear_surface_tilt_deg=summary.rear_surface_tilt_deg,
+                rear_surface_azimuth_deg=summary.rear_surface_azimuth_deg,
+                collector_width_m=summary.collector_width_m,
+                pitch_m=summary.pitch_m,
+                gcr=summary.gcr,
+                row_center_height_m=summary.row_center_height_m,
+                albedo=summary.albedo,
+            )
+            for summary in sorted(self._summaries, key=lambda item: item.array_id)
+        )
 
 
 def calculate_fixed_bifacial_rear_irradiance(
