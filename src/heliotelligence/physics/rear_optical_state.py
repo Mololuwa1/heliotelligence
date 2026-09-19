@@ -150,14 +150,20 @@ def calculate_rear_optical_state(
         ):
             raise ValueError("canonical receiver normal must be a unit vector")
         rear_normal = -front_normal
-        front_tilt, front_azimuth = _orientation(front_normal)
-        rear_tilt, rear_azimuth = _orientation(rear_normal)
+        front_tilt, derived_front_azimuth = _orientation(front_normal)
+        rear_tilt, derived_rear_azimuth = _orientation(rear_normal)
         receiver_frame = (
             frame.xs(receiver_id, level="receiver_id")
             if len(frame)
             else frame.iloc[:0].droplevel("receiver_id")
         )
-        _validate_orientation(receiver_frame, front_tilt, front_azimuth, rear_tilt, rear_azimuth)
+        front_azimuth, rear_azimuth = _validate_orientation(
+            receiver_frame,
+            front_tilt,
+            derived_front_azimuth,
+            rear_tilt,
+            derived_rear_azimuth,
+        )
         parameters = _validated_parameter_resolution(
             rear_beam_iam_parameters_by_receiver[receiver_id]
         )
@@ -195,7 +201,7 @@ def calculate_rear_optical_state(
     for (timestamp, receiver_id_value), source in frame.iterrows():
         receiver_id = str(receiver_id_value)
         context = receiver_context[receiver_id]
-        resolved = bool(source["rear_irradiance_resolved"])
+        resolved = cast(bool, source["rear_irradiance_resolved"])
         admitted = _admitted_components(source, resolved)
         iam = cast(pd.DataFrame, context["iam"]).loc[timestamp]
         parameters = cast(Mapping[str, object], context["parameters"])
@@ -308,35 +314,69 @@ def _validated_s6e_frame(frame: object, receiver_ids: tuple[str, ...]) -> pd.Dat
     if set(frame.index) != set(expected):
         raise ValueError("S6E requires exactly one row per timestamp and receiver")
     result = frame.reindex(expected).copy()
-    if not (result["rear_irradiance_model"] == S6E_MODEL_ID).all():
-        raise ValueError("rear irradiance model is not the admitted S6E model")
-    if not (result["rear_coverage_scope"] == S6E_COVERAGE_SCOPE).all():
-        raise ValueError("rear coverage scope is not the admitted S6E scope")
+    for _, row in result.iterrows():
+        _validate_s6e_row(row)
+    for receiver_id in receiver_ids:
+        receiver_rows = result.xs(receiver_id, level="receiver_id") if len(result) else result
+        array_ids = set(receiver_rows["fixed_row_array_id"])
+        if len(array_ids) > 1:
+            raise ValueError("fixed_row_array_id must remain constant for each receiver")
     return result
 
 
-def _orientation(normal: npt.NDArray[np.float64]) -> tuple[float, float]:
+def _orientation(normal: npt.NDArray[np.float64]) -> tuple[float, float | None]:
     tilt = float(np.degrees(np.arccos(np.clip(normal[2], -1.0, 1.0))))
-    horizontal = np.isclose(abs(normal[2]), 1.0, rtol=0.0, atol=_GEOMETRY_TOLERANCE)
-    azimuth = 180.0 if horizontal else float(np.degrees(np.arctan2(normal[0], normal[1])) % 360)
+    horizontal = np.linalg.norm(normal[:2]) <= _GEOMETRY_TOLERANCE
+    azimuth = (
+        None
+        if horizontal
+        else float(np.degrees(np.arctan2(normal[0], normal[1])) % 360)
+    )
     return tilt, azimuth
 
 
 def _validate_orientation(
     frame: pd.DataFrame,
     front_tilt: float,
-    front_azimuth: float,
+    front_azimuth: float | None,
     rear_tilt: float,
-    rear_azimuth: float,
-) -> None:
-    for column, expected in (
-        ("surface_tilt_deg", front_tilt),
-        ("surface_azimuth_deg", front_azimuth),
-        ("rear_surface_tilt_deg", rear_tilt),
-        ("rear_surface_azimuth_deg", rear_azimuth),
+    rear_azimuth: float | None,
+) -> tuple[float, float]:
+    if frame.empty:
+        return front_azimuth or 0.0, rear_azimuth or 180.0
+    if not np.allclose(frame["surface_tilt_deg"], front_tilt, rtol=0.0, atol=_GEOMETRY_TOLERANCE):
+        raise ValueError("S6E surface_tilt_deg conflicts with canonical receiver normal")
+    if not np.allclose(
+        frame["rear_surface_tilt_deg"], rear_tilt, rtol=0.0, atol=_GEOMETRY_TOLERANCE
     ):
-        if not np.allclose(frame[column], expected, rtol=0.0, atol=_GEOMETRY_TOLERANCE):
-            raise ValueError(f"S6E {column} conflicts with canonical receiver normal")
+        raise ValueError("S6E rear_surface_tilt_deg conflicts with canonical receiver normal")
+    supplied_front = _common_azimuth(frame["surface_azimuth_deg"], "surface_azimuth_deg")
+    supplied_rear = _common_azimuth(
+        frame["rear_surface_azimuth_deg"], "rear_surface_azimuth_deg"
+    )
+    if front_azimuth is None or rear_azimuth is None:
+        expected_rear = (supplied_front + 180.0) % 360.0
+        if abs(_circular_delta(supplied_rear, expected_rear)) > _GEOMETRY_TOLERANCE:
+            raise ValueError("horizontal S6E front/rear azimuth metadata is inconsistent")
+        return supplied_front, supplied_rear
+    if abs(_circular_delta(supplied_front, front_azimuth)) > _GEOMETRY_TOLERANCE or abs(
+        _circular_delta(supplied_rear, rear_azimuth)
+    ) > _GEOMETRY_TOLERANCE:
+        raise ValueError("S6E surface azimuth conflicts with canonical receiver normal")
+    return front_azimuth, rear_azimuth
+
+
+def _common_azimuth(series: pd.Series, name: str) -> float:
+    values = [_bounded_angle(value, name, 360.0, upper_closed=False) for value in series]
+    if not values:
+        return 0.0
+    if any(abs(_circular_delta(value, values[0])) > _GEOMETRY_TOLERANCE for value in values[1:]):
+        raise ValueError(f"S6E {name} must remain constant per receiver")
+    return values[0]
+
+
+def _circular_delta(actual: float, expected: float) -> float:
+    return ((actual - expected + 180.0) % 360.0) - 180.0
 
 
 def _rear_aoi(
@@ -361,6 +401,57 @@ def _rear_aoi(
     return aoi
 
 
+def _validate_s6e_row(row: pd.Series) -> None:
+    resolved_value = row["rear_irradiance_resolved"]
+    if not isinstance(resolved_value, (bool, np.bool_)):
+        raise ValueError("rear_irradiance_resolved must be Boolean")
+    resolved = bool(resolved_value)
+    expected_state = "resolved" if resolved else "unresolved_missing_irradiance"
+    if row["rear_irradiance_state"] != expected_state:
+        raise ValueError("rear irradiance resolution state is inconsistent")
+    complete = True
+    for name in ("ghi_wm2", "dhi_wm2", "dni_wm2"):
+        value = row[name]
+        if pd.isna(value):
+            complete = False
+        else:
+            numeric = _finite_real(value, name)
+            if numeric < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+    if resolved != complete:
+        raise ValueError("rear irradiance resolution conflicts with GHI/DHI/DNI completeness")
+    _bounded_angle(row["apparent_solar_zenith_deg"], "apparent_solar_zenith_deg", 180.0)
+    _bounded_angle(
+        row["solar_azimuth_deg"], "solar_azimuth_deg", 360.0, upper_closed=False
+    )
+    if not isinstance(row["rear_irradiance_model"], str) or row[
+        "rear_irradiance_model"
+    ] != S6E_MODEL_ID:
+        raise ValueError("rear irradiance model is not the admitted S6E model")
+    if not isinstance(row["rear_coverage_scope"], str) or row[
+        "rear_coverage_scope"
+    ] != S6E_COVERAGE_SCOPE:
+        raise ValueError("rear coverage scope is not the admitted S6E scope")
+    if not isinstance(row["rear_diffuse_model"], str) or row["rear_diffuse_model"] not in (
+        "isotropic",
+        "haydavies",
+    ):
+        raise ValueError("rear diffuse model must be isotropic or haydavies")
+    array_id = row["fixed_row_array_id"]
+    if not isinstance(array_id, str) or not array_id.strip():
+        raise ValueError("fixed_row_array_id must be a non-empty string")
+
+
+def _bounded_angle(
+    value: object, name: str, upper: float, *, upper_closed: bool = True
+) -> float:
+    numeric = _finite_real(value, name)
+    valid_upper = numeric <= upper if upper_closed else numeric < upper
+    if numeric < 0.0 or not valid_upper:
+        raise ValueError(f"{name} is outside its supported range")
+    return numeric
+
+
 def _admitted_components(source: pd.Series, resolved: bool) -> dict[str, object]:
     names = (
         "poa_rear_direct_raw_wm2",
@@ -378,6 +469,9 @@ def _admitted_components(source: pd.Series, resolved: bool) -> dict[str, object]
         values["poa_rear_isotropic_sky_raw_wm2"] = np.nan
         return values
     numeric = {name: _finite_real(values[name], name) for name in names}
+    for name in names[:-1]:
+        if numeric[name] < 0.0:
+            raise ValueError(f"{name} must be non-negative")
     shaded = numeric["rear_direct_shaded_fraction"]
     if not 0.0 <= shaded <= 1.0:
         raise ValueError("resolved rear direct shaded fraction must be within [0, 1]")
@@ -432,6 +526,8 @@ def _validated_parameter_resolution(value: object) -> Mapping[str, object]:
         raise ValueError("rear IAM parameter source_reference is invalid")
     if not isinstance(value["is_fallback"], bool):
         raise ValueError("rear IAM parameter is_fallback must be Boolean")
+    if (value["resolution_method"] == "explicit_fallback") != value["is_fallback"]:
+        raise ValueError("rear IAM fallback provenance is inconsistent")
     return value
 
 

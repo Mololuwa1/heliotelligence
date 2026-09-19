@@ -45,14 +45,16 @@ def _receiver(identifier: str, kind: ReceiverKind = ReceiverKind.FIXED_TABLE) ->
     return PVReceiver(identifier, mesh, (0.3, 0.3, 1.0), _normal(), kind)
 
 
-def _scene(receivers: list[PVReceiver]) -> FixedBifacialRearScene:
+def _scene(
+    receivers: list[PVReceiver], *, rotation: float = 30.0, axis_azimuth: float = 0.0
+) -> FixedBifacialRearScene:
     rows = (
-        FixedRowDefinition("row-0", (receivers[0].id,), 30.0, 2.0),
-        FixedRowDefinition("row-1", (receivers[1].id,), 30.0, 2.0),
+        FixedRowDefinition("row-0", (receivers[0].id,), rotation, 2.0),
+        FixedRowDefinition("row-1", (receivers[1].id,), rotation, 2.0),
     )
     array = FixedRowArrayDefinition(
         "array",
-        0.0,
+        axis_azimuth,
         0.0,
         rows,
         (FixedRowBlockingPair("row-0", "row-1", 4.0, 0.0),),
@@ -205,7 +207,7 @@ def test_rear_normal_orientation_aoi_and_input_immutability() -> None:
 def test_orientation_tampering_is_rejected(column: str, delta: float) -> None:
     receivers, rear, parameters = _bundle()
     rear.loc[rear.index[0], column] += delta
-    with pytest.raises(ValueError, match="conflicts"):
+    with pytest.raises(ValueError, match="conflicts|constant"):
         _calculate((receivers, rear, parameters))
 
 
@@ -348,3 +350,144 @@ def test_receiver_kind_determinism_and_empty_timestamps() -> None:
     empty = _calculate((receivers, rear.iloc[:0], parameters))
     assert empty.state.empty
     assert list(empty.state.columns)
+
+
+def _horizontal_bundle() -> tuple[list[PVReceiver], pd.DataFrame, dict[str, object]]:
+    receivers = [
+        PVReceiver(
+            identifier,
+            _receiver(identifier).mesh,
+            (0.3, 0.3, 1.0),
+            (0.0, 0.0, 1.0),
+            ReceiverKind.FIXED_TABLE,
+        )
+        for identifier in ("r0", "r1")
+    ]
+    rear = calculate_fixed_bifacial_rear_irradiance(
+        *_inputs(),
+        scene=_scene(receivers, rotation=0.0, axis_azimuth=45.0),
+        model="isotropic",
+    )
+    return receivers, rear, _parameters()
+
+
+def test_horizontal_orientation_degeneracy_uses_s6e_azimuth_metadata() -> None:
+    receivers, rear, parameters = _horizontal_bundle()
+    state = _calculate((receivers, rear, parameters)).state
+    np.testing.assert_allclose(state["surface_tilt_deg"], 0.0)
+    np.testing.assert_allclose(state["rear_surface_tilt_deg"], 180.0)
+    np.testing.assert_allclose(state["surface_azimuth_deg"], rear["surface_azimuth_deg"])
+    np.testing.assert_allclose(
+        state["rear_surface_azimuth_deg"], rear["rear_surface_azimuth_deg"]
+    )
+    np.testing.assert_allclose(
+        state[["rear_normal_east", "rear_normal_north", "rear_normal_up"]],
+        np.tile(-np.asarray((0.0, 0.0, 1.0)), (len(state), 1)),
+    )
+
+
+@pytest.mark.parametrize("value", [0.0, np.nan, -1.0, 360.0])
+def test_horizontal_rear_azimuth_tampering_is_rejected(value: object) -> None:
+    receivers, rear, parameters = _horizontal_bundle()
+    rear["rear_surface_azimuth_deg"] = rear["rear_surface_azimuth_deg"].astype(object)
+    if value == 0.0:
+        value = (float(rear.iloc[0]["surface_azimuth_deg"]) + 90.0) % 360.0
+    rear.loc[rear.index[0], "rear_surface_azimuth_deg"] = value
+    with pytest.raises(ValueError):
+        _calculate((receivers, rear, parameters))
+
+
+def test_negative_but_closing_rear_irradiance_is_rejected() -> None:
+    receivers, rear, parameters = _bundle()
+    key = rear.index[0]
+    rear.loc[key, "poa_rear_ground_diffuse_raw_wm2"] = -1.0
+    rear.loc[key, "poa_rear_diffuse_raw_wm2"] = (
+        rear.loc[key, "poa_rear_sky_diffuse_raw_wm2"] - 1.0
+    )
+    rear.loc[key, "poa_rear_global_raw_wm2"] = (
+        rear.loc[key, "poa_rear_direct_raw_wm2"]
+        + rear.loc[key, "poa_rear_diffuse_raw_wm2"]
+    )
+    with pytest.raises(ValueError, match="non-negative"):
+        _calculate((receivers, rear, parameters))
+
+
+@pytest.mark.parametrize("value", [1, "False", np.nan])
+def test_resolution_type_tampering_is_rejected(value: object) -> None:
+    receivers, rear, parameters = _bundle()
+    rear["rear_irradiance_resolved"] = rear["rear_irradiance_resolved"].astype(object)
+    rear.loc[rear.index[0], "rear_irradiance_resolved"] = value
+    with pytest.raises(ValueError, match="Boolean"):
+        _calculate((receivers, rear, parameters))
+
+
+def test_resolution_state_contradictions_are_rejected() -> None:
+    receivers, rear, parameters = _bundle()
+    rear.loc[rear.index[0], "rear_irradiance_state"] = "unresolved_missing_irradiance"
+    with pytest.raises(ValueError, match="state is inconsistent"):
+        _calculate((receivers, rear, parameters))
+    receivers, rear, parameters = _bundle(missing=True)
+    rear.loc[rear.index[0], "rear_irradiance_state"] = "resolved"
+    with pytest.raises(ValueError, match="state is inconsistent"):
+        _calculate((receivers, rear, parameters))
+
+
+@pytest.mark.parametrize("column", ["ghi_wm2", "dhi_wm2", "dni_wm2"])
+@pytest.mark.parametrize("value", [-1.0, np.inf, True])
+def test_invalid_meteorology_is_rejected(column: str, value: object) -> None:
+    receivers, rear, parameters = _bundle()
+    rear[column] = rear[column].astype(object)
+    rear.loc[rear.index[0], column] = value
+    with pytest.raises(ValueError):
+        _calculate((receivers, rear, parameters))
+
+
+def test_meteorology_resolution_mismatch_is_rejected() -> None:
+    receivers, rear, parameters = _bundle()
+    rear.loc[rear.index[0], "ghi_wm2"] = np.nan
+    with pytest.raises(ValueError, match="completeness"):
+        _calculate((receivers, rear, parameters))
+    receivers, rear, parameters = _bundle()
+    rear["rear_irradiance_resolved"] = rear["rear_irradiance_resolved"].astype(object)
+    rear.loc[rear.index[0], "rear_irradiance_resolved"] = False
+    rear.loc[rear.index[0], "rear_irradiance_state"] = "unresolved_missing_irradiance"
+    with pytest.raises(ValueError, match="completeness"):
+        _calculate((receivers, rear, parameters))
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("apparent_solar_zenith_deg", -1.0),
+        ("apparent_solar_zenith_deg", 181.0),
+        ("apparent_solar_zenith_deg", np.nan),
+        ("apparent_solar_zenith_deg", True),
+        ("solar_azimuth_deg", -1.0),
+        ("solar_azimuth_deg", 360.0),
+        ("solar_azimuth_deg", np.nan),
+        ("solar_azimuth_deg", True),
+    ],
+)
+def test_invalid_solar_angles_are_rejected(column: str, value: object) -> None:
+    receivers, rear, parameters = _bundle()
+    rear[column] = rear[column].astype(object)
+    rear.loc[rear.index[0], column] = value
+    with pytest.raises(ValueError):
+        _calculate((receivers, rear, parameters))
+
+
+def test_provenance_null_array_identity_and_fallback_consistency() -> None:
+    receivers, rear, parameters = _bundle()
+    for column in ("rear_irradiance_model", "rear_coverage_scope", "rear_diffuse_model"):
+        changed = rear.copy()
+        changed.loc[changed.index[0], column] = pd.NA
+        with pytest.raises(ValueError):
+            _calculate((receivers, changed, parameters))
+    changed = rear.copy()
+    changed.loc[changed.index[-1], "fixed_row_array_id"] = "other"
+    with pytest.raises(ValueError, match="constant"):
+        _calculate((receivers, changed, parameters))
+    contradictory = deepcopy(parameters)
+    contradictory["is_fallback"] = True
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _calculate((receivers, rear, contradictory))
