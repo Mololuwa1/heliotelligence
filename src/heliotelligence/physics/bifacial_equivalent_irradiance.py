@@ -33,7 +33,7 @@ BIFACIAL_EQUIVALENT_IRRADIANCE_SCOPE = "electrical_equivalent_irradiance_only"
 _FRONT_SCOPE = "front_surface_only"
 _ATOL = 1e-9
 _RTOL = 1e-12
-_PARAMETER_KEYS = {
+_PARAMETER_COLUMNS = (
     "bifacial_enabled",
     "isc_bifaciality_factor",
     "bifaciality_coefficient_kind",
@@ -49,7 +49,8 @@ _PARAMETER_KEYS = {
     "bifacial_response_model",
     "bifacial_response_standard_basis",
     "bifacial_response_scope",
-}
+)
+_PARAMETER_KEYS = frozenset(_PARAMETER_COLUMNS)
 _FRONT_COMPONENTS = {
     "direct": ("poa_front_direct_effective_wm2", "front_direct_effective_resolved"),
     "circumsolar": ("poa_front_circumsolar_effective_wm2", "front_circumsolar_effective_resolved"),
@@ -96,7 +97,7 @@ _OUTPUT_COLUMNS = (
     "surface_azimuth_deg",
     "poa_front_effective_optical_wm2",
     "poa_rear_effective_optical_wm2",
-    *_PARAMETER_KEYS,
+    *_PARAMETER_COLUMNS,
     "rear_electrical_equivalent_irradiance_wm2",
     "rear_electrical_equivalent_resolved",
     "rear_electrical_equivalent_state",
@@ -174,6 +175,8 @@ def calculate_bifacial_electrical_equivalent_irradiance(
         rear_row = rear.loc[index] if rear is not None else None
         rows.append(_compose(front_row, rear_row, parameters[receiver_id], rear is not None))
     output = _typed(pd.DataFrame(rows, index=front.index, columns=_OUTPUT_COLUMNS))
+    if tuple(output.columns) != _OUTPUT_COLUMNS:
+        raise RuntimeError("S7D-1 output column contract changed unexpectedly")
     resolved = int(output["bifacial_electrical_equivalent_resolved"].sum()) if len(output) else 0
     return BifacialEquivalentIrradianceResult(
         output,
@@ -262,11 +265,12 @@ def _front(frame: pd.DataFrame) -> None:
     for _, row in frame.iterrows():
         values = _components(row, _FRONT_COMPONENTS)
         resolved = _bool(row["front_effective_irradiance_resolved"], "front total resolved")
+        if resolved != all(value[1] for value in values.values()):
+            raise ValueError("front total/component resolution is inconsistent")
         total = row["poa_front_effective_optical_wm2"]
         if resolved:
             if (
-                not all(value[1] for value in values.values())
-                or row["front_effective_irradiance_state"] != "resolved"
+                row["front_effective_irradiance_state"] != "resolved"
             ):
                 raise ValueError("front resolution state is inconsistent")
             total_value = _number(total, "front total")
@@ -312,10 +316,11 @@ def _rear(frame: pd.DataFrame) -> None:
     for _, row in frame.iterrows():
         values = _components(row, _REAR_COMPONENTS)
         resolved = _bool(row["rear_effective_irradiance_resolved"], "rear total resolved")
+        if resolved != all(value[1] for value in values.values()):
+            raise ValueError("rear total/component resolution is inconsistent")
         if resolved:
             if (
-                not all(value[1] for value in values.values())
-                or row["rear_effective_irradiance_state"] != "resolved"
+                row["rear_effective_irradiance_state"] != "resolved"
             ):
                 raise ValueError("rear resolution state is inconsistent")
             total = _number(row["poa_rear_effective_optical_wm2"], "rear total")

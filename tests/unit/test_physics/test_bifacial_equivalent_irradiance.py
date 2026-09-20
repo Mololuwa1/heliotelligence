@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import pytest
 
 from heliotelligence.geometry import PVReceiver, ReceiverKind, TriangleMesh
 from heliotelligence.physics.bifacial_equivalent_irradiance import (
+    _OUTPUT_COLUMNS,
     BIFACIAL_EQUIVALENT_IRRADIANCE_CONTRACT_ID,
     BIFACIAL_EQUIVALENT_IRRADIANCE_SCOPE,
     calculate_bifacial_electrical_equivalent_irradiance,
@@ -27,6 +33,8 @@ from heliotelligence.physics.rear_effective_irradiance import (
     RearEffectiveIrradianceDiagnostics,
     RearEffectiveIrradianceResult,
 )
+from tests.unit.test_physics import test_effective_irradiance as front_chain_support
+from tests.unit.test_physics import test_rear_effective_irradiance as rear_chain_support
 
 
 def _receivers(count: int = 1) -> list[PVReceiver]:
@@ -232,6 +240,100 @@ def _mono() -> dict[str, object]:
     )
 
 
+def _real_front_chain(
+    receivers: list[PVReceiver], *, periods: int = 1
+) -> FrontEffectiveIrradianceResult:
+    index = pd.date_range("2026-06-01 09:00", periods=periods, freq="h", tz="UTC", name="time")
+    inputs = tuple(
+        pd.Series(values[:periods], index=index)
+        for values in ([800.0, 700.0], [120.0, 110.0], [700.0, 600.0], [60.0, 85.0], [90.0, 270.0])
+    )
+    transposition = {
+        receiver.id: front_chain_support.calculate_raw_poa_transposition(
+            *inputs,
+            surface_tilt_deg=30.0,
+            surface_azimuth_deg=90.0,
+            albedo=0.2,
+            model="perez-driesse",
+        )
+        for receiver in receivers
+    }
+    parameters = front_chain_support.resolve_beam_iam_parameters(
+        model="ashrae",
+        method="direct",
+        source_label="test",
+        source_reference="test-reference",
+        model_parameters={"b": 0.05},
+    )
+    iam = {
+        receiver.id: front_chain_support.calculate_beam_iam(
+            transposition[receiver.id]["aoi_deg"],
+            model="ashrae",
+            model_parameters={"b": 0.05},
+        )
+        for receiver in receivers
+    }
+    raw = pd.DataFrame(
+        {receiver.id: transposition[receiver.id]["poa_direct_raw_wm2"] for receiver in receivers}
+    )
+    rows = tuple(
+        front_chain_support.FixedRowDefinition(f"row-{i}", (receiver.id,), 30.0, 2.0)
+        for i, receiver in enumerate(receivers)
+    )
+    array = front_chain_support.FixedRowArrayDefinition(
+        "array",
+        0.0,
+        0.0,
+        rows,
+        (rear_chain_support.FixedRowBlockingPair("row-0", "row-1", 4.0, 0.0),),
+    )
+    terrain = front_chain_support.calculate_terrain_horizon_direct_beam_shading(
+        raw,
+        inputs[3],
+        inputs[4],
+        scene=front_chain_support.TerrainHorizonScene(receivers, []),
+    )
+    fixed = front_chain_support.calculate_fixed_inter_row_direct_beam_shading(
+        raw,
+        inputs[3],
+        inputs[4],
+        scene=front_chain_support.FixedInterRowScene(receivers, [array]),
+    )
+    near = front_chain_support.calculate_near_object_direct_beam_shading(
+        raw,
+        inputs[3],
+        inputs[4],
+        scene=front_chain_support.NearObjectBeamScene(receivers, [], samples_per_receiver=4),
+    )
+    diffuse_scene = front_chain_support.DiffuseSkyScene(
+        receivers, samples_per_receiver=4, sky_direction_count=64, max_rays_per_batch=31
+    )
+    optical = front_chain_support.assemble_receiver_optical_state(
+        receivers,
+        transposition,
+        iam,
+        terrain,
+        fixed,
+        near,
+        diffuse_scene.calculate_visibility(),
+        rear_mode_by_receiver={receiver.id: "not_applicable" for receiver in receivers},
+    )
+    components = diffuse_scene.calculate_component_optical_transmission(
+        horizon_zenith_count=2,
+        horizon_azimuth_count=36,
+        ground_direction_count=128,
+        ground_plane_z_m=0.0,
+        beam_iam_model_by_receiver={receiver.id: "ashrae" for receiver in receivers},
+        model_parameters_by_receiver={receiver.id: {"b": 0.05} for receiver in receivers},
+    )
+    return front_chain_support.calculate_front_effective_irradiance(
+        receivers,
+        optical,
+        components,
+        beam_iam_parameters_by_receiver={receiver.id: parameters for receiver in receivers},
+    )
+
+
 def test_direct_phi_isc_and_unity_composition() -> None:
     receivers = _receivers()
     result = calculate_bifacial_electrical_equivalent_irradiance(
@@ -410,6 +512,111 @@ def test_closure_tampering_and_strict_boolean() -> None:
         )
 
 
+@pytest.mark.parametrize(("side", "total_resolved"), [("front", False), ("rear", False)])
+def test_all_components_resolved_requires_total_resolved(
+    side: str, total_resolved: bool
+) -> None:
+    front, rear = _front(["r0"]), _rear(["r0"])
+    target = front.irradiance if side == "front" else rear.irradiance
+    prefix = "front" if side == "front" else "rear"
+    target.loc[target.index[0], f"{prefix}_effective_irradiance_resolved"] = total_resolved
+    target.loc[target.index[0], f"{prefix}_effective_irradiance_state"] = (
+        "unresolved_component_dependency"
+    )
+    aggregate_columns = (
+        (
+            "poa_front_sky_diffuse_effective_wm2",
+            "poa_front_diffuse_effective_wm2",
+            "poa_front_effective_optical_wm2",
+        )
+        if side == "front"
+        else ("poa_rear_effective_optical_wm2",)
+    )
+    target.loc[target.index[0], list(aggregate_columns)] = np.nan
+    with pytest.raises(ValueError, match="total/component resolution"):
+        calculate_bifacial_electrical_equivalent_irradiance(
+            _receivers(),
+            front,
+            bifacial_response_parameters_by_receiver={"r0": _response()},
+            rear_effective_irradiance=rear,
+        )
+
+
+@pytest.mark.parametrize("side", ["front", "rear"])
+def test_unresolved_component_requires_total_unresolved(side: str) -> None:
+    front, rear = _front(["r0"]), _rear(["r0"])
+    target = front.irradiance if side == "front" else rear.irradiance
+    component = (
+        "poa_front_direct_effective_wm2" if side == "front" else "poa_rear_direct_effective_wm2"
+    )
+    flag = (
+        "front_direct_effective_resolved"
+        if side == "front"
+        else "rear_direct_effective_resolved"
+    )
+    target.loc[target.index[0], component] = np.nan
+    target.loc[target.index[0], flag] = False
+    with pytest.raises(ValueError, match="total/component resolution"):
+        calculate_bifacial_electrical_equivalent_irradiance(
+            _receivers(),
+            front,
+            bifacial_response_parameters_by_receiver={"r0": _response()},
+            rear_effective_irradiance=rear,
+        )
+
+
+def test_output_schema_is_stable_across_python_hash_seeds() -> None:
+    code = (
+        "import json; "
+        "from heliotelligence.physics.bifacial_equivalent_irradiance "
+        "import _OUTPUT_COLUMNS; print(json.dumps(_OUTPUT_COLUMNS))"
+    )
+    outputs = []
+    for seed in ("1", "2"):
+        environment = os.environ.copy()
+        environment["PYTHONHASHSEED"] = seed
+        outputs.append(
+            subprocess.run(
+                [sys.executable, "-c", code],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            ).stdout
+        )
+    assert outputs[0] == outputs[1]
+    assert tuple(json.loads(outputs[0])) == _OUTPUT_COLUMNS
+
+
+def test_real_front_and_rear_production_chains_compose() -> None:
+    receivers, state, transmission = rear_chain_support._chain(periods=1)
+    front = _real_front_chain(receivers)
+    rear = rear_chain_support._calculate((receivers, state, transmission))
+    response = _response(0.8)
+    result = calculate_bifacial_electrical_equivalent_irradiance(
+        receivers,
+        front,
+        bifacial_response_parameters_by_receiver={receiver.id: response for receiver in receivers},
+        rear_effective_irradiance=rear,
+    )
+    for index, row in result.irradiance.iterrows():
+        front_value = front.irradiance.loc[index, "poa_front_effective_optical_wm2"]
+        rear_value = rear.irradiance.loc[index, "poa_rear_effective_optical_wm2"]
+        expected_rear = 0.8 * rear_value
+        assert row["rear_electrical_equivalent_irradiance_wm2"] == pytest.approx(expected_rear)
+        assert row["bifacial_electrical_equivalent_irradiance_wm2"] == pytest.approx(
+            front_value + expected_rear
+        )
+        assert row["front_effective_irradiance_model"] == EFFECTIVE_IRRADIANCE_MODEL_ID
+        assert row["rear_effective_irradiance_contract"] == REAR_EFFECTIVE_IRRADIANCE_CONTRACT_ID
+        assert row["rear_effective_irradiance_model"] == REAR_EFFECTIVE_IRRADIANCE_MODEL_ID
+        assert (
+            row["rear_effective_irradiance_coverage_scope"]
+            == REAR_EFFECTIVE_IRRADIANCE_COVERAGE_SCOPE
+        )
+        assert row["rear_effective_irradiance_scope"] == REAR_EFFECTIVE_IRRADIANCE_SCOPE
+
+
 def test_reordering_empty_and_determinism() -> None:
     receivers = _receivers(2)
     parameters = {"r0": _response(0.8), "r1": _response(0.6)}
@@ -463,5 +670,6 @@ def test_output_contract_and_non_goals() -> None:
         row["bifacial_equivalent_irradiance_contract"] == BIFACIAL_EQUIVALENT_IRRADIANCE_CONTRACT_ID
     )
     assert row["bifacial_equivalent_irradiance_scope"] == BIFACIAL_EQUIVALENT_IRRADIANCE_SCOPE
+    assert tuple(result.irradiance.columns) == _OUTPUT_COLUMNS
     forbidden = ("spectral", "temperature", "heat_flux", "absorbed", "p_dc", "p_mp")
     assert not any(any(term in column for term in forbidden) for column in result.irradiance)
