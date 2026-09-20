@@ -544,6 +544,8 @@ def _select(
         return np.nan, False, "none", "not_applicable_no_above_horizon_beam"
     if pvsyst_resolved:
         return pvsyst, True, "pvsyst", "resolved_pvsyst_authority"
+    if not helio_resolved:
+        return np.nan, False, "none", "unresolved_both_sources"
     if fallback_policy == "heliotelligence_if_pvsyst_unresolved" and helio_resolved:
         return helio, True, "heliotelligence_fallback", "resolved_heliotelligence_fallback"
     if fallback_policy == "no_fallback":

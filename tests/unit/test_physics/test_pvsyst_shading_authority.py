@@ -213,6 +213,8 @@ def test_outside_domain_fallback_policy(
         assert row["selected_near_shading_beam_transmission_fraction"] == 0.9
     else:
         assert np.isnan(row["selected_near_shading_beam_transmission_fraction"])
+        assert np.isnan(row["selected_near_shading_beam_shaded_fraction"])
+        assert row["selected_near_shading_state"] == "unresolved_pvsyst_authority"
 
 
 def test_both_unresolved_and_night_states() -> None:
@@ -223,6 +225,14 @@ def test_both_unresolved_and_night_states() -> None:
         receivers, fixed, near, outside, fallback="heliotelligence_if_pvsyst_unresolved"
     ).receiver_authority.iloc[0]
     assert row["selected_near_shading_state"] == "unresolved_both_sources"
+    no_fallback_row = _calculate(
+        receivers, fixed, near, outside, fallback="no_fallback"
+    ).receiver_authority.iloc[0]
+    assert np.isnan(no_fallback_row["selected_near_shading_beam_transmission_fraction"])
+    assert np.isnan(no_fallback_row["selected_near_shading_beam_shaded_fraction"])
+    assert not no_fallback_row["selected_near_shading_resolved"]
+    assert no_fallback_row["selected_near_shading_source"] == "none"
+    assert no_fallback_row["selected_near_shading_state"] == "unresolved_both_sources"
     night_fixed, night_near = _frames(("r",), zenith=90.0)
     night = _pvsyst(night_fixed.index.get_level_values(0).unique(), elevation=0.0)
     night_row = _calculate(receivers, night_fixed, night_near, night).receiver_authority.iloc[0]
