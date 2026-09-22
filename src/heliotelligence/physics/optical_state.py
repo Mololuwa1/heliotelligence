@@ -18,10 +18,24 @@ import pandas as pd  # type: ignore[import-untyped]
 
 from heliotelligence.geometry import PVReceiver, ReceiverKind
 from heliotelligence.physics.diffuse_sky_visibility import DiffuseSkyVisibility
+from heliotelligence.physics.pvsyst_horizon_authority import (
+    PVSYST_HORIZON_AUTHORITY_CONTRACT_ID,
+    PVSYST_HORIZON_AUTHORITY_SCOPE,
+    PVSYST_HORIZON_COMPARISON_MODEL_ID,
+    PVSYST_HORIZON_PREFERRED_POLICY_ID,
+    PVsystFarHorizonAuthorityResult,
+)
+from heliotelligence.physics.pvsyst_shading_authority import (
+    PVSYST_HELIO_COMPARISON_MODEL_ID,
+    PVSYST_PREFERRED_POLICY_ID,
+    PVSYST_SHADING_AUTHORITY_CONTRACT_ID,
+    PVSYST_SHADING_AUTHORITY_SCOPE,
+    PVsystNearShadingAuthorityResult,
+)
 from heliotelligence.physics.shading import solar_direction_enu
 
-STATE_CONTRACT_ID = "receiver_optical_state_v1"
-DIRECT_COMPOSITION_ID = "exact_scalar_direct_visibility_guard_v1"
+STATE_CONTRACT_ID = "receiver_optical_state_v2"
+DIRECT_COMPOSITION_ID = "selected_horizon_x_selected_near_shading_authority_v1"
 DIFFUSE_SKY_ROLE = "geometric_visibility_only_not_scalar_perez_attenuation"
 RearOpticalMode = Literal["not_applicable", "fixed_bifacial_rear"]
 _TOLERANCE = 1e-9
@@ -110,8 +124,42 @@ _DIRECT_COLUMNS = [
     "front_direct_geometric_shaded_fraction",
     "front_direct_geometric_composition_resolved",
     "front_direct_geometric_state",
-    "front_direct_overlap_state",
+    "helio_near_shading_state",
     "front_direct_composition_model",
+]
+_NEAR_AUTHORITY_COLUMNS = [
+    "selected_near_shading_beam_transmission_fraction",
+    "selected_near_shading_beam_shaded_fraction",
+    "selected_near_shading_resolved",
+    "selected_near_shading_source",
+    "selected_near_shading_state",
+    "near_shading_fallback_policy",
+    "pvsyst_near_scope_id",
+    "pvsyst_near_table_id",
+    "pvsyst_near_orientation_id",
+    "pvsyst_near_zone_id",
+    "near_pvsyst_version",
+    "near_pvsyst_source_label",
+    "near_pvsyst_source_reference",
+    "near_shading_authority_contract",
+    "near_shading_authority_policy",
+    "near_shading_authority_scope",
+]
+_HORIZON_AUTHORITY_COLUMNS = [
+    "selected_horizon_beam_visible_factor",
+    "selected_horizon_visibility_resolved",
+    "selected_horizon_source",
+    "selected_horizon_state",
+    "horizon_fallback_policy",
+    "pvsyst_horizon_profile_id",
+    "pvsyst_horizon_activation_state",
+    "pvsyst_project_variant_id",
+    "horizon_pvsyst_version",
+    "horizon_pvsyst_source_label",
+    "horizon_pvsyst_source_reference",
+    "horizon_authority_contract",
+    "horizon_authority_policy",
+    "horizon_authority_scope",
 ]
 _REAR_COMPONENTS = [
     "poa_rear_direct_raw_wm2",
@@ -144,6 +192,8 @@ _OUTPUT_COLUMNS = (
     + _FIXED_COLUMNS
     + _NEAR_COLUMNS
     + _DIFFUSE_COLUMNS
+    + _NEAR_AUTHORITY_COLUMNS
+    + _HORIZON_AUTHORITY_COLUMNS
     + _DIRECT_COLUMNS
     + ["rear_mode"]
     + _REAR_COMPONENTS
@@ -158,8 +208,11 @@ class OpticalStateDiagnostics:
     timestamp_count: int
     row_count: int
     rear_receiver_count: int
-    direct_overlap_unresolved_count: int
+    selected_direct_resolved_count: int
+    selected_direct_unresolved_count: int
+    helio_near_overlap_unresolved_count: int
     state_contract: str
+    direct_composition_model: str
 
 
 @dataclass(frozen=True)
@@ -177,6 +230,8 @@ def assemble_receiver_optical_state(
     near_object: pd.DataFrame,
     diffuse_sky_visibility: DiffuseSkyVisibility,
     *,
+    near_shading_authority: PVsystNearShadingAuthorityResult,
+    far_horizon_authority: PVsystFarHorizonAuthorityResult,
     rear_mode_by_receiver: Mapping[str, RearOpticalMode],
     rear_irradiance: pd.DataFrame | None = None,
 ) -> OpticalStateResult:
@@ -196,6 +251,12 @@ def assemble_receiver_optical_state(
     terrain = _validated_mechanism_frame(terrain_horizon, canonical_index, "terrain_horizon")
     fixed = _validated_mechanism_frame(fixed_inter_row, canonical_index, "fixed_inter_row")
     near = _validated_mechanism_frame(near_object, canonical_index, "near_object")
+    near_authority = _validated_near_authority(
+        near_shading_authority, canonical_index, receiver_ids, timestamp_index
+    )
+    horizon_authority = _validated_horizon_authority(
+        far_horizon_authority, canonical_index, receiver_ids, timestamp_index
+    )
     diffuse = _validated_diffuse(diffuse_sky_visibility, receiver_ids, receivers_by_id)
     rear_ids = tuple(
         identifier
@@ -205,6 +266,7 @@ def assemble_receiver_optical_state(
     rear = _validated_rear(rear_irradiance, timestamp_index, rear_ids)
 
     rows: list[dict[str, object]] = []
+    selected_resolved_count = 0
     overlap_count = 0
     for timestamp in timestamp_index:
         for receiver_id in receiver_ids:
@@ -218,6 +280,8 @@ def assemble_receiver_optical_state(
             terrain_row = terrain.loc[mechanism_key]
             fixed_row = fixed.loc[mechanism_key]
             near_row = near.loc[mechanism_key]
+            near_authority_row = near_authority.loc[mechanism_key]
+            horizon_authority_row = horizon_authority.loc[mechanism_key]
             for name, mechanism in (
                 ("terrain_horizon", terrain_row),
                 ("fixed_inter_row", fixed_row),
@@ -225,8 +289,21 @@ def assemble_receiver_optical_state(
             ):
                 _validate_direct_provenance(name, mechanism, front)
             _validate_factors(terrain_row, fixed_row, near_row)
-            direct = _compose_direct(front, terrain_row, fixed_row, near_row)
-            if direct["front_direct_overlap_state"] == "unresolved_fixed_near_partial_overlap":
+            _validate_authority_row(
+                receiver,
+                front,
+                terrain_row,
+                fixed_row,
+                near_row,
+                near_authority_row,
+                horizon_authority_row,
+            )
+            direct = _compose_direct(front, near_authority_row, horizon_authority_row)
+            if bool(direct["front_direct_geometric_composition_resolved"]):
+                selected_resolved_count += 1
+            if near_authority_row["helio_near_shading_state"] == (
+                "unresolved_fixed_near_partial_overlap"
+            ):
                 overlap_count += 1
             diffuse_row = diffuse.loc[receiver_id]
             row = {name: front[name] for name in _FRONT_COLUMNS}
@@ -236,6 +313,8 @@ def assemble_receiver_optical_state(
             row.update(_near_values(near_row))
             row.update({name: diffuse_row[name] for name in _DIFFUSE_COLUMNS[:-1]})
             row["diffuse_sky_application_role"] = DIFFUSE_SKY_ROLE
+            row.update(_near_authority_values(near_authority_row))
+            row.update(_horizon_authority_values(horizon_authority_row))
             row.update(direct)
             mode = rear_mode_by_receiver[receiver_id]
             row["rear_mode"] = mode
@@ -243,6 +322,8 @@ def assemble_receiver_optical_state(
             row["optical_state_contract"] = STATE_CONTRACT_ID
             rows.append(row)
     state = _typed_state(pd.DataFrame(rows, columns=_OUTPUT_COLUMNS, index=canonical_index))
+    if tuple(state.columns) != tuple(_OUTPUT_COLUMNS):
+        raise RuntimeError("optical-state output schema changed unexpectedly")
     return OpticalStateResult(
         state,
         OpticalStateDiagnostics(
@@ -250,8 +331,11 @@ def assemble_receiver_optical_state(
             timestamp_count=len(timestamp_index),
             row_count=len(state),
             rear_receiver_count=len(rear_ids),
-            direct_overlap_unresolved_count=overlap_count,
+            selected_direct_resolved_count=selected_resolved_count,
+            selected_direct_unresolved_count=len(state) - selected_resolved_count,
+            helio_near_overlap_unresolved_count=overlap_count,
             state_contract=STATE_CONTRACT_ID,
+            direct_composition_model=DIRECT_COMPOSITION_ID,
         ),
     )
 
@@ -388,6 +472,150 @@ def _validated_mechanism_frame(
     return frame.reindex(canonical)
 
 
+def _validated_authority_frame(
+    frame: object, canonical: pd.MultiIndex, required: Sequence[str], label: str
+) -> pd.DataFrame:
+    _require_columns(frame, required, label)
+    assert isinstance(frame, pd.DataFrame)
+    if not isinstance(frame.index, pd.MultiIndex) or frame.index.names != canonical.names:
+        raise ValueError(f"{label} index names must match canonical receiver/time names")
+    timestamps = frame.index.get_level_values(0)
+    if not isinstance(timestamps, pd.DatetimeIndex) or timestamps.tz is None:
+        raise ValueError(f"{label} requires timezone-aware timestamps")
+    canonical_timestamps = canonical.get_level_values(0)
+    assert isinstance(canonical_timestamps, pd.DatetimeIndex)
+    if str(timestamps.tz) != str(canonical_timestamps.tz):
+        raise ValueError(f"{label} timestamp timezone must exactly match S7A")
+    if timestamps.hasnans or frame.index.has_duplicates:
+        raise ValueError(f"{label} contains invalid or duplicate receiver/time rows")
+    if len(frame) != len(canonical) or set(frame.index) != set(canonical):
+        raise ValueError(f"{label} must exactly match the canonical receiver/time grid")
+    return frame.reindex(canonical)
+
+
+def _validated_near_authority(
+    value: object,
+    canonical: pd.MultiIndex,
+    receiver_ids: tuple[str, ...],
+    timestamps: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    if not isinstance(value, PVsystNearShadingAuthorityResult):
+        raise ValueError("near_shading_authority must be PVsystNearShadingAuthorityResult")
+    required = (
+        "poa_direct_raw_wm2",
+        "apparent_solar_zenith_deg",
+        "solar_azimuth_deg",
+        "receiver_surface_area_m2",
+        "fixed_inter_row_beam_visible_fraction",
+        "fixed_inter_row_visibility_resolved",
+        "near_object_beam_visible_fraction",
+        "near_object_visibility_resolved",
+        "helio_near_shading_beam_transmission_fraction",
+        "helio_near_shading_beam_shaded_fraction",
+        "helio_near_shading_resolved",
+        "helio_near_shading_state",
+        "pvsyst_scope_id",
+        "pvsyst_table_id",
+        "pvsyst_orientation_id",
+        "pvsyst_zone_id",
+        "selected_near_shading_beam_transmission_fraction",
+        "selected_near_shading_beam_shaded_fraction",
+        "selected_near_shading_resolved",
+        "selected_near_shading_source",
+        "selected_near_shading_state",
+        "fallback_policy",
+        "pvsyst_version",
+        "pvsyst_source_label",
+        "pvsyst_source_reference",
+        "pvsyst_shading_authority_contract",
+        "pvsyst_helio_comparison_model",
+        "pvsyst_shading_authority_policy",
+        "pvsyst_shading_authority_scope",
+    )
+    diagnostics = value.diagnostics
+    if (
+        diagnostics.receiver_count,
+        diagnostics.timestamp_count,
+        diagnostics.receiver_row_count,
+    ) != (len(receiver_ids), len(timestamps), len(canonical)):
+        raise ValueError("near shading authority diagnostics do not match S7A grid")
+    if (diagnostics.contract, diagnostics.comparison_model, diagnostics.authority_policy) != (
+        PVSYST_SHADING_AUTHORITY_CONTRACT_ID,
+        PVSYST_HELIO_COMPARISON_MODEL_ID,
+        PVSYST_PREFERRED_POLICY_ID,
+    ):
+        raise ValueError("near shading authority diagnostics provenance is not canonical")
+    frame = _validated_authority_frame(
+        value.receiver_authority, canonical, required, "near authority"
+    )
+    _require_constant(
+        frame, "pvsyst_shading_authority_contract", PVSYST_SHADING_AUTHORITY_CONTRACT_ID
+    )
+    _require_constant(frame, "pvsyst_helio_comparison_model", PVSYST_HELIO_COMPARISON_MODEL_ID)
+    _require_constant(frame, "pvsyst_shading_authority_policy", PVSYST_PREFERRED_POLICY_ID)
+    _require_constant(frame, "pvsyst_shading_authority_scope", PVSYST_SHADING_AUTHORITY_SCOPE)
+    return frame
+
+
+def _validated_horizon_authority(
+    value: object,
+    canonical: pd.MultiIndex,
+    receiver_ids: tuple[str, ...],
+    timestamps: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    if not isinstance(value, PVsystFarHorizonAuthorityResult):
+        raise ValueError("far_horizon_authority must be PVsystFarHorizonAuthorityResult")
+    required = (
+        "poa_direct_raw_wm2",
+        "apparent_solar_zenith_deg",
+        "solar_azimuth_deg",
+        "receiver_surface_area_m2",
+        "terrain_horizon_beam_visible_factor",
+        "terrain_horizon_visibility_resolved",
+        "terrain_horizon_state",
+        "blocking_terrain_id",
+        "blocking_distance_m",
+        "pvsyst_horizon_profile_id",
+        "pvsyst_horizon_activation_state",
+        "pvsyst_project_variant_id",
+        "selected_horizon_beam_visible_factor",
+        "selected_horizon_visibility_resolved",
+        "selected_horizon_source",
+        "selected_horizon_state",
+        "fallback_policy",
+        "pvsyst_version",
+        "pvsyst_source_label",
+        "pvsyst_source_reference",
+        "pvsyst_horizon_authority_contract",
+        "pvsyst_horizon_comparison_model",
+        "pvsyst_horizon_authority_policy",
+        "pvsyst_horizon_authority_scope",
+    )
+    diagnostics = value.diagnostics
+    if (
+        diagnostics.receiver_count,
+        diagnostics.timestamp_count,
+        diagnostics.receiver_row_count,
+    ) != (len(receiver_ids), len(timestamps), len(canonical)):
+        raise ValueError("far horizon authority diagnostics do not match S7A grid")
+    if (diagnostics.contract, diagnostics.comparison_model, diagnostics.authority_policy) != (
+        PVSYST_HORIZON_AUTHORITY_CONTRACT_ID,
+        PVSYST_HORIZON_COMPARISON_MODEL_ID,
+        PVSYST_HORIZON_PREFERRED_POLICY_ID,
+    ):
+        raise ValueError("far horizon authority diagnostics provenance is not canonical")
+    frame = _validated_authority_frame(
+        value.receiver_authority, canonical, required, "horizon authority"
+    )
+    _require_constant(
+        frame, "pvsyst_horizon_authority_contract", PVSYST_HORIZON_AUTHORITY_CONTRACT_ID
+    )
+    _require_constant(frame, "pvsyst_horizon_comparison_model", PVSYST_HORIZON_COMPARISON_MODEL_ID)
+    _require_constant(frame, "pvsyst_horizon_authority_policy", PVSYST_HORIZON_PREFERRED_POLICY_ID)
+    _require_constant(frame, "pvsyst_horizon_authority_scope", PVSYST_HORIZON_AUTHORITY_SCOPE)
+    return frame
+
+
 def _validated_diffuse(
     value: object,
     receiver_ids: tuple[str, ...],
@@ -514,15 +742,123 @@ def _validate_factors(terrain: pd.Series, fixed: pd.Series, near: pd.Series) -> 
                 raise ValueError(f"resolved {label} fractions are invalid")
 
 
+def _validate_authority_row(
+    receiver: PVReceiver,
+    front: pd.Series,
+    terrain: pd.Series,
+    fixed: pd.Series,
+    near: pd.Series,
+    near_authority: pd.Series,
+    horizon_authority: pd.Series,
+) -> None:
+    for label, authority in (
+        ("near authority", near_authority),
+        ("horizon authority", horizon_authority),
+    ):
+        _validate_direct_provenance(label, authority, front)
+        if not _same_number(
+            authority["receiver_surface_area_m2"], _receiver_area(receiver), _TOLERANCE
+        ):
+            raise ValueError(f"{label} receiver surface area does not match canonical geometry")
+    for column in ("fixed_inter_row_beam_visible_fraction", "fixed_inter_row_visibility_resolved"):
+        if not _same_scalar(near_authority[column], fixed[column]):
+            raise ValueError(f"near authority {column} does not match raw fixed inter-row evidence")
+    for column in ("near_object_beam_visible_fraction", "near_object_visibility_resolved"):
+        if not _same_scalar(near_authority[column], near[column]):
+            raise ValueError(f"near authority {column} does not match raw near-object evidence")
+    for column in (
+        "terrain_horizon_beam_visible_factor",
+        "terrain_horizon_visibility_resolved",
+        "terrain_horizon_state",
+        "blocking_terrain_id",
+        "blocking_distance_m",
+    ):
+        if not _same_scalar(horizon_authority[column], terrain[column]):
+            raise ValueError(f"horizon authority {column} does not match raw terrain evidence")
+    _validate_selected_near(near_authority, float(front["apparent_solar_zenith_deg"]))
+    _validate_selected_horizon(horizon_authority, float(front["apparent_solar_zenith_deg"]))
+
+
+def _validate_selected_near(row: pd.Series, zenith: float) -> None:
+    resolved = _strict_bool(row["selected_near_shading_resolved"], "selected near resolved")
+    source, state = row["selected_near_shading_source"], row["selected_near_shading_state"]
+    if zenith >= 90.0:
+        if (
+            resolved
+            or not pd.isna(row["selected_near_shading_beam_transmission_fraction"])
+            or not pd.isna(row["selected_near_shading_beam_shaded_fraction"])
+            or source != "none"
+            or state != "not_applicable_no_above_horizon_beam"
+        ):
+            raise ValueError("selected near authority violates night semantics")
+        return
+    if resolved:
+        transmission = _fraction(
+            row["selected_near_shading_beam_transmission_fraction"], "selected near transmission"
+        )
+        shaded = _fraction(
+            row["selected_near_shading_beam_shaded_fraction"], "selected near shaded fraction"
+        )
+        if not np.isclose(transmission + shaded, 1.0, rtol=1e-12, atol=_TOLERANCE):
+            raise ValueError("selected near authority fractions do not close")
+        allowed = {
+            ("pvsyst", "resolved_pvsyst_authority"),
+            ("heliotelligence_fallback", "resolved_heliotelligence_fallback"),
+        }
+        if (source, state) not in allowed:
+            raise ValueError("selected near source/state is not canonical")
+    elif not (
+        pd.isna(row["selected_near_shading_beam_transmission_fraction"])
+        and pd.isna(row["selected_near_shading_beam_shaded_fraction"])
+        and source == "none"
+        and state in {"unresolved_pvsyst_authority", "unresolved_both_sources"}
+    ):
+        raise ValueError("unresolved selected near authority is inconsistent")
+
+
+def _validate_selected_horizon(row: pd.Series, zenith: float) -> None:
+    resolved = _strict_bool(
+        row["selected_horizon_visibility_resolved"], "selected horizon resolved"
+    )
+    source, state = row["selected_horizon_source"], row["selected_horizon_state"]
+    factor = row["selected_horizon_beam_visible_factor"]
+    if zenith >= 90.0:
+        if (
+            resolved
+            or not pd.isna(factor)
+            or source != "none"
+            or state != "not_applicable_no_above_horizon_beam"
+        ):
+            raise ValueError("selected horizon authority violates night semantics")
+        return
+    if resolved:
+        value = _fraction(factor, "selected horizon factor")
+        if _boundary(value) not in (0.0, 1.0):
+            raise ValueError("selected horizon factor must be binary")
+        allowed = {
+            ("pvsyst", "resolved_pvsyst_horizon_authority"),
+            ("pvsyst_project_horizon_disabled", "resolved_pvsyst_project_horizon_disabled_clear"),
+            ("heliotelligence_fallback", "resolved_heliotelligence_fallback"),
+        }
+        if (source, state) not in allowed:
+            raise ValueError("selected horizon source/state is not canonical")
+    elif not (
+        pd.isna(factor)
+        and source == "none"
+        and state in {"unresolved_pvsyst_authority", "unresolved_both_sources"}
+    ):
+        raise ValueError("unresolved selected horizon authority is inconsistent")
+
+
 def _compose_direct(
-    front: pd.Series, terrain: pd.Series, fixed: pd.Series, near: pd.Series
+    front: pd.Series, near_authority: pd.Series, horizon_authority: pd.Series
 ) -> dict[str, object]:
     base: dict[str, object] = {
         "front_direct_geometric_visible_fraction": np.nan,
         "front_direct_geometric_shaded_fraction": np.nan,
         "front_direct_geometric_composition_resolved": False,
-        "front_direct_geometric_state": "unresolved_geometry",
-        "front_direct_overlap_state": "not_evaluated",
+        "front_direct_geometric_state": "unresolved_selected_authority_dependency",
+        "helio_near_shading_state": near_authority["helio_near_shading_state"],
         "front_direct_composition_model": DIRECT_COMPOSITION_ID,
     }
     zenith = float(front["apparent_solar_zenith_deg"])
@@ -537,40 +873,37 @@ def _compose_direct(
     if pd.isna(raw):
         base["front_direct_geometric_state"] = "unresolved_upstream_direct_irradiance"
         return base
-    if not all(
-        bool(value)
-        for value in (
-            terrain["terrain_horizon_visibility_resolved"],
-            fixed["fixed_inter_row_visibility_resolved"],
-            near["near_object_visibility_resolved"],
-        )
-    ):
-        return base
-    t = _boundary(float(terrain["terrain_horizon_beam_visible_factor"]))
-    f = _boundary(float(fixed["fixed_inter_row_beam_visible_fraction"]))
-    n = _boundary(float(near["near_object_beam_visible_fraction"]))
-    visible: float | None
-    overlap = "exact_no_partial_overlap_ambiguity"
-    if t == 0.0 or f == 0.0 or n == 0.0:
+    horizon_resolved = bool(horizon_authority["selected_horizon_visibility_resolved"])
+    near_resolved = bool(near_authority["selected_near_shading_resolved"])
+    horizon = (
+        _boundary(float(horizon_authority["selected_horizon_beam_visible_factor"]))
+        if horizon_resolved
+        else None
+    )
+    near = (
+        _boundary(float(near_authority["selected_near_shading_beam_transmission_fraction"]))
+        if near_resolved
+        else None
+    )
+    if (horizon_resolved and horizon == 0.0) or (near_resolved and near == 0.0):
         visible = 0.0
-    elif f == 1.0:
-        visible = n
-    elif n == 1.0:
-        visible = f
+        state = (
+            "resolved_selected_shading_authorities"
+            if horizon_resolved and near_resolved
+            else "resolved_fully_blocked_by_selected_authority"
+        )
+    elif horizon_resolved and near_resolved:
+        assert horizon is not None and near is not None
+        visible = _boundary(horizon * near)
+        state = "resolved_selected_shading_authorities"
     else:
-        visible = None
-        overlap = "unresolved_fixed_near_partial_overlap"
-    if visible is None:
-        base["front_direct_geometric_state"] = "unresolved_spatial_overlap"
-        base["front_direct_overlap_state"] = overlap
         return base
     base.update(
         {
             "front_direct_geometric_visible_fraction": visible,
             "front_direct_geometric_shaded_fraction": 1.0 - visible,
             "front_direct_geometric_composition_resolved": True,
-            "front_direct_geometric_state": "resolved",
-            "front_direct_overlap_state": overlap,
+            "front_direct_geometric_state": state,
         }
     )
     return base
@@ -605,6 +938,50 @@ def _near_values(row: pd.Series) -> dict[str, object]:
         "near_object_model": "near_object_shading_model",
     }
     return {target: row[source] for target, source in mapping.items()}
+
+
+def _near_authority_values(row: pd.Series) -> dict[str, object]:
+    return {
+        "selected_near_shading_beam_transmission_fraction": row[
+            "selected_near_shading_beam_transmission_fraction"
+        ],
+        "selected_near_shading_beam_shaded_fraction": row[
+            "selected_near_shading_beam_shaded_fraction"
+        ],
+        "selected_near_shading_resolved": row["selected_near_shading_resolved"],
+        "selected_near_shading_source": row["selected_near_shading_source"],
+        "selected_near_shading_state": row["selected_near_shading_state"],
+        "near_shading_fallback_policy": row["fallback_policy"],
+        "pvsyst_near_scope_id": row["pvsyst_scope_id"],
+        "pvsyst_near_table_id": row["pvsyst_table_id"],
+        "pvsyst_near_orientation_id": row["pvsyst_orientation_id"],
+        "pvsyst_near_zone_id": row["pvsyst_zone_id"],
+        "near_pvsyst_version": row["pvsyst_version"],
+        "near_pvsyst_source_label": row["pvsyst_source_label"],
+        "near_pvsyst_source_reference": row["pvsyst_source_reference"],
+        "near_shading_authority_contract": row["pvsyst_shading_authority_contract"],
+        "near_shading_authority_policy": row["pvsyst_shading_authority_policy"],
+        "near_shading_authority_scope": row["pvsyst_shading_authority_scope"],
+    }
+
+
+def _horizon_authority_values(row: pd.Series) -> dict[str, object]:
+    return {
+        "selected_horizon_beam_visible_factor": row["selected_horizon_beam_visible_factor"],
+        "selected_horizon_visibility_resolved": row["selected_horizon_visibility_resolved"],
+        "selected_horizon_source": row["selected_horizon_source"],
+        "selected_horizon_state": row["selected_horizon_state"],
+        "horizon_fallback_policy": row["fallback_policy"],
+        "pvsyst_horizon_profile_id": row["pvsyst_horizon_profile_id"],
+        "pvsyst_horizon_activation_state": row["pvsyst_horizon_activation_state"],
+        "pvsyst_project_variant_id": row["pvsyst_project_variant_id"],
+        "horizon_pvsyst_version": row["pvsyst_version"],
+        "horizon_pvsyst_source_label": row["pvsyst_source_label"],
+        "horizon_pvsyst_source_reference": row["pvsyst_source_reference"],
+        "horizon_authority_contract": row["pvsyst_horizon_authority_contract"],
+        "horizon_authority_policy": row["pvsyst_horizon_authority_policy"],
+        "horizon_authority_scope": row["pvsyst_horizon_authority_scope"],
+    }
 
 
 def _rear_values(
@@ -673,6 +1050,54 @@ def _require_columns(frame: object, columns: Sequence[str], label: str) -> None:
         raise ValueError(f"{label} is missing required columns")
 
 
+def _require_constant(frame: pd.DataFrame, column: str, expected: str) -> None:
+    if not frame[column].eq(expected).all():
+        raise ValueError(f"authority {column} is not canonical")
+
+
+def _receiver_area(receiver: PVReceiver) -> float:
+    vertices, faces = receiver.mesh.vertices_enu_m, receiver.mesh.faces
+    triangles = vertices[faces]
+    return float(
+        np.sum(
+            0.5
+            * np.linalg.norm(
+                np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]),
+                axis=1,
+            )
+        )
+    )
+
+
+def _strict_bool(value: object, label: str) -> bool:
+    if not isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{label} must be Boolean")
+    return bool(value)
+
+
+def _fraction(value: object, label: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{label} must be a finite real in [0, 1]")
+    number = float(value)
+    if not np.isfinite(number) or not -_TOLERANCE <= number <= 1.0 + _TOLERANCE:
+        raise ValueError(f"{label} must be a finite real in [0, 1]")
+    return _boundary(number)
+
+
+def _same_scalar(left: object, right: object) -> bool:
+    if isinstance(left, (bool, np.bool_)) or isinstance(right, (bool, np.bool_)):
+        return (
+            isinstance(left, (bool, np.bool_))
+            and isinstance(right, (bool, np.bool_))
+            and bool(left) == bool(right)
+        )
+    if isinstance(left, Real) and isinstance(right, Real):
+        return _same_number(left, right, _TOLERANCE)
+    if pd.isna(left) or pd.isna(right):
+        return bool(pd.isna(left) and pd.isna(right))
+    return bool(left == right)
+
+
 def _same_number(left: object, right: object, tolerance: float) -> bool:
     if pd.isna(left) or pd.isna(right):
         return bool(pd.isna(left) and pd.isna(right))
@@ -714,6 +1139,13 @@ def _typed_state(frame: pd.DataFrame) -> pd.DataFrame:
         or column.endswith("_model")
         or column.endswith("_scope")
         or column.endswith("_role")
+        or column.endswith("_source")
+        or column.endswith("_policy")
+        or column.endswith("_id")
+        or column.endswith("_label")
+        or column.endswith("_reference")
+        or column.endswith("_version")
+        or column.endswith("_contract")
         or column
         in (
             "blocking_terrain_id",
