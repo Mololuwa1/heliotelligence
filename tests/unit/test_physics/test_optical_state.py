@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from dataclasses import replace
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
@@ -36,6 +37,22 @@ from heliotelligence.physics.optical_state import (
     assemble_receiver_optical_state,
 )
 from heliotelligence.physics.poa_transposition import calculate_raw_poa_transposition
+from heliotelligence.physics.pvsyst_far_horizon import (
+    PVsystFarHorizonProfile,
+    evaluate_pvsyst_far_horizon,
+)
+from heliotelligence.physics.pvsyst_horizon_authority import (
+    PVsystHorizonActivation,
+    compare_and_select_pvsyst_far_horizon,
+)
+from heliotelligence.physics.pvsyst_linear_shading import (
+    PVsystLinearShadingTable,
+    evaluate_pvsyst_linear_beam_shading,
+)
+from heliotelligence.physics.pvsyst_shading_authority import (
+    PVsystNearShadingScope,
+    compare_and_select_pvsyst_near_shading,
+)
 from heliotelligence.physics.terrain_horizon import (
     TerrainHorizonScene,
     calculate_terrain_horizon_direct_beam_shading,
@@ -112,7 +129,7 @@ def _bundle() -> dict[str, Any]:
     diffuse = DiffuseSkyScene(
         receivers, samples_per_receiver=2, sky_direction_count=8, max_rays_per_batch=7
     ).calculate_visibility()
-    return {
+    bundle = {
         "receivers": receivers,
         "front_poa_by_receiver": front,
         "beam_iam_by_receiver": iam,
@@ -122,10 +139,146 @@ def _bundle() -> dict[str, Any]:
         "diffuse_sky_visibility": diffuse,
         "rear_mode_by_receiver": {"a": "not_applicable", "b": "not_applicable"},
     }
+    _refresh_authorities(bundle)
+    return bundle
+
+
+def _refresh_authorities(
+    bundle: dict[str, Any],
+    *,
+    near_transmission: float = 1.0,
+    horizon_activation: Literal["enabled", "disabled", "unknown"] = "enabled",
+) -> None:
+    receivers = bundle["receivers"]
+    first_front = bundle["front_poa_by_receiver"][receivers[0].id]
+    zenith = first_front["apparent_solar_zenith_deg"]
+    azimuth = first_front["solar_azimuth_deg"]
+    elevation = 90.0 - zenith
+    near_table = PVsystLinearShadingTable(
+        "table",
+        "south",
+        None,
+        (1.0, 90.0),
+        (-180.0, 180.0),
+        ((near_transmission, near_transmission), (near_transmission, near_transmission)),
+        "transmission_fraction",
+        "test",
+        None,
+        None,
+    )
+    near_result = evaluate_pvsyst_linear_beam_shading(
+        near_table, elevation, azimuth, hemisphere="north"
+    )
+    near_authority = compare_and_select_pvsyst_near_shading(
+        receivers,
+        bundle["fixed_inter_row"],
+        bundle["near_object"],
+        {"table": near_result},
+        [
+            PVsystNearShadingScope(f"scope-{receiver.id}", "table", (receiver.id,))
+            for receiver in receivers
+        ],
+        fallback_policy="no_fallback",
+    )
+    horizon_profile = PVsystFarHorizonProfile(
+        "profile",
+        (-180.0, 0.0, 180.0),
+        (-5.0, -5.0, -5.0),
+        "full_azimuth_periodic",
+        "test",
+        None,
+        None,
+    )
+    horizon_result = evaluate_pvsyst_far_horizon(
+        horizon_profile, elevation, azimuth, hemisphere="north"
+    )
+    horizon_authority = compare_and_select_pvsyst_far_horizon(
+        receivers,
+        bundle["terrain_horizon"],
+        horizon_result,
+        activation=PVsystHorizonActivation("profile", "variant", horizon_activation, "test"),
+        fallback_policy="no_fallback",
+    )
+    bundle["near_shading_authority"] = near_authority
+    bundle["far_horizon_authority"] = horizon_authority
 
 
 def _assemble(bundle: dict[str, Any]) -> OpticalStateResult:
     return assemble_receiver_optical_state(**bundle)
+
+
+def _set_near_selection(
+    bundle: dict[str, Any], key: tuple[pd.Timestamp, str], value: float | None
+) -> None:
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    resolved = value is not None
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = value
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = (
+        None if value is None else 1.0 - value
+    )
+    frame.loc[key, "selected_near_shading_resolved"] = resolved
+    frame.loc[key, "selected_near_shading_source"] = "pvsyst" if resolved else "none"
+    frame.loc[key, "selected_near_shading_state"] = (
+        "resolved_pvsyst_authority" if resolved else "unresolved_both_sources"
+    )
+    frame.loc[key, "pvsyst_near_shading_beam_transmission_fraction"] = value
+    frame.loc[key, "pvsyst_near_shading_beam_shaded_fraction"] = (
+        None if value is None else 1.0 - value
+    )
+    frame.loc[key, "pvsyst_near_shading_resolved"] = resolved
+    if not resolved:
+        frame.loc[key, "helio_near_shading_beam_transmission_fraction"] = np.nan
+        frame.loc[key, "helio_near_shading_beam_shaded_fraction"] = np.nan
+        frame.loc[key, "helio_near_shading_resolved"] = False
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+
+
+def _set_horizon_selection(
+    bundle: dict[str, Any],
+    key: tuple[pd.Timestamp, str],
+    value: float | None,
+    *,
+    disabled: bool = False,
+) -> None:
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    resolved = value is not None
+    frame.loc[key, "selected_horizon_beam_visible_factor"] = value
+    frame.loc[key, "selected_horizon_visibility_resolved"] = resolved
+    frame.loc[key, "selected_horizon_source"] = (
+        "pvsyst_project_horizon_disabled" if disabled else "pvsyst" if resolved else "none"
+    )
+    frame.loc[key, "selected_horizon_state"] = (
+        "resolved_pvsyst_project_horizon_disabled_clear"
+        if disabled
+        else "resolved_pvsyst_horizon_authority"
+        if resolved
+        else "unresolved_both_sources"
+    )
+    frame.loc[key, "pvsyst_horizon_activation_state"] = (
+        "disabled" if disabled else "enabled" if resolved else "unknown"
+    )
+    frame.loc[key, "pvsyst_horizon_authority_factor"] = value
+    frame.loc[key, "pvsyst_horizon_authority_resolved"] = resolved
+    frame.loc[key, "pvsyst_horizon_authority_source"] = (
+        "pvsyst_project_horizon_disabled" if disabled else "pvsyst" if resolved else "none"
+    )
+    frame.loc[key, "pvsyst_horizon_authority_state"] = (
+        "resolved_project_horizon_disabled_clear"
+        if disabled
+        else "resolved_pvsyst_horizon_authority"
+        if resolved
+        else "unresolved_project_horizon_activation_unknown"
+    )
+    if not resolved:
+        frame.loc[key, "terrain_horizon_visibility_resolved"] = False
+        frame.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+        terrain = bundle["terrain_horizon"].copy(deep=True)
+        terrain.loc[key, "terrain_horizon_visibility_resolved"] = False
+        terrain.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+        bundle["terrain_horizon"] = terrain
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
 
 
 def test_real_primitives_integrate_and_preserve_boundaries() -> None:
@@ -219,6 +372,7 @@ def test_receiver_specific_orientation_poa_and_aoi_remain_valid() -> None:
         sky_direction_count=8,
         max_rays_per_batch=7,
     ).calculate_visibility()
+    _refresh_authorities(bundle)
     state = _assemble(bundle).state
     assert not np.allclose(
         state.loc[(slice(None), "a"), "aoi_deg"],
@@ -279,23 +433,20 @@ def test_solar_geometry_mismatch_is_rejected() -> None:
 
 
 @pytest.mark.parametrize(
-    ("terrain", "fixed", "near", "expected", "resolved", "overlap"),
+    ("terrain", "fixed", "near"),
     [
-        (1.0, 0.7, 1.0, 0.7, True, "exact_no_partial_overlap_ambiguity"),
-        (1.0, 1.0, 0.6, 0.6, True, "exact_no_partial_overlap_ambiguity"),
-        (0.0, 0.7, 0.6, 0.0, True, "exact_no_partial_overlap_ambiguity"),
-        (1.0, 0.0, 0.6, 0.0, True, "exact_no_partial_overlap_ambiguity"),
-        (1.0, 0.7, 0.0, 0.0, True, "exact_no_partial_overlap_ambiguity"),
-        (1.0, 0.7, 0.6, np.nan, False, "unresolved_fixed_near_partial_overlap"),
+        (1.0, 0.7, 1.0),
+        (1.0, 1.0, 0.6),
+        (0.0, 0.7, 0.6),
+        (1.0, 0.0, 0.6),
+        (1.0, 0.7, 0.0),
+        (1.0, 0.7, 0.6),
     ],
 )
 def test_exact_direct_composition_gate(
     terrain: float,
     fixed: float,
     near: float,
-    expected: float,
-    resolved: bool,
-    overlap: str,
 ) -> None:
     bundle = _bundle()
     key = (_inputs()[0].index[0], "a")
@@ -314,15 +465,281 @@ def test_exact_direct_composition_gate(
             "near_object_beam_shaded_fraction",
         ],
     ] = (near, 1.0 - near)
+    _refresh_authorities(bundle)
+    row = _assemble(bundle).state.loc[key]
+    assert row["front_direct_geometric_visible_fraction"] == pytest.approx(1.0)
+    assert bool(row["front_direct_geometric_composition_resolved"])
+    assert row["selected_near_shading_source"] == "pvsyst"
+    assert row["front_direct_composition_model"] == DIRECT_COMPOSITION_ID
+
+
+@pytest.mark.parametrize(
+    ("horizon", "near", "expected", "resolved", "state"),
+    [
+        (1.0, 0.72, 0.72, True, "resolved_selected_shading_authorities"),
+        (0.0, 0.63, 0.0, True, "resolved_selected_shading_authorities"),
+        (1.0, 0.0, 0.0, True, "resolved_selected_shading_authorities"),
+        (0.0, None, 0.0, True, "resolved_fully_blocked_by_selected_authority"),
+        (None, 0.0, 0.0, True, "resolved_fully_blocked_by_selected_authority"),
+        (None, 0.5, np.nan, False, "unresolved_selected_authority_dependency"),
+        (1.0, None, np.nan, False, "unresolved_selected_authority_dependency"),
+        (None, None, np.nan, False, "unresolved_selected_authority_dependency"),
+    ],
+)
+def test_selected_authority_composition_and_zero_dominance(
+    horizon: float | None,
+    near: float | None,
+    expected: float,
+    resolved: bool,
+    state: str,
+) -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    _set_horizon_selection(bundle, key, horizon)
+    _set_near_selection(bundle, key, near)
     row = _assemble(bundle).state.loc[key]
     if np.isnan(expected):
         assert np.isnan(row["front_direct_geometric_visible_fraction"])
-        assert row["front_direct_geometric_visible_fraction"] != pytest.approx(0.7 * 0.6)
     else:
         assert row["front_direct_geometric_visible_fraction"] == pytest.approx(expected)
+        assert row["front_direct_geometric_shaded_fraction"] == pytest.approx(1.0 - expected)
     assert bool(row["front_direct_geometric_composition_resolved"]) is resolved
-    assert row["front_direct_overlap_state"] == overlap
-    assert row["front_direct_composition_model"] == DIRECT_COMPOSITION_ID
+    assert row["front_direct_geometric_state"] == state
+
+
+def test_real_disabled_horizon_authority_overrides_blocked_raw_terrain() -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    bundle["terrain_horizon"].loc[key, "terrain_horizon_beam_visible_factor"] = 0.0
+    _refresh_authorities(bundle, horizon_activation="disabled")
+    row = _assemble(bundle).state.loc[key]
+    assert row["pvsyst_horizon_activation_state"] == "disabled"
+    assert row["terrain_horizon_beam_visible_factor"] == 0.0
+    assert row["selected_horizon_source"] == "pvsyst_project_horizon_disabled"
+    assert row["selected_horizon_beam_visible_factor"] == 1.0
+    assert row["front_direct_geometric_visible_fraction"] == pytest.approx(1.0)
+
+
+def test_real_pvsyst_near_authority_overrides_helio_challenger() -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    bundle["fixed_inter_row"].loc[
+        key,
+        ["fixed_inter_row_beam_visible_fraction", "fixed_inter_row_beam_shaded_fraction"],
+    ] = (0.4, 0.6)
+    _refresh_authorities(bundle, near_transmission=0.8)
+    authority_row = bundle["near_shading_authority"].receiver_authority.loc[key]
+    row = _assemble(bundle).state.loc[key]
+    assert authority_row["helio_near_shading_beam_transmission_fraction"] == pytest.approx(0.4)
+    assert authority_row["pvsyst_near_shading_beam_transmission_fraction"] == pytest.approx(0.8)
+    assert row["selected_near_shading_source"] == "pvsyst"
+    assert row["selected_near_shading_beam_transmission_fraction"] == pytest.approx(0.8)
+    assert row["front_direct_geometric_visible_fraction"] == pytest.approx(0.8)
+
+
+def test_authority_type_contract_count_and_area_tamper_are_rejected() -> None:
+    bundle = _bundle()
+    bundle["near_shading_authority"] = bundle["near_shading_authority"].receiver_authority
+    with pytest.raises(ValueError, match="PVsystNearShadingAuthorityResult"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("pvsyst_shading_authority_contract")] = "forged"
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="not canonical"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("receiver_surface_area_m2")] *= 2.0
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="surface area"):
+        _assemble(bundle)
+
+
+def test_authority_candidate_replay_contradictions_are_rejected() -> None:
+    key = (_inputs()[0].index[0], "a")
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_source"] = "pvsyst_project_horizon_disabled"
+    frame.loc[key, "selected_horizon_state"] = "resolved_pvsyst_project_horizon_disabled_clear"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_horizon_state"] = "resolved_heliotelligence_fallback"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_beam_visible_factor"] = 0.0
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = 0.8
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = 0.2
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="PVsyst candidate"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "fallback_policy"] = "heliotelligence_if_pvsyst_unresolved"
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = 0.8
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = 0.2
+    frame.loc[key, "pvsyst_near_shading_resolved"] = False
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="Helio candidate"):
+        _assemble(bundle)
+
+
+def test_helio_fallback_is_rejected_when_pvsyst_candidate_resolves() -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    assert bool(frame.loc[key, "pvsyst_near_shading_resolved"])
+    assert bool(frame.loc[key, "helio_near_shading_resolved"])
+    frame.loc[key, "fallback_policy"] = "heliotelligence_if_pvsyst_unresolved"
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = frame.loc[
+        key, "helio_near_shading_beam_transmission_fraction"
+    ]
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = frame.loc[
+        key, "helio_near_shading_beam_shaded_fraction"
+    ]
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _assemble(bundle)
+
+
+def test_horizon_unresolved_selection_requires_canonical_candidate_availability() -> None:
+    key = (_inputs()[0].index[0], "a")
+
+    # A: policy refusal is impossible when the Helio terrain candidate is unresolved.
+    bundle = _bundle()
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    terrain = bundle["terrain_horizon"].copy(deep=True)
+    terrain.loc[key, "terrain_horizon_visibility_resolved"] = False
+    terrain.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+    bundle["terrain_horizon"] = terrain
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "terrain_horizon_visibility_resolved"] = False
+    frame.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="unresolved PVsyst horizon authority candidates"):
+        _assemble(bundle)
+
+    # B: both-unresolved is impossible when Helio terrain resolves.
+    bundle = _bundle()
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_state"] = "unresolved_both_sources"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="both-unresolved horizon authority candidates"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize(
+    ("activation", "candidate_column", "candidate_value"),
+    [
+        ("disabled", "pvsyst_horizon_activation_state", "disabled"),
+        ("unknown", "pvsyst_horizon_authority_factor", 1.0),
+        ("unknown", "pvsyst_horizon_authority_source", "pvsyst"),
+        ("unknown", "pvsyst_horizon_authority_state", "wrong"),
+        ("enabled_unresolved", "pvsyst_horizon_authority_state", "wrong"),
+    ],
+)
+def test_unresolved_horizon_candidate_provenance_contradictions_are_rejected(
+    activation: str, candidate_column: str, candidate_value: object
+) -> None:
+    """C-G: unresolved candidates must match their activation provenance exactly."""
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    if activation == "enabled_unresolved":
+        frame.loc[key, "pvsyst_horizon_activation_state"] = "enabled"
+        frame.loc[key, "pvsyst_horizon_authority_state"] = "unresolved_pvsyst_profile_visibility"
+    frame.loc[key, candidate_column] = candidate_value
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidate provenance"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize("activation", ["enabled", "disabled"])
+def test_resolved_horizon_candidate_state_contradictions_are_rejected(activation: str) -> None:
+    """H-I: enabled and disabled resolved candidates retain canonical candidate states."""
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    _refresh_authorities(bundle, horizon_activation=activation)  # type: ignore[arg-type]
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "pvsyst_horizon_authority_state"] = "wrong"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidate provenance"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize(
+    ("state", "pvsyst_resolved", "helio_resolved"),
+    [
+        ("unresolved_pvsyst_authority", True, True),
+        ("unresolved_pvsyst_authority", False, False),
+        ("unresolved_both_sources", True, False),
+        ("unresolved_both_sources", False, True),
+    ],
+)
+def test_unresolved_near_selection_requires_canonical_candidate_states(
+    state: str, pvsyst_resolved: bool, helio_resolved: bool
+) -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_resolved"] = False
+    frame.loc[key, "selected_near_shading_source"] = "none"
+    frame.loc[key, "selected_near_shading_state"] = state
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = np.nan
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = np.nan
+    frame.loc[key, "fallback_policy"] = "no_fallback"
+    frame.loc[key, "pvsyst_near_shading_resolved"] = pvsyst_resolved
+    frame.loc[key, "helio_near_shading_resolved"] = helio_resolved
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidates are inconsistent"):
+        _assemble(bundle)
 
 
 def test_below_horizon_and_diffuse_geometric_only() -> None:
@@ -411,6 +828,9 @@ def test_determinism_under_input_reordering() -> None:
     second["rear_mode_by_receiver"] = dict(reversed(list(second["rear_mode_by_receiver"].items())))
     for name in ("terrain_horizon", "fixed_inter_row", "near_object"):
         second[name] = second[name].iloc[::-1]
+    for name in ("near_shading_authority", "far_horizon_authority"):
+        result = second[name]
+        second[name] = replace(result, receiver_authority=result.receiver_authority.iloc[::-1])
     pd.testing.assert_frame_equal(_assemble(second).state, expected)
 
 
@@ -423,6 +843,7 @@ def test_unresolved_front_irradiance_is_not_filled() -> None:
     bundle["front_poa_by_receiver"]["b"].loc[key[0], "ghi_wm2"] = np.nan
     for name in ("terrain_horizon", "fixed_inter_row", "near_object"):
         bundle[name].loc[key, "poa_direct_raw_wm2"] = np.nan
+    _refresh_authorities(bundle)
     row = _assemble(bundle).state.loc[key]
     assert np.isnan(row["poa_direct_raw_wm2"])
     assert np.isnan(row["front_direct_geometric_visible_fraction"])
@@ -478,6 +899,7 @@ def test_empty_time_axis_returns_stable_typed_state() -> None:
         }
     for mechanism in ("terrain_horizon", "fixed_inter_row", "near_object"):
         bundle[mechanism] = bundle[mechanism].iloc[:0]
+    _refresh_authorities(bundle)
     result = _assemble(bundle)
     assert result.state.empty
     assert result.state.index.names == ["time", "receiver_id"]

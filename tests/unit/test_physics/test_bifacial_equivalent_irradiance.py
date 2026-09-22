@@ -308,6 +308,9 @@ def _real_front_chain(
     diffuse_scene = front_chain_support.DiffuseSkyScene(
         receivers, samples_per_receiver=4, sky_direction_count=64, max_rays_per_batch=31
     )
+    near_authority, horizon_authority = front_chain_support._authorities(
+        receivers, terrain, fixed, near, inputs[3], inputs[4]
+    )
     optical = front_chain_support.assemble_receiver_optical_state(
         receivers,
         transposition,
@@ -316,6 +319,8 @@ def _real_front_chain(
         fixed,
         near,
         diffuse_scene.calculate_visibility(),
+        near_shading_authority=near_authority,
+        far_horizon_authority=horizon_authority,
         rear_mode_by_receiver={receiver.id: "not_applicable" for receiver in receivers},
     )
     components = diffuse_scene.calculate_component_optical_transmission(
@@ -513,9 +518,7 @@ def test_closure_tampering_and_strict_boolean() -> None:
 
 
 @pytest.mark.parametrize(("side", "total_resolved"), [("front", False), ("rear", False)])
-def test_all_components_resolved_requires_total_resolved(
-    side: str, total_resolved: bool
-) -> None:
+def test_all_components_resolved_requires_total_resolved(side: str, total_resolved: bool) -> None:
     front, rear = _front(["r0"]), _rear(["r0"])
     target = front.irradiance if side == "front" else rear.irradiance
     prefix = "front" if side == "front" else "rear"
@@ -550,9 +553,7 @@ def test_unresolved_component_requires_total_unresolved(side: str) -> None:
         "poa_front_direct_effective_wm2" if side == "front" else "poa_rear_direct_effective_wm2"
     )
     flag = (
-        "front_direct_effective_resolved"
-        if side == "front"
-        else "rear_direct_effective_resolved"
+        "front_direct_effective_resolved" if side == "front" else "rear_direct_effective_resolved"
     )
     target.loc[target.index[0], component] = np.nan
     target.loc[target.index[0], flag] = False

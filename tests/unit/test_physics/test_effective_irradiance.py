@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 
 import numpy as np
@@ -36,6 +37,24 @@ from heliotelligence.physics.optical_state import (
     assemble_receiver_optical_state,
 )
 from heliotelligence.physics.poa_transposition import calculate_raw_poa_transposition
+from heliotelligence.physics.pvsyst_far_horizon import (
+    PVsystFarHorizonProfile,
+    evaluate_pvsyst_far_horizon,
+)
+from heliotelligence.physics.pvsyst_horizon_authority import (
+    PVsystFarHorizonAuthorityResult,
+    PVsystHorizonActivation,
+    compare_and_select_pvsyst_far_horizon,
+)
+from heliotelligence.physics.pvsyst_linear_shading import (
+    PVsystLinearShadingTable,
+    evaluate_pvsyst_linear_beam_shading,
+)
+from heliotelligence.physics.pvsyst_shading_authority import (
+    PVsystNearShadingAuthorityResult,
+    PVsystNearShadingScope,
+    compare_and_select_pvsyst_near_shading,
+)
 from heliotelligence.physics.terrain_horizon import (
     TerrainHorizonScene,
     calculate_terrain_horizon_direct_beam_shading,
@@ -85,6 +104,7 @@ def _bundle(
     horizontal: bool = False,
     missing: bool = False,
     tilt_deg: float = 30.0,
+    near_transmission: float = 1.0,
     inputs: tuple[pd.Series, ...] | None = None,
 ) -> tuple[
     list[PVReceiver], OpticalStateResult, DiffuseComponentOpticalTransmission, dict[str, object]
@@ -123,6 +143,9 @@ def _bundle(
         azimuth,
         scene=NearObjectBeamScene([receiver], [], samples_per_receiver=4),
     )
+    near_authority, horizon_authority = _authorities(
+        receiver, terrain, fixed, near, zenith, azimuth, near_transmission=near_transmission
+    )
     diffuse_scene = DiffuseSkyScene(
         [receiver],
         samples_per_receiver=4,
@@ -137,6 +160,8 @@ def _bundle(
         fixed,
         near,
         diffuse_scene.calculate_visibility(),
+        near_shading_authority=near_authority,
+        far_horizon_authority=horizon_authority,
         rear_mode_by_receiver={receiver.id: "not_applicable"},
     )
     components = diffuse_scene.calculate_component_optical_transmission(
@@ -148,6 +173,55 @@ def _bundle(
         model_parameters_by_receiver={receiver.id: {"b": 0.05}},
     )
     return [receiver], optical, components, parameters
+
+
+def _authorities(
+    receiver: PVReceiver | Sequence[PVReceiver],
+    terrain: pd.DataFrame,
+    fixed: pd.DataFrame,
+    near: pd.DataFrame,
+    zenith: pd.Series,
+    azimuth: pd.Series,
+    *,
+    near_transmission: float = 1.0,
+) -> tuple[PVsystNearShadingAuthorityResult, PVsystFarHorizonAuthorityResult]:
+    receivers = [receiver] if isinstance(receiver, PVReceiver) else list(receiver)
+    elevation = 90.0 - zenith
+    table = PVsystLinearShadingTable(
+        "table",
+        "south",
+        None,
+        (1.0, 90.0),
+        (-180.0, 180.0),
+        ((near_transmission, near_transmission), (near_transmission, near_transmission)),
+        "transmission_fraction",
+        "test",
+    )
+    near_result = evaluate_pvsyst_linear_beam_shading(table, elevation, azimuth, hemisphere="north")
+    near_authority = compare_and_select_pvsyst_near_shading(
+        receivers,
+        fixed,
+        near,
+        {"table": near_result},
+        [PVsystNearShadingScope(f"site-{item.id}", "table", (item.id,)) for item in receivers],
+        fallback_policy="no_fallback",
+    )
+    profile = PVsystFarHorizonProfile(
+        "profile",
+        (-180.0, 0.0, 180.0),
+        (-5.0, -5.0, -5.0),
+        "full_azimuth_periodic",
+        "test",
+    )
+    horizon_result = evaluate_pvsyst_far_horizon(profile, elevation, azimuth, hemisphere="north")
+    horizon_authority = compare_and_select_pvsyst_far_horizon(
+        receivers,
+        terrain,
+        horizon_result,
+        activation=PVsystHorizonActivation("profile", "variant", "enabled", "test"),
+        fallback_policy="no_fallback",
+    )
+    return near_authority, horizon_authority
 
 
 def _calculate(
@@ -182,6 +256,34 @@ def test_complete_production_chain_and_perez_component_parity(model: str) -> Non
     assert np.isfinite(daylight["poa_front_effective_optical_wm2"]).all()
     assert (daylight["effective_irradiance_model"] == EFFECTIVE_IRRADIANCE_MODEL_ID).all()
     assert (daylight["effective_irradiance_scope"] == EFFECTIVE_IRRADIANCE_SCOPE).all()
+
+
+def test_real_half_selected_authority_scales_direct_and_circumsolar_only() -> None:
+    receivers, optical, components, parameters = _bundle(near_transmission=0.5)
+    key = optical.state.index[0]
+    assert optical.state.loc[key, "selected_near_shading_source"] == "pvsyst"
+    assert optical.state.loc[key, "front_direct_geometric_visible_fraction"] == pytest.approx(0.5)
+    result = calculate_front_effective_irradiance(
+        receivers,
+        optical,
+        components,
+        beam_iam_parameters_by_receiver={receivers[0].id: parameters},
+    ).irradiance.loc[key]
+    assert result["poa_front_direct_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_direct_raw_wm2"] * 0.5
+    )
+    assert result["poa_front_circumsolar_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_circumsolar_raw_wm2"] * 0.5
+    )
+    assert result["poa_front_isotropic_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_isotropic_raw_wm2"] * result["diffuse_sky_visible_fraction"]
+    )
+    assert result["poa_front_horizon_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_horizon_raw_wm2"] * result["diffuse_horizon_visible_fraction"]
+    )
+    assert result["poa_front_ground_diffuse_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_ground_diffuse_raw_wm2"] * result["diffuse_ground_visible_fraction"]
+    )
 
 
 def test_beam_iam_parameter_reproduction_gate() -> None:
@@ -459,9 +561,7 @@ def test_horizon_visibility_zero_dependency() -> None:
     changed.loc[0, "diffuse_horizon_joint_optical_transmission_factor"] = np.nan
     changed.loc[0, "diffuse_horizon_visible_region_iam_factor"] = np.nan
     changed.loc[0, "diffuse_horizon_unobstructed_iam_factor"] = np.nan
-    changed.loc[0, "diffuse_horizon_joint_optical_state"] = (
-        "not_applicable_no_front_side_view"
-    )
+    changed.loc[0, "diffuse_horizon_joint_optical_state"] = "not_applicable_no_front_side_view"
     result = calculate_front_effective_irradiance(
         receivers,
         optical,
