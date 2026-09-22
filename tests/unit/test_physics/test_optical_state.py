@@ -227,6 +227,10 @@ def _set_near_selection(
         None if value is None else 1.0 - value
     )
     frame.loc[key, "pvsyst_near_shading_resolved"] = resolved
+    if not resolved:
+        frame.loc[key, "helio_near_shading_beam_transmission_fraction"] = np.nan
+        frame.loc[key, "helio_near_shading_beam_shaded_fraction"] = np.nan
+        frame.loc[key, "helio_near_shading_resolved"] = False
     bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
 
 
@@ -602,8 +606,59 @@ def test_authority_candidate_replay_contradictions_are_rejected() -> None:
     frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
     frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = 0.8
     frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = 0.2
+    frame.loc[key, "pvsyst_near_shading_resolved"] = False
     bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
     with pytest.raises(ValueError, match="Helio candidate"):
+        _assemble(bundle)
+
+
+def test_helio_fallback_is_rejected_when_pvsyst_candidate_resolves() -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    assert bool(frame.loc[key, "pvsyst_near_shading_resolved"])
+    assert bool(frame.loc[key, "helio_near_shading_resolved"])
+    frame.loc[key, "fallback_policy"] = "heliotelligence_if_pvsyst_unresolved"
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = frame.loc[
+        key, "helio_near_shading_beam_transmission_fraction"
+    ]
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = frame.loc[
+        key, "helio_near_shading_beam_shaded_fraction"
+    ]
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize(
+    ("state", "pvsyst_resolved", "helio_resolved"),
+    [
+        ("unresolved_pvsyst_authority", True, True),
+        ("unresolved_pvsyst_authority", False, False),
+        ("unresolved_both_sources", True, False),
+        ("unresolved_both_sources", False, True),
+    ],
+)
+def test_unresolved_near_selection_requires_canonical_candidate_states(
+    state: str, pvsyst_resolved: bool, helio_resolved: bool
+) -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_resolved"] = False
+    frame.loc[key, "selected_near_shading_source"] = "none"
+    frame.loc[key, "selected_near_shading_state"] = state
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = np.nan
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = np.nan
+    frame.loc[key, "fallback_policy"] = "no_fallback"
+    frame.loc[key, "pvsyst_near_shading_resolved"] = pvsyst_resolved
+    frame.loc[key, "helio_near_shading_resolved"] = helio_resolved
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidates are inconsistent"):
         _assemble(bundle)
 
 

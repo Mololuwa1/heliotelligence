@@ -802,6 +802,12 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
         ):
             raise ValueError("selected near authority violates night semantics")
         return
+    pvsyst_resolved = _strict_bool(
+        row["pvsyst_near_shading_resolved"], "PVsyst near candidate resolved"
+    )
+    helio_resolved = _strict_bool(
+        row["helio_near_shading_resolved"], "Helio near candidate resolved"
+    )
     if resolved:
         transmission = _fraction(
             row["selected_near_shading_beam_transmission_fraction"], "selected near transmission"
@@ -812,9 +818,7 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
         if not np.isclose(transmission + shaded, 1.0, rtol=1e-12, atol=_TOLERANCE):
             raise ValueError("selected near authority fractions do not close")
         if source == "pvsyst":
-            if state != "resolved_pvsyst_authority" or not _strict_bool(
-                row["pvsyst_near_shading_resolved"], "PVsyst near candidate resolved"
-            ):
+            if state != "resolved_pvsyst_authority" or not pvsyst_resolved:
                 raise ValueError("selected PVsyst near authority is inconsistent")
             if not _same_number(
                 transmission,
@@ -828,7 +832,8 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
             if (
                 state != "resolved_heliotelligence_fallback"
                 or row["fallback_policy"] != "heliotelligence_if_pvsyst_unresolved"
-                or not _strict_bool(row["helio_near_shading_resolved"], "Helio near resolved")
+                or pvsyst_resolved
+                or not helio_resolved
             ):
                 raise ValueError("selected Helio near fallback provenance is inconsistent")
             if not _same_number(
@@ -848,9 +853,12 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
     if source != "none" or not factors_nan:
         raise ValueError("unresolved selected near authority is inconsistent")
     if state == "unresolved_pvsyst_authority":
-        if row["fallback_policy"] != "no_fallback":
-            raise ValueError("unresolved PVsyst near authority requires no_fallback")
-    elif state != "unresolved_both_sources":
+        if row["fallback_policy"] != "no_fallback" or pvsyst_resolved or not helio_resolved:
+            raise ValueError("unresolved PVsyst near authority candidates are inconsistent")
+    elif state == "unresolved_both_sources":
+        if pvsyst_resolved or helio_resolved:
+            raise ValueError("both-unresolved near authority candidates are inconsistent")
+    else:
         raise ValueError("unresolved selected near authority is inconsistent")
 
 
