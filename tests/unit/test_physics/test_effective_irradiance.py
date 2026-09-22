@@ -104,6 +104,7 @@ def _bundle(
     horizontal: bool = False,
     missing: bool = False,
     tilt_deg: float = 30.0,
+    near_transmission: float = 1.0,
     inputs: tuple[pd.Series, ...] | None = None,
 ) -> tuple[
     list[PVReceiver], OpticalStateResult, DiffuseComponentOpticalTransmission, dict[str, object]
@@ -143,7 +144,7 @@ def _bundle(
         scene=NearObjectBeamScene([receiver], [], samples_per_receiver=4),
     )
     near_authority, horizon_authority = _authorities(
-        receiver, terrain, fixed, near, zenith, azimuth
+        receiver, terrain, fixed, near, zenith, azimuth, near_transmission=near_transmission
     )
     diffuse_scene = DiffuseSkyScene(
         [receiver],
@@ -181,6 +182,8 @@ def _authorities(
     near: pd.DataFrame,
     zenith: pd.Series,
     azimuth: pd.Series,
+    *,
+    near_transmission: float = 1.0,
 ) -> tuple[PVsystNearShadingAuthorityResult, PVsystFarHorizonAuthorityResult]:
     receivers = [receiver] if isinstance(receiver, PVReceiver) else list(receiver)
     elevation = 90.0 - zenith
@@ -190,7 +193,7 @@ def _authorities(
         None,
         (1.0, 90.0),
         (-180.0, 180.0),
-        ((1.0, 1.0), (1.0, 1.0)),
+        ((near_transmission, near_transmission), (near_transmission, near_transmission)),
         "transmission_fraction",
         "test",
     )
@@ -253,6 +256,34 @@ def test_complete_production_chain_and_perez_component_parity(model: str) -> Non
     assert np.isfinite(daylight["poa_front_effective_optical_wm2"]).all()
     assert (daylight["effective_irradiance_model"] == EFFECTIVE_IRRADIANCE_MODEL_ID).all()
     assert (daylight["effective_irradiance_scope"] == EFFECTIVE_IRRADIANCE_SCOPE).all()
+
+
+def test_real_half_selected_authority_scales_direct_and_circumsolar_only() -> None:
+    receivers, optical, components, parameters = _bundle(near_transmission=0.5)
+    key = optical.state.index[0]
+    assert optical.state.loc[key, "selected_near_shading_source"] == "pvsyst"
+    assert optical.state.loc[key, "front_direct_geometric_visible_fraction"] == pytest.approx(0.5)
+    result = calculate_front_effective_irradiance(
+        receivers,
+        optical,
+        components,
+        beam_iam_parameters_by_receiver={receivers[0].id: parameters},
+    ).irradiance.loc[key]
+    assert result["poa_front_direct_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_direct_raw_wm2"] * 0.5
+    )
+    assert result["poa_front_circumsolar_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_circumsolar_raw_wm2"] * 0.5
+    )
+    assert result["poa_front_isotropic_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_isotropic_raw_wm2"] * result["diffuse_sky_visible_fraction"]
+    )
+    assert result["poa_front_horizon_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_horizon_raw_wm2"] * result["diffuse_horizon_visible_fraction"]
+    )
+    assert result["poa_front_ground_diffuse_after_geometry_wm2"] == pytest.approx(
+        result["poa_front_ground_diffuse_raw_wm2"] * result["diffuse_ground_visible_fraction"]
+    )
 
 
 def test_beam_iam_parameter_reproduction_gate() -> None:

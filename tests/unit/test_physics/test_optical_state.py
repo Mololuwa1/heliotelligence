@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
@@ -143,7 +143,12 @@ def _bundle() -> dict[str, Any]:
     return bundle
 
 
-def _refresh_authorities(bundle: dict[str, Any]) -> None:
+def _refresh_authorities(
+    bundle: dict[str, Any],
+    *,
+    near_transmission: float = 1.0,
+    horizon_activation: Literal["enabled", "disabled", "unknown"] = "enabled",
+) -> None:
     receivers = bundle["receivers"]
     first_front = bundle["front_poa_by_receiver"][receivers[0].id]
     zenith = first_front["apparent_solar_zenith_deg"]
@@ -155,7 +160,7 @@ def _refresh_authorities(bundle: dict[str, Any]) -> None:
         None,
         (1.0, 90.0),
         (-180.0, 180.0),
-        ((1.0, 1.0), (1.0, 1.0)),
+        ((near_transmission, near_transmission), (near_transmission, near_transmission)),
         "transmission_fraction",
         "test",
         None,
@@ -191,7 +196,7 @@ def _refresh_authorities(bundle: dict[str, Any]) -> None:
         receivers,
         bundle["terrain_horizon"],
         horizon_result,
-        activation=PVsystHorizonActivation("profile", "variant", "enabled", "test"),
+        activation=PVsystHorizonActivation("profile", "variant", horizon_activation, "test"),
         fallback_policy="no_fallback",
     )
     bundle["near_shading_authority"] = near_authority
@@ -217,6 +222,11 @@ def _set_near_selection(
     frame.loc[key, "selected_near_shading_state"] = (
         "resolved_pvsyst_authority" if resolved else "unresolved_both_sources"
     )
+    frame.loc[key, "pvsyst_near_shading_beam_transmission_fraction"] = value
+    frame.loc[key, "pvsyst_near_shading_beam_shaded_fraction"] = (
+        None if value is None else 1.0 - value
+    )
+    frame.loc[key, "pvsyst_near_shading_resolved"] = resolved
     bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
 
 
@@ -241,6 +251,19 @@ def _set_horizon_selection(
         else "resolved_pvsyst_horizon_authority"
         if resolved
         else "unresolved_both_sources"
+    )
+    frame.loc[key, "pvsyst_horizon_activation_state"] = "disabled" if disabled else "enabled"
+    frame.loc[key, "pvsyst_horizon_authority_factor"] = value
+    frame.loc[key, "pvsyst_horizon_authority_resolved"] = resolved
+    frame.loc[key, "pvsyst_horizon_authority_source"] = (
+        "pvsyst_project_horizon_disabled" if disabled else "pvsyst" if resolved else "none"
+    )
+    frame.loc[key, "pvsyst_horizon_authority_state"] = (
+        "resolved_project_horizon_disabled_clear"
+        if disabled
+        else "resolved_profile_horizon_authority"
+        if resolved
+        else "unresolved_project_horizon_activation_unknown"
     )
     bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
 
@@ -471,16 +494,33 @@ def test_selected_authority_composition_and_zero_dominance(
     assert row["front_direct_geometric_state"] == state
 
 
-def test_disabled_horizon_and_pvsyst_near_override_raw_helio_evidence() -> None:
+def test_real_disabled_horizon_authority_overrides_blocked_raw_terrain() -> None:
     bundle = _bundle()
     key = (_inputs()[0].index[0], "a")
     bundle["terrain_horizon"].loc[key, "terrain_horizon_beam_visible_factor"] = 0.0
-    _refresh_authorities(bundle)
-    _set_horizon_selection(bundle, key, 1.0, disabled=True)
-    _set_near_selection(bundle, key, 0.8)
+    _refresh_authorities(bundle, horizon_activation="disabled")
     row = _assemble(bundle).state.loc[key]
+    assert row["pvsyst_horizon_activation_state"] == "disabled"
     assert row["terrain_horizon_beam_visible_factor"] == 0.0
     assert row["selected_horizon_source"] == "pvsyst_project_horizon_disabled"
+    assert row["selected_horizon_beam_visible_factor"] == 1.0
+    assert row["front_direct_geometric_visible_fraction"] == pytest.approx(1.0)
+
+
+def test_real_pvsyst_near_authority_overrides_helio_challenger() -> None:
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    bundle["fixed_inter_row"].loc[
+        key,
+        ["fixed_inter_row_beam_visible_fraction", "fixed_inter_row_beam_shaded_fraction"],
+    ] = (0.4, 0.6)
+    _refresh_authorities(bundle, near_transmission=0.8)
+    authority_row = bundle["near_shading_authority"].receiver_authority.loc[key]
+    row = _assemble(bundle).state.loc[key]
+    assert authority_row["helio_near_shading_beam_transmission_fraction"] == pytest.approx(0.4)
+    assert authority_row["pvsyst_near_shading_beam_transmission_fraction"] == pytest.approx(0.8)
+    assert row["selected_near_shading_source"] == "pvsyst"
+    assert row["selected_near_shading_beam_transmission_fraction"] == pytest.approx(0.8)
     assert row["front_direct_geometric_visible_fraction"] == pytest.approx(0.8)
 
 
@@ -504,6 +544,66 @@ def test_authority_type_contract_count_and_area_tamper_are_rejected() -> None:
     frame.iloc[0, frame.columns.get_loc("receiver_surface_area_m2")] *= 2.0
     bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
     with pytest.raises(ValueError, match="surface area"):
+        _assemble(bundle)
+
+
+def test_authority_candidate_replay_contradictions_are_rejected() -> None:
+    key = (_inputs()[0].index[0], "a")
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_source"] = "pvsyst_project_horizon_disabled"
+    frame.loc[key, "selected_horizon_state"] = "resolved_pvsyst_project_horizon_disabled_clear"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_horizon_state"] = "resolved_heliotelligence_fallback"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_beam_visible_factor"] = 0.0
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="replay"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="fallback provenance"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = 0.8
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = 0.2
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="PVsyst candidate"):
+        _assemble(bundle)
+
+    bundle = _bundle()
+    result = bundle["near_shading_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "fallback_policy"] = "heliotelligence_if_pvsyst_unresolved"
+    frame.loc[key, "selected_near_shading_source"] = "heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_state"] = "resolved_heliotelligence_fallback"
+    frame.loc[key, "selected_near_shading_beam_transmission_fraction"] = 0.8
+    frame.loc[key, "selected_near_shading_beam_shaded_fraction"] = 0.2
+    bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="Helio candidate"):
         _assemble(bundle)
 
 

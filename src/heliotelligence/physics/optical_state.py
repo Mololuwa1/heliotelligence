@@ -514,6 +514,10 @@ def _validated_near_authority(
         "helio_near_shading_beam_shaded_fraction",
         "helio_near_shading_resolved",
         "helio_near_shading_state",
+        "pvsyst_near_shading_beam_transmission_fraction",
+        "pvsyst_near_shading_beam_shaded_fraction",
+        "pvsyst_near_shading_resolved",
+        "pvsyst_near_shading_state",
         "pvsyst_scope_id",
         "pvsyst_table_id",
         "pvsyst_orientation_id",
@@ -578,6 +582,10 @@ def _validated_horizon_authority(
         "pvsyst_horizon_profile_id",
         "pvsyst_horizon_activation_state",
         "pvsyst_project_variant_id",
+        "pvsyst_horizon_authority_factor",
+        "pvsyst_horizon_authority_resolved",
+        "pvsyst_horizon_authority_source",
+        "pvsyst_horizon_authority_state",
         "selected_horizon_beam_visible_factor",
         "selected_horizon_visibility_resolved",
         "selected_horizon_source",
@@ -789,6 +797,8 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
             or not pd.isna(row["selected_near_shading_beam_shaded_fraction"])
             or source != "none"
             or state != "not_applicable_no_above_horizon_beam"
+            or bool(row["pvsyst_near_shading_resolved"])
+            or bool(row["helio_near_shading_resolved"])
         ):
             raise ValueError("selected near authority violates night semantics")
         return
@@ -801,18 +811,46 @@ def _validate_selected_near(row: pd.Series, zenith: float) -> None:
         )
         if not np.isclose(transmission + shaded, 1.0, rtol=1e-12, atol=_TOLERANCE):
             raise ValueError("selected near authority fractions do not close")
-        allowed = {
-            ("pvsyst", "resolved_pvsyst_authority"),
-            ("heliotelligence_fallback", "resolved_heliotelligence_fallback"),
-        }
-        if (source, state) not in allowed:
+        if source == "pvsyst":
+            if state != "resolved_pvsyst_authority" or not _strict_bool(
+                row["pvsyst_near_shading_resolved"], "PVsyst near candidate resolved"
+            ):
+                raise ValueError("selected PVsyst near authority is inconsistent")
+            if not _same_number(
+                transmission,
+                row["pvsyst_near_shading_beam_transmission_fraction"],
+                _TOLERANCE,
+            ) or not _same_number(
+                shaded, row["pvsyst_near_shading_beam_shaded_fraction"], _TOLERANCE
+            ):
+                raise ValueError("selected near factors do not replay the PVsyst candidate")
+        elif source == "heliotelligence_fallback":
+            if (
+                state != "resolved_heliotelligence_fallback"
+                or row["fallback_policy"] != "heliotelligence_if_pvsyst_unresolved"
+                or not _strict_bool(row["helio_near_shading_resolved"], "Helio near resolved")
+            ):
+                raise ValueError("selected Helio near fallback provenance is inconsistent")
+            if not _same_number(
+                transmission,
+                row["helio_near_shading_beam_transmission_fraction"],
+                _TOLERANCE,
+            ) or not _same_number(
+                shaded, row["helio_near_shading_beam_shaded_fraction"], _TOLERANCE
+            ):
+                raise ValueError("selected near factors do not replay the Helio candidate")
+        else:
             raise ValueError("selected near source/state is not canonical")
-    elif not (
-        pd.isna(row["selected_near_shading_beam_transmission_fraction"])
-        and pd.isna(row["selected_near_shading_beam_shaded_fraction"])
-        and source == "none"
-        and state in {"unresolved_pvsyst_authority", "unresolved_both_sources"}
-    ):
+        return
+    factors_nan = pd.isna(row["selected_near_shading_beam_transmission_fraction"]) and pd.isna(
+        row["selected_near_shading_beam_shaded_fraction"]
+    )
+    if source != "none" or not factors_nan:
+        raise ValueError("unresolved selected near authority is inconsistent")
+    if state == "unresolved_pvsyst_authority":
+        if row["fallback_policy"] != "no_fallback":
+            raise ValueError("unresolved PVsyst near authority requires no_fallback")
+    elif state != "unresolved_both_sources":
         raise ValueError("unresolved selected near authority is inconsistent")
 
 
@@ -828,6 +866,10 @@ def _validate_selected_horizon(row: pd.Series, zenith: float) -> None:
             or not pd.isna(factor)
             or source != "none"
             or state != "not_applicable_no_above_horizon_beam"
+            or bool(row["pvsyst_horizon_authority_resolved"])
+            or not pd.isna(row["pvsyst_horizon_authority_factor"])
+            or row["pvsyst_horizon_authority_source"] != "none"
+            or row["pvsyst_horizon_authority_state"] != "not_applicable_no_above_horizon_beam"
         ):
             raise ValueError("selected horizon authority violates night semantics")
         return
@@ -835,18 +877,51 @@ def _validate_selected_horizon(row: pd.Series, zenith: float) -> None:
         value = _fraction(factor, "selected horizon factor")
         if _boundary(value) not in (0.0, 1.0):
             raise ValueError("selected horizon factor must be binary")
-        allowed = {
-            ("pvsyst", "resolved_pvsyst_horizon_authority"),
-            ("pvsyst_project_horizon_disabled", "resolved_pvsyst_project_horizon_disabled_clear"),
-            ("heliotelligence_fallback", "resolved_heliotelligence_fallback"),
-        }
-        if (source, state) not in allowed:
-            raise ValueError("selected horizon source/state is not canonical")
-    elif not (
-        pd.isna(factor)
-        and source == "none"
-        and state in {"unresolved_pvsyst_authority", "unresolved_both_sources"}
-    ):
+        candidate_resolved = _strict_bool(
+            row["pvsyst_horizon_authority_resolved"], "PVsyst horizon candidate resolved"
+        )
+        if source == "pvsyst":
+            valid = (
+                row["pvsyst_horizon_activation_state"] == "enabled"
+                and candidate_resolved
+                and row["pvsyst_horizon_authority_source"] == "pvsyst"
+                and state == "resolved_pvsyst_horizon_authority"
+                and _same_number(value, row["pvsyst_horizon_authority_factor"], _TOLERANCE)
+            )
+        elif source == "pvsyst_project_horizon_disabled":
+            valid = (
+                row["pvsyst_horizon_activation_state"] == "disabled"
+                and candidate_resolved
+                and row["pvsyst_horizon_authority_source"] == "pvsyst_project_horizon_disabled"
+                and _same_number(row["pvsyst_horizon_authority_factor"], 1.0, _TOLERANCE)
+                and value == 1.0
+                and state == "resolved_pvsyst_project_horizon_disabled_clear"
+            )
+        elif source == "heliotelligence_fallback":
+            valid = (
+                row["fallback_policy"] == "heliotelligence_if_pvsyst_unresolved"
+                and row["pvsyst_horizon_activation_state"] != "disabled"
+                and not candidate_resolved
+                and _strict_bool(
+                    row["terrain_horizon_visibility_resolved"], "terrain horizon resolved"
+                )
+                and _same_number(value, row["terrain_horizon_beam_visible_factor"], _TOLERANCE)
+                and state == "resolved_heliotelligence_fallback"
+            )
+        else:
+            valid = False
+        if not valid:
+            raise ValueError("selected horizon authority does not replay its candidate provenance")
+        return
+    candidate_resolved = _strict_bool(
+        row["pvsyst_horizon_authority_resolved"], "PVsyst horizon candidate resolved"
+    )
+    if not pd.isna(factor) or source != "none" or candidate_resolved:
+        raise ValueError("unresolved selected horizon authority is inconsistent")
+    if state == "unresolved_pvsyst_authority":
+        if row["fallback_policy"] != "no_fallback":
+            raise ValueError("unresolved PVsyst horizon authority requires no_fallback")
+    elif state != "unresolved_both_sources":
         raise ValueError("unresolved selected horizon authority is inconsistent")
 
 
@@ -1058,7 +1133,7 @@ def _require_constant(frame: pd.DataFrame, column: str, expected: str) -> None:
 def _receiver_area(receiver: PVReceiver) -> float:
     vertices, faces = receiver.mesh.vertices_enu_m, receiver.mesh.faces
     triangles = vertices[faces]
-    return float(
+    area = float(
         np.sum(
             0.5
             * np.linalg.norm(
@@ -1067,6 +1142,9 @@ def _receiver_area(receiver: PVReceiver) -> float:
             )
         )
     )
+    if not np.isfinite(area) or area <= 0.0:
+        raise ValueError("receiver mesh surface area must be finite and positive")
+    return area
 
 
 def _strict_bool(value: object, label: str) -> bool:
