@@ -256,7 +256,9 @@ def _set_horizon_selection(
         if resolved
         else "unresolved_both_sources"
     )
-    frame.loc[key, "pvsyst_horizon_activation_state"] = "disabled" if disabled else "enabled"
+    frame.loc[key, "pvsyst_horizon_activation_state"] = (
+        "disabled" if disabled else "enabled" if resolved else "unknown"
+    )
     frame.loc[key, "pvsyst_horizon_authority_factor"] = value
     frame.loc[key, "pvsyst_horizon_authority_resolved"] = resolved
     frame.loc[key, "pvsyst_horizon_authority_source"] = (
@@ -265,10 +267,17 @@ def _set_horizon_selection(
     frame.loc[key, "pvsyst_horizon_authority_state"] = (
         "resolved_project_horizon_disabled_clear"
         if disabled
-        else "resolved_profile_horizon_authority"
+        else "resolved_pvsyst_horizon_authority"
         if resolved
         else "unresolved_project_horizon_activation_unknown"
     )
+    if not resolved:
+        frame.loc[key, "terrain_horizon_visibility_resolved"] = False
+        frame.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+        terrain = bundle["terrain_horizon"].copy(deep=True)
+        terrain.loc[key, "terrain_horizon_visibility_resolved"] = False
+        terrain.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+        bundle["terrain_horizon"] = terrain
     bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
 
 
@@ -630,6 +639,77 @@ def test_helio_fallback_is_rejected_when_pvsyst_candidate_resolves() -> None:
     ]
     bundle["near_shading_authority"] = replace(result, receiver_authority=frame)
     with pytest.raises(ValueError, match="fallback provenance"):
+        _assemble(bundle)
+
+
+def test_horizon_unresolved_selection_requires_canonical_candidate_availability() -> None:
+    key = (_inputs()[0].index[0], "a")
+
+    # A: policy refusal is impossible when the Helio terrain candidate is unresolved.
+    bundle = _bundle()
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    terrain = bundle["terrain_horizon"].copy(deep=True)
+    terrain.loc[key, "terrain_horizon_visibility_resolved"] = False
+    terrain.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+    bundle["terrain_horizon"] = terrain
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "terrain_horizon_visibility_resolved"] = False
+    frame.loc[key, "terrain_horizon_beam_visible_factor"] = np.nan
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="unresolved PVsyst horizon authority candidates"):
+        _assemble(bundle)
+
+    # B: both-unresolved is impossible when Helio terrain resolves.
+    bundle = _bundle()
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "selected_horizon_state"] = "unresolved_both_sources"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="both-unresolved horizon authority candidates"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize(
+    ("activation", "candidate_column", "candidate_value"),
+    [
+        ("disabled", "pvsyst_horizon_activation_state", "disabled"),
+        ("unknown", "pvsyst_horizon_authority_factor", 1.0),
+        ("unknown", "pvsyst_horizon_authority_source", "pvsyst"),
+        ("unknown", "pvsyst_horizon_authority_state", "wrong"),
+        ("enabled_unresolved", "pvsyst_horizon_authority_state", "wrong"),
+    ],
+)
+def test_unresolved_horizon_candidate_provenance_contradictions_are_rejected(
+    activation: str, candidate_column: str, candidate_value: object
+) -> None:
+    """C-G: unresolved candidates must match their activation provenance exactly."""
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    _refresh_authorities(bundle, horizon_activation="unknown")
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    if activation == "enabled_unresolved":
+        frame.loc[key, "pvsyst_horizon_activation_state"] = "enabled"
+        frame.loc[key, "pvsyst_horizon_authority_state"] = "unresolved_pvsyst_profile_visibility"
+    frame.loc[key, candidate_column] = candidate_value
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidate provenance"):
+        _assemble(bundle)
+
+
+@pytest.mark.parametrize("activation", ["enabled", "disabled"])
+def test_resolved_horizon_candidate_state_contradictions_are_rejected(activation: str) -> None:
+    """H-I: enabled and disabled resolved candidates retain canonical candidate states."""
+    bundle = _bundle()
+    key = (_inputs()[0].index[0], "a")
+    _refresh_authorities(bundle, horizon_activation=activation)  # type: ignore[arg-type]
+    result = bundle["far_horizon_authority"]
+    frame = result.receiver_authority.copy(deep=True)
+    frame.loc[key, "pvsyst_horizon_authority_state"] = "wrong"
+    bundle["far_horizon_authority"] = replace(result, receiver_authority=frame)
+    with pytest.raises(ValueError, match="candidate provenance"):
         _assemble(bundle)
 
 

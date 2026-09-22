@@ -881,13 +881,47 @@ def _validate_selected_horizon(row: pd.Series, zenith: float) -> None:
         ):
             raise ValueError("selected horizon authority violates night semantics")
         return
+    candidate_resolved = _strict_bool(
+        row["pvsyst_horizon_authority_resolved"], "PVsyst horizon candidate resolved"
+    )
+    candidate_factor = row["pvsyst_horizon_authority_factor"]
+    candidate_source = row["pvsyst_horizon_authority_source"]
+    candidate_state = row["pvsyst_horizon_authority_state"]
+    activation_state = row["pvsyst_horizon_activation_state"]
+    if candidate_resolved:
+        candidate_value = _fraction(candidate_factor, "PVsyst horizon candidate factor")
+        if _boundary(candidate_value) not in (0.0, 1.0):
+            raise ValueError("PVsyst horizon candidate factor must be binary")
+        if activation_state == "enabled":
+            candidate_valid = (
+                candidate_source == "pvsyst"
+                and candidate_state == "resolved_pvsyst_horizon_authority"
+            )
+        elif activation_state == "disabled":
+            candidate_valid = (
+                candidate_source == "pvsyst_project_horizon_disabled"
+                and candidate_state == "resolved_project_horizon_disabled_clear"
+                and _same_number(candidate_value, 1.0, _TOLERANCE)
+            )
+        else:
+            candidate_valid = False
+    else:
+        expected_unresolved_state = {
+            "enabled": "unresolved_pvsyst_profile_visibility",
+            "unknown": "unresolved_project_horizon_activation_unknown",
+        }.get(activation_state)
+        candidate_valid = (
+            pd.isna(candidate_factor)
+            and candidate_source == "none"
+            and expected_unresolved_state is not None
+            and candidate_state == expected_unresolved_state
+        )
+    if not candidate_valid:
+        raise ValueError("PVsyst horizon candidate provenance is inconsistent")
     if resolved:
         value = _fraction(factor, "selected horizon factor")
         if _boundary(value) not in (0.0, 1.0):
             raise ValueError("selected horizon factor must be binary")
-        candidate_resolved = _strict_bool(
-            row["pvsyst_horizon_authority_resolved"], "PVsyst horizon candidate resolved"
-        )
         if source == "pvsyst":
             valid = (
                 row["pvsyst_horizon_activation_state"] == "enabled"
@@ -921,15 +955,18 @@ def _validate_selected_horizon(row: pd.Series, zenith: float) -> None:
         if not valid:
             raise ValueError("selected horizon authority does not replay its candidate provenance")
         return
-    candidate_resolved = _strict_bool(
-        row["pvsyst_horizon_authority_resolved"], "PVsyst horizon candidate resolved"
-    )
     if not pd.isna(factor) or source != "none" or candidate_resolved:
         raise ValueError("unresolved selected horizon authority is inconsistent")
+    terrain_resolved = _strict_bool(
+        row["terrain_horizon_visibility_resolved"], "terrain horizon resolved"
+    )
     if state == "unresolved_pvsyst_authority":
-        if row["fallback_policy"] != "no_fallback":
-            raise ValueError("unresolved PVsyst horizon authority requires no_fallback")
-    elif state != "unresolved_both_sources":
+        if row["fallback_policy"] != "no_fallback" or not terrain_resolved:
+            raise ValueError("unresolved PVsyst horizon authority candidates are inconsistent")
+    elif state == "unresolved_both_sources":
+        if terrain_resolved:
+            raise ValueError("both-unresolved horizon authority candidates are inconsistent")
+    else:
         raise ValueError("unresolved selected horizon authority is inconsistent")
 
 
