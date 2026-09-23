@@ -874,8 +874,6 @@ def _front_factor(
                 absolute_model,
                 min_precipitable_water=FIRST_SOLAR_MIN_PW_CM,
                 max_precipitable_water=FIRST_SOLAR_MAX_PW_CM,
-                min_airmass_absolute=FIRST_SOLAR_MIN_ABSOLUTE_AIRMASS,
-                max_airmass_absolute=FIRST_SOLAR_MAX_ABSOLUTE_AIRMASS,
                 **kwargs,
             )
         )[0]

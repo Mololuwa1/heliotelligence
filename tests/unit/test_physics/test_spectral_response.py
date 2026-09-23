@@ -10,12 +10,14 @@ import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import pvlib  # type: ignore[import-untyped]
 import pytest
+from numpy.typing import NDArray
 from pvlib.atmosphere import (  # type: ignore[import-untyped]
     get_absolute_airmass,
     get_relative_airmass,
 )
 from pvlib.spectrum import spectral_factor_firstsolar  # type: ignore[import-untyped]
 
+import heliotelligence.physics.spectral_response as spectral_response
 from heliotelligence.geometry import PVReceiver, ReceiverKind
 from heliotelligence.physics.bifacial_equivalent_irradiance import (
     BifacialEquivalentIrradianceResult,
@@ -315,6 +317,42 @@ def test_firstsolar_guards_fit_domain_and_night() -> None:
     assert night["front_spectral_factor_state"] == "not_applicable_no_above_horizon_sun"
     assert not night["front_spectral_factor_resolved"]
     assert night["front_spectral_electrical_equivalent_irradiance_wm2"] == 0.0
+
+
+def test_firstsolar_legacy_signature_receives_heliotelligence_guarded_airmass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received_airmass: list[float] = []
+
+    def legacy_firstsolar(
+        precipitable_water: float,
+        airmass_absolute: float,
+        module_type: str | None = None,
+        coefficients: tuple[float, ...] | None = None,
+        min_precipitable_water: float = 0.1,
+        max_precipitable_water: float = 8.0,
+    ) -> NDArray[np.float64]:
+        assert precipitable_water == 2.0
+        assert module_type == "monosi"
+        assert coefficients is None
+        assert min_precipitable_water == FIRST_SOLAR_MIN_PW_CM
+        assert max_precipitable_water == 8.0
+        received_airmass.append(airmass_absolute)
+        return np.asarray([1.0])
+
+    monkeypatch.setattr(spectral_response, "spectral_factor_firstsolar", legacy_firstsolar)
+    receivers = _receivers()
+    upstream = _s7d(receivers, periods=1)
+    index = pd.DatetimeIndex(upstream.irradiance.index.get_level_values(0).unique())
+    row = _calculate(
+        receivers,
+        upstream,
+        atmosphere=_atmosphere(index, zenith=89.5, pressure=101325.0),
+    ).irradiance.iloc[0]
+
+    assert row["absolute_airmass_input"] > FIRST_SOLAR_MAX_ABSOLUTE_AIRMASS
+    assert row["absolute_airmass_model"] == FIRST_SOLAR_MAX_ABSOLUTE_AIRMASS
+    assert received_airmass == [FIRST_SOLAR_MAX_ABSOLUTE_AIRMASS]
 
 
 def test_rear_disabled_explicit_unknown_zero_and_monofacial() -> None:
