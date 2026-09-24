@@ -1,10 +1,15 @@
-"""Single-diode model DC power calculation.
+"""Module electrical calculations for canonical and legacy irradiance inputs.
 
 Public API
 ----------
+calculate_receiver_module_operating_points_from_spectral_response(...)
+    Canonical receiver-resolved S7E handoff. It consumes already spectrally
+    resolved electrical-equivalent irradiance and never applies spectral
+    mismatch itself.
+
 calculate_module_operating_point(...)
-    Resolve module parameters, apply spectral correction, and solve the module
-    electrical model at each timestep.
+    Legacy representative-module path. It resolves module parameters, applies
+    its internal spectral correction, and solves each timestep.
 
 calculate_module_iv_curves(...)
     Evaluate one module's voltage-dependent current and power at each
@@ -80,11 +85,11 @@ SDM routing
   Tiers 3-4 (local/datasheet): fit_desoto_batzelis → calcparams_desoto + singlediode
   Tier 5 (PVWatts fallback) : pvwatts_dc
 
-Spectral correction
--------------------
-Uses pvlib.spectrum.spectral_factor_firstsolar when solar_zenith and
-precipitable_water are provided. If not supplied, a WARNING is logged and
-spectral correction is skipped (multiplicative factor = 1.0).
+Legacy spectral correction
+--------------------------
+The legacy aggregate path uses pvlib.spectrum.spectral_factor_firstsolar when
+solar_zenith and precipitable_water are supplied. The canonical S7E path instead
+consumes SpectralResponseResult and does not call this helper.
 """
 
 from __future__ import annotations
@@ -92,12 +97,23 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from numbers import Real
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from heliotelligence.config.site import ElectricalTopologyConfig, SiteConfig
+from heliotelligence.geometry import PVReceiver, ReceiverKind
 from heliotelligence.physics.module_lookup import resolve_module_params
+from heliotelligence.physics.spectral_response import (
+    FIRST_SOLAR_MODEL_ID,
+    SPECTRAL_RESPONSE_CONTRACT_ID,
+    SPECTRAL_RESPONSE_COVERAGE_SCOPE,
+    SPECTRAL_RESPONSE_MODEL_ID,
+    SPECTRAL_RESPONSE_SCOPE,
+    SpectralResponseResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +128,87 @@ _IV_CURVE_COLUMNS = [
     "fit_quality",
 ]
 _NUMERICAL_NEGATIVE_TOLERANCE = 1e-7
+
+SPECTRAL_ELECTRICAL_HANDOFF_CONTRACT_ID = "spectral_response_to_module_electrical_v1"
+SPECTRAL_ELECTRICAL_HANDOFF_MODEL_ID = "spectral_electrical_equivalent_direct_module_solver_v1"
+SPECTRAL_ELECTRICAL_HANDOFF_SCOPE = "receiver_resolved_module_electrical_before_topology"
+
+_SPECTRAL_HANDOFF_REQUIRED_COLUMNS = (
+    "poa_front_effective_optical_wm2",
+    "poa_rear_effective_optical_wm2",
+    "bifacial_enabled",
+    "isc_bifaciality_factor",
+    "front_spectral_activation_state",
+    "front_spectral_mismatch_factor",
+    "front_spectral_factor_resolved",
+    "front_spectral_factor_state",
+    "front_spectral_electrical_equivalent_irradiance_wm2",
+    "front_spectral_electrical_equivalent_resolved",
+    "front_spectral_electrical_equivalent_state",
+    "rear_spectral_treatment",
+    "rear_spectral_mismatch_factor",
+    "rear_spectral_factor_resolved",
+    "rear_spectral_factor_state",
+    "poa_rear_spectral_effective_irradiance_wm2",
+    "rear_spectral_effective_resolved",
+    "rear_spectral_effective_state",
+    "rear_spectral_electrical_equivalent_irradiance_wm2",
+    "rear_spectral_electrical_equivalent_resolved",
+    "rear_spectral_electrical_equivalent_state",
+    "spectral_electrical_equivalent_irradiance_wm2",
+    "spectral_electrical_equivalent_resolved",
+    "spectral_electrical_equivalent_state",
+    "pvlib_version",
+    "firstsolar_model",
+    "spectral_response_contract",
+    "spectral_response_model",
+    "spectral_response_coverage_scope",
+    "spectral_response_scope",
+)
+_SPECTRAL_HANDOFF_OUTPUT_COLUMNS = (
+    "spectral_electrical_equivalent_irradiance_wm2",
+    "spectral_electrical_equivalent_resolved",
+    "spectral_electrical_equivalent_state",
+    "cell_temperature_c",
+    "p_mp_w",
+    "v_mp_v",
+    "i_mp_a",
+    "module_electrical_resolved",
+    "module_electrical_state",
+    "tier_used",
+    "fit_quality",
+    "spectral_response_contract",
+    "spectral_response_model",
+    "spectral_response_coverage_scope",
+    "spectral_response_scope",
+    "electrical_handoff_contract",
+    "electrical_handoff_model",
+    "electrical_handoff_scope",
+)
+
+
+@dataclass(frozen=True)
+class ReceiverModuleElectricalDiagnostics:
+    """Deterministic summary of the receiver-resolved electrical handoff."""
+
+    receiver_count: int
+    timestamp_count: int
+    row_count: int
+    resolved_row_count: int
+    unresolved_row_count: int
+    zero_irradiance_row_count: int
+    solver_row_count: int
+    tier_used: int
+    fit_quality: str
+    electrical_handoff_model: str
+
+
+@dataclass(frozen=True)
+class ReceiverModuleElectricalResult:
+    """Representative module operating points for each receiver and timestamp."""
+
+    operating_points: pd.DataFrame
+    diagnostics: ReceiverModuleElectricalDiagnostics
 
 
 @dataclass(frozen=True)
@@ -147,6 +244,7 @@ class StringModuleIVInputs:
     solar_zenith: pd.Series | None = None
     precipitable_water: pd.Series | None = None
 
+
 # Technology → pvlib celltype for fit_cec_sam
 _CELLTYPE_MAP = {
     "mono_si": "monoSi",
@@ -167,6 +265,106 @@ _SPECTRAL_MODULE_TYPE_MAP = {
 
 # Technologies that trigger a non-c-Si accuracy WARNING
 _NON_CSI = {"cdte", "cigs"}
+
+
+def calculate_receiver_module_operating_points_from_spectral_response(
+    site: SiteConfig,
+    receivers: Sequence[PVReceiver],
+    spectral_response: SpectralResponseResult,
+    *,
+    cell_temperature_c: pd.Series,
+) -> ReceiverModuleElectricalResult:
+    """Convert canonical S7E irradiance directly to receiver module MPP states."""
+    receiver_ids = _spectral_handoff_receiver_ids(receivers)
+    spectral = _admit_spectral_response(spectral_response, receiver_ids)
+    temperature = _admit_cell_temperature(cell_temperature_c, spectral.index)
+    resolution = _resolve_module_configuration(site)
+    tier = int(resolution["tier"])
+    fit_quality = str(resolution["fit_quality"])
+
+    output = pd.DataFrame(index=spectral.index, columns=_SPECTRAL_HANDOFF_OUTPUT_COLUMNS)
+    output["spectral_electrical_equivalent_irradiance_wm2"] = spectral[
+        "spectral_electrical_equivalent_irradiance_wm2"
+    ].astype(float)
+    output["spectral_electrical_equivalent_resolved"] = spectral[
+        "spectral_electrical_equivalent_resolved"
+    ].astype(bool)
+    output["spectral_electrical_equivalent_state"] = spectral[
+        "spectral_electrical_equivalent_state"
+    ].astype("string")
+    output["cell_temperature_c"] = temperature.astype(float)
+    output[["p_mp_w", "v_mp_v", "i_mp_a"]] = np.nan
+    output["module_electrical_resolved"] = False
+    output["module_electrical_state"] = "unresolved_spectral_electrical_equivalent_irradiance"
+    output["tier_used"] = tier
+    output["fit_quality"] = fit_quality
+    output["spectral_response_contract"] = SPECTRAL_RESPONSE_CONTRACT_ID
+    output["spectral_response_model"] = SPECTRAL_RESPONSE_MODEL_ID
+    output["spectral_response_coverage_scope"] = SPECTRAL_RESPONSE_COVERAGE_SCOPE
+    output["spectral_response_scope"] = SPECTRAL_RESPONSE_SCOPE
+    output["electrical_handoff_contract"] = SPECTRAL_ELECTRICAL_HANDOFF_CONTRACT_ID
+    output["electrical_handoff_model"] = SPECTRAL_ELECTRICAL_HANDOFF_MODEL_ID
+    output["electrical_handoff_scope"] = SPECTRAL_ELECTRICAL_HANDOFF_SCOPE
+
+    spectral_resolved = output["spectral_electrical_equivalent_resolved"].astype(bool)
+    irradiance = output["spectral_electrical_equivalent_irradiance_wm2"].astype(float)
+    zero_mask = spectral_resolved & irradiance.eq(0.0)
+    positive_mask = spectral_resolved & irradiance.gt(0.0)
+    finite_temperature = np.isfinite(temperature.to_numpy(dtype=float))
+    temperature_mask = pd.Series(finite_temperature, index=output.index)
+    solver_mask = positive_mask & temperature_mask
+
+    output.loc[zero_mask, ["p_mp_w", "v_mp_v", "i_mp_a"]] = 0.0
+    output.loc[zero_mask, "module_electrical_resolved"] = True
+    output.loc[zero_mask, "module_electrical_state"] = (
+        "resolved_zero_spectral_electrical_irradiance"
+    )
+    output.loc[positive_mask & ~temperature_mask, "module_electrical_state"] = (
+        "unresolved_cell_temperature"
+    )
+    output.loc[~spectral_resolved & ~temperature_mask, "module_electrical_state"] = (
+        "unresolved_spectral_and_cell_temperature"
+    )
+
+    if solver_mask.any():
+        solver_input = irradiance.loc[solver_mask].copy()
+        solver_temperature = temperature.loc[solver_mask].copy()
+        solved, _ = _calculate_module_operating_point_from_electrical_irradiance(
+            site,
+            solver_input,
+            solver_temperature,
+            resolution=resolution,
+        )
+        output.loc[solver_mask, ["p_mp_w", "v_mp_v", "i_mp_a"]] = solved[
+            ["p_mp_w", "v_mp_v", "i_mp_a"]
+        ]
+        output.loc[solver_mask, "module_electrical_resolved"] = True
+        output.loc[solver_mask, "module_electrical_state"] = (
+            "resolved_pvwatts_power_only" if tier == 5 else "resolved"
+        )
+
+    _validate_module_handoff_output(output, tier)
+    output = _typed_spectral_handoff_output(output)
+    resolved_count = int(output["module_electrical_resolved"].sum()) if len(output) else 0
+    diagnostics = ReceiverModuleElectricalDiagnostics(
+        receiver_count=len(receiver_ids),
+        timestamp_count=len(pd.DatetimeIndex(output.index.get_level_values("timestamp").unique())),
+        row_count=len(output),
+        resolved_row_count=resolved_count,
+        unresolved_row_count=len(output) - resolved_count,
+        zero_irradiance_row_count=int(zero_mask.sum()),
+        solver_row_count=int(solver_mask.sum()),
+        tier_used=tier,
+        fit_quality=fit_quality,
+        electrical_handoff_model=SPECTRAL_ELECTRICAL_HANDOFF_MODEL_ID,
+    )
+    if diagnostics.row_count != diagnostics.resolved_row_count + diagnostics.unresolved_row_count:
+        raise RuntimeError("receiver electrical diagnostic resolution counts do not close")
+    if diagnostics.resolved_row_count != (
+        diagnostics.zero_irradiance_row_count + diagnostics.solver_row_count
+    ):
+        raise RuntimeError("receiver electrical resolved-path counts do not close")
+    return ReceiverModuleElectricalResult(output, diagnostics)
 
 
 def calculate_module_operating_point(
@@ -311,12 +509,9 @@ def calculate_topology_module_iv_curves(
                     )
                 except ValueError as exc:
                     raise ValueError(
-                        f"inverter '{inverter.id}' MPPT '{mppt.id}' "
-                        f"string '{string.id}': {exc}"
+                        f"inverter '{inverter.id}' MPPT '{mppt.id}' string '{string.id}': {exc}"
                     ) from exc
-                ordered_inputs.append(
-                    (inverter.id, mppt.id, string.id, inputs)
-                )
+                ordered_inputs.append((inverter.id, mppt.id, string.id, inputs))
 
     if not ordered_inputs:
         return {}
@@ -324,8 +519,7 @@ def calculate_topology_module_iv_curves(
     resolution = _resolve_module_configuration(site)
     if resolution["tier"] == 5:
         raise ValueError(
-            "Voltage-dependent module I-V is unavailable for Tier 5 "
-            "PVWatts fallback parameters"
+            "Voltage-dependent module I-V is unavailable for Tier 5 PVWatts fallback parameters"
         )
     datasheet_reference = None
     if resolution["tier"] in (3, 4):
@@ -365,8 +559,7 @@ def calculate_topology_module_iv_curves(
             )
         except ValueError as exc:
             raise ValueError(
-                f"inverter '{inverter_id}' MPPT '{mppt_id}' "
-                f"string '{string_id}': {exc}"
+                f"inverter '{inverter_id}' MPPT '{mppt_id}' string '{string_id}': {exc}"
             ) from exc
     return results
 
@@ -417,24 +610,17 @@ def calculate_topology_module_iv_curves_from_environment_states(
     if missing_state_ids or unexpected_state_ids:
         details = []
         if missing_state_ids:
-            details.append(
-                f"missing environment state ids: {', '.join(missing_state_ids)}"
-            )
+            details.append(f"missing environment state ids: {', '.join(missing_state_ids)}")
         if unexpected_state_ids:
-            details.append(
-                "unexpected environment state ids: "
-                + ", ".join(unexpected_state_ids)
-            )
+            details.append("unexpected environment state ids: " + ", ".join(unexpected_state_ids))
         raise ValueError(
             "module_iv_inputs_by_state_id does not match referenced environment "
-            "states: "
-            + "; ".join(details)
+            "states: " + "; ".join(details)
         )
 
     ordered_state_ids = list(
         dict.fromkeys(
-            environment_state_id_by_string_id[string_id]
-            for string_id in ordered_string_ids
+            environment_state_id_by_string_id[string_id] for string_id in ordered_string_ids
         )
     )
     for state_id in ordered_state_ids:
@@ -456,8 +642,7 @@ def calculate_topology_module_iv_curves_from_environment_states(
     resolution = _resolve_module_configuration(site)
     if resolution["tier"] == 5:
         raise ValueError(
-            "Voltage-dependent module I-V is unavailable for Tier 5 "
-            "PVWatts fallback parameters"
+            "Voltage-dependent module I-V is unavailable for Tier 5 PVWatts fallback parameters"
         )
     datasheet_reference = None
     if resolution["tier"] in (3, 4):
@@ -501,9 +686,7 @@ def calculate_topology_module_iv_curves_from_environment_states(
             raise ValueError(f"environment state '{state_id}': {exc}") from exc
 
     return {
-        string_id: curves_by_state_id[
-            environment_state_id_by_string_id[string_id]
-        ].copy(deep=True)
+        string_id: curves_by_state_id[environment_state_id_by_string_id[string_id]].copy(deep=True)
         for string_id in ordered_string_ids
     }
 
@@ -525,8 +708,7 @@ def _evaluate_module_iv_curves(
 
     if tier == 5:
         raise ValueError(
-            "Voltage-dependent module I-V is unavailable for Tier 5 "
-            "PVWatts fallback parameters"
+            "Voltage-dependent module I-V is unavailable for Tier 5 PVWatts fallback parameters"
         )
 
     curve_irradiance = effective_irradiance.clip(lower=0.0)
@@ -651,8 +833,7 @@ def calculate_topology_string_iv_curves(
                     )
                 except ValueError as exc:
                     raise ValueError(
-                        f"inverter '{inverter.id}' MPPT '{mppt.id}' "
-                        f"string '{string.id}': {exc}"
+                        f"inverter '{inverter.id}' MPPT '{mppt.id}' string '{string.id}': {exc}"
                     ) from exc
     return results
 
@@ -682,9 +863,7 @@ def calculate_common_voltage_mppt(
         missing = required.difference(curve.columns)
         if missing:
             missing_text = ", ".join(sorted(missing))
-            raise ValueError(
-                f"string_iv_curves[{string_position}] missing columns: {missing_text}"
-            )
+            raise ValueError(f"string_iv_curves[{string_position}] missing columns: {missing_text}")
         ordered_timestamps.append(pd.unique(curve["timestamp"]).tolist())
 
     reference_timestamps = ordered_timestamps[0]
@@ -722,10 +901,7 @@ def calculate_common_voltage_mppt(
         common_vmax = min(float(curve["voltage"][-1]) for curve in timestamp_curves)
         candidates = np.unique(
             np.concatenate(
-                [
-                    curve["voltage"][curve["voltage"] <= common_vmax]
-                    for curve in timestamp_curves
-                ]
+                [curve["voltage"][curve["voltage"] <= common_vmax] for curve in timestamp_curves]
                 + [np.array([0.0, common_vmax])]
             )
         )
@@ -800,30 +976,26 @@ def calculate_physical_mismatch(
             candidates = master_candidates[
                 (master_candidates >= 0.0) & (master_candidates <= voltage[-1])
             ]
-            candidates = np.unique(
-                np.concatenate([candidates, np.array([0.0, voltage[-1]])])
-            )
+            candidates = np.unique(np.concatenate([candidates, np.array([0.0, voltage[-1]])]))
             current = np.interp(candidates, voltage, curve["current"])
             timestamp_independent_power += float(np.max(candidates * current))
 
         common_power = float(common.iloc[timestamp_position]["p_common_mppt_w"])
-        powers_close = bool(np.isclose(
-            common_power,
-            timestamp_independent_power,
-            rtol=1e-12,
-            atol=1e-9,
-        ))
+        powers_close = bool(
+            np.isclose(
+                common_power,
+                timestamp_independent_power,
+                rtol=1e-12,
+                atol=1e-9,
+            )
+        )
         if common_power > timestamp_independent_power and not powers_close:
             raise ValueError(
                 f"timestamp {timestamp!r} common MPPT power exceeds the "
                 "IV-consistent independent-string power"
             )
         independent_power.append(timestamp_independent_power)
-        mismatch_power.append(
-            0.0
-            if powers_close
-            else timestamp_independent_power - common_power
-        )
+        mismatch_power.append(0.0 if powers_close else timestamp_independent_power - common_power)
 
     result = common.copy(deep=True)
     result["p_independent_mp_w"] = independent_power
@@ -886,8 +1058,7 @@ def calculate_topology_mppt_mismatch(
         if unexpected_ids:
             details.append(f"unexpected string ids: {', '.join(unexpected_ids)}")
         raise ValueError(
-            "string_iv_curves_by_id does not match electrical topology: "
-            + "; ".join(details)
+            "string_iv_curves_by_id does not match electrical topology: " + "; ".join(details)
         )
 
     results: list[pd.DataFrame] = []
@@ -895,15 +1066,11 @@ def calculate_topology_mppt_mismatch(
         for mppt in inverter.mppts:
             if not mppt.strings:
                 continue
-            mppt_curves = [
-                string_iv_curves_by_id[string.id] for string in mppt.strings
-            ]
+            mppt_curves = [string_iv_curves_by_id[string.id] for string in mppt.strings]
             try:
                 physical = calculate_physical_mismatch(mppt_curves)
             except ValueError as exc:
-                raise ValueError(
-                    f"inverter '{inverter.id}' MPPT '{mppt.id}': {exc}"
-                ) from exc
+                raise ValueError(f"inverter '{inverter.id}' MPPT '{mppt.id}': {exc}") from exc
             if physical.empty:
                 continue
             result = physical.copy(deep=True)
@@ -942,20 +1109,14 @@ def _validated_common_mppt_curve(
     voltage = values["voltage_v"]
     current = values["current_a"]
     power = values["power_w"]
-    all_zero = bool(
-        np.all(voltage == 0.0)
-        and np.all(current == 0.0)
-        and np.all(power == 0.0)
-    )
+    all_zero = bool(np.all(voltage == 0.0) and np.all(current == 0.0) and np.all(power == 0.0))
     if not all_zero:
         if voltage[-1] <= 0.0:
             raise ValueError(f"{context} active curve maximum voltage must be positive")
         if voltage[0] != 0.0:
             raise ValueError(f"{context} active curve must begin at 0 V")
         if not np.all(np.diff(voltage) > 0.0):
-            raise ValueError(
-                f"{context} active voltage samples must be strictly increasing"
-            )
+            raise ValueError(f"{context} active voltage samples must be strictly increasing")
 
     return {"voltage": voltage, "current": current, "all_zero": all_zero}
 
@@ -1008,13 +1169,10 @@ def calculate_string_operating_points(
     topology = site.electrical_topology
     if topology is None:
         raise ValueError(
-            "site.electrical_topology is required to calculate string "
-            "operating points"
+            "site.electrical_topology is required to calculate string operating points"
         )
     if not module_operating_point.index.is_unique:
-        raise ValueError(
-            "module_operating_point index must contain unique timestamps"
-        )
+        raise ValueError("module_operating_point index must contain unique timestamps")
 
     identity_columns = [
         "timestamp",
@@ -1074,14 +1232,10 @@ def aggregate_independent_string_mppt_power(
     missing = required.difference(string_operating_points.columns)
     if missing:
         missing_text = ", ".join(sorted(missing))
-        raise ValueError(
-            f"string_operating_points missing columns: {missing_text}"
-        )
+        raise ValueError(f"string_operating_points missing columns: {missing_text}")
 
     return (
-        string_operating_points.groupby(group_columns, as_index=False, sort=False)[
-            "p_mp_w"
-        ]
+        string_operating_points.groupby(group_columns, as_index=False, sort=False)["p_mp_w"]
         .sum()
         .rename(columns={"p_mp_w": "p_independent_mp_w"})
     )
@@ -1164,15 +1318,33 @@ def _calculate_module_operating_point(
     *,
     solar_zenith: pd.Series | None,
     precipitable_water: pd.Series | None,
-) -> tuple[pd.DataFrame, dict]:
-    """Internal module solver returning both operating point and parameters."""
-    module_cfg = site.module
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Legacy wrapper applying its spectral helper before electrical solving."""
     resolution, effective_irradiance = _resolve_module_electrical_inputs(
         site,
         poa_total,
         solar_zenith=solar_zenith,
         precipitable_water=precipitable_water,
     )
+    return _calculate_module_operating_point_from_electrical_irradiance(
+        site,
+        effective_irradiance,
+        t_cell,
+        resolution=resolution,
+    )
+
+
+def _calculate_module_operating_point_from_electrical_irradiance(
+    site: SiteConfig,
+    electrical_irradiance: pd.Series,
+    t_cell: pd.Series,
+    *,
+    resolution: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Solve a module from irradiance whose spectral response is already final."""
+    module_cfg = site.module
+    if resolution is None:
+        resolution = _resolve_module_configuration(site)
     params = resolution["params"]
     tier = resolution["tier"]
     fit_quality = resolution["fit_quality"]
@@ -1182,7 +1354,7 @@ def _calculate_module_operating_point(
         sdm_parameters = _calculate_sdm_operating_parameters(
             params,
             module_cfg.technology,
-            effective_irradiance,
+            electrical_irradiance,
             t_cell,
             tier,
         )
@@ -1197,27 +1369,25 @@ def _calculate_module_operating_point(
             params = _pvwatts_fallback_params(params)
         p_module, v_mp_series, i_mp_series = _pvwatts(
             params,
-            effective_irradiance,
+            electrical_irradiance,
             t_cell,
         )
     else:
         iv = _solve_sdm(sdm_parameters)
-        p_module = pd.Series(iv["p_mp"], index=effective_irradiance.index).clip(
-            lower=0.0
-        )
-        v_mp_series = pd.Series(iv["v_mp"], index=effective_irradiance.index)
-        i_mp_series = pd.Series(iv["i_mp"], index=effective_irradiance.index)
+        p_module = pd.Series(iv["p_mp"], index=electrical_irradiance.index).clip(lower=0.0)
+        v_mp_series = pd.Series(iv["v_mp"], index=electrical_irradiance.index)
+        i_mp_series = pd.Series(iv["i_mp"], index=electrical_irradiance.index)
 
     operating_point = pd.DataFrame(
         {
             "p_mp_w": p_module,
             "v_mp_v": v_mp_series,
             "i_mp_a": i_mp_series,
-            "effective_irradiance_wm2": effective_irradiance,
+            "effective_irradiance_wm2": electrical_irradiance,
             "tier_used": tier,
             "fit_quality": fit_quality,
         },
-        index=poa_total.index,
+        index=electrical_irradiance.index,
     )
     return operating_point, params
 
@@ -1226,13 +1396,530 @@ def _calculate_module_operating_point(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
+def _spectral_handoff_receiver_ids(receivers: object) -> tuple[str, ...]:
+    if isinstance(receivers, (str, bytes)) or not isinstance(receivers, Sequence) or not receivers:
+        raise ValueError("receivers must be a non-empty sequence")
+    if any(type(receiver) is not PVReceiver for receiver in receivers):
+        raise ValueError("receivers must contain exact PVReceiver values")
+    receiver_ids = tuple(receiver.id for receiver in receivers)
+    if len(receiver_ids) != len(set(receiver_ids)):
+        raise ValueError("receiver IDs must be unique")
+    for receiver in receivers:
+        if receiver.receiver_kind is ReceiverKind.TRACKER_TABLE:
+            raise ValueError("S6C runtime tracker pose is required before electrical handoff")
+        if receiver.receiver_kind is not ReceiverKind.FIXED_TABLE:
+            raise ValueError("spectral electrical handoff supports FIXED_TABLE receivers only")
+    return tuple(sorted(receiver_ids))
+
+
+def _admit_spectral_response(value: object, receiver_ids: tuple[str, ...]) -> pd.DataFrame:
+    if type(value) is not SpectralResponseResult:
+        raise ValueError("spectral_response must be an exact SpectralResponseResult")
+    frame = value.irradiance
+    if not isinstance(frame, pd.DataFrame) or not isinstance(frame.index, pd.MultiIndex):
+        raise ValueError("spectral response must use a timestamp/receiver_id MultiIndex")
+    if frame.index.nlevels != 2 or frame.index.names != ["timestamp", "receiver_id"]:
+        raise ValueError("spectral response index must be timestamp/receiver_id")
+    if not set(_SPECTRAL_HANDOFF_REQUIRED_COLUMNS).issubset(frame.columns):
+        raise ValueError("spectral response is missing required handoff columns")
+    timestamps = frame.index.get_level_values("timestamp")
+    if not isinstance(timestamps, pd.DatetimeIndex) or timestamps.tz is None:
+        raise ValueError("spectral response timestamps must be timezone-aware")
+    if timestamps.hasnans or frame.index.has_duplicates:
+        raise ValueError("spectral response index contains NaT or duplicate rows")
+    unique_timestamps = pd.DatetimeIndex(timestamps.unique()).sort_values()
+    expected = pd.MultiIndex.from_product(
+        (unique_timestamps, receiver_ids), names=["timestamp", "receiver_id"]
+    )
+    if len(frame) != len(expected) or set(frame.index) != set(expected):
+        raise ValueError("spectral response must contain the complete canonical grid")
+    canonical = frame.reindex(expected).copy(deep=True)
+    _replay_spectral_constants(canonical)
+    for _, row in canonical.iterrows():
+        _replay_spectral_row(row)
+    _replay_spectral_diagnostics(value, canonical, receiver_ids, unique_timestamps)
+    return canonical
+
+
+def _replay_spectral_constants(frame: pd.DataFrame) -> None:
+    expected = {
+        "spectral_response_contract": SPECTRAL_RESPONSE_CONTRACT_ID,
+        "spectral_response_model": SPECTRAL_RESPONSE_MODEL_ID,
+        "spectral_response_coverage_scope": SPECTRAL_RESPONSE_COVERAGE_SCOPE,
+        "spectral_response_scope": SPECTRAL_RESPONSE_SCOPE,
+        "firstsolar_model": FIRST_SOLAR_MODEL_ID,
+    }
+    for column, required in expected.items():
+        if (
+            len(frame)
+            and not (
+                frame[column].map(lambda item: type(item) is str).all()
+                and frame[column].eq(required).all()
+            )
+        ):
+            raise ValueError(f"spectral response {column} provenance is invalid")
+    if (
+        len(frame)
+        and not frame["pvlib_version"]
+        .map(lambda item: type(item) is str and bool(item.strip()))
+        .all()
+    ):
+        raise ValueError("spectral response pvlib_version provenance is invalid")
+
+
+def _replay_spectral_diagnostics(
+    value: SpectralResponseResult,
+    frame: pd.DataFrame,
+    receiver_ids: tuple[str, ...],
+    timestamps: pd.DatetimeIndex,
+) -> None:
+    diagnostics = value.diagnostics
+    if len(frame):
+        identities: dict[str, tuple[bool, str, str]] = {}
+        for receiver_id in receiver_ids:
+            rows = frame.xs(receiver_id, level="receiver_id")
+            bifacial = tuple(
+                _handoff_bool(item, "bifacial_enabled") for item in rows["bifacial_enabled"]
+            )
+            activations = tuple(str(item) for item in rows["front_spectral_activation_state"])
+            treatments = tuple(str(item) for item in rows["rear_spectral_treatment"])
+            if len(set(bifacial)) != 1 or len(set(activations)) != 1 or len(set(treatments)) != 1:
+                raise ValueError("spectral receiver identity changes across timestamps")
+            identities[receiver_id] = (bifacial[0], activations[0], treatments[0])
+        bifacial_count = sum(item[0] for item in identities.values())
+        front_enabled = sum(item[1] == "enabled" for item in identities.values())
+        front_disabled = sum(item[1] == "disabled" for item in identities.values())
+        front_unknown = sum(item[1] == "unknown" for item in identities.values())
+        rear_disabled = sum(item[0] and item[2] == "disabled" for item in identities.values())
+        rear_explicit = sum(
+            item[0] and item[2] == "explicit_factor" for item in identities.values()
+        )
+        rear_unknown = sum(item[0] and item[2] == "unknown" for item in identities.values())
+    else:
+        bifacial_count = diagnostics.bifacial_receiver_count
+        front_enabled = diagnostics.front_enabled_receiver_count
+        front_disabled = diagnostics.front_disabled_receiver_count
+        front_unknown = diagnostics.front_unknown_receiver_count
+        rear_disabled = diagnostics.rear_disabled_receiver_count
+        rear_explicit = diagnostics.rear_explicit_receiver_count
+        rear_unknown = diagnostics.rear_unknown_receiver_count
+    front_factor_resolved = sum(
+        _handoff_bool(item, "front_spectral_factor_resolved")
+        for item in frame["front_spectral_factor_resolved"]
+    )
+    rear_factor_resolved = sum(
+        _handoff_bool(item, "rear_spectral_factor_resolved")
+        for item in frame["rear_spectral_factor_resolved"]
+    )
+    rear_not_applicable = int(
+        (frame["rear_spectral_factor_state"] == "not_applicable_monofacial").sum()
+    )
+    total_resolved = sum(
+        _handoff_bool(item, "spectral_electrical_equivalent_resolved")
+        for item in frame["spectral_electrical_equivalent_resolved"]
+    )
+    expected = (
+        len(receiver_ids),
+        bifacial_count,
+        len(receiver_ids) - bifacial_count,
+        len(timestamps),
+        len(frame),
+        front_enabled,
+        front_disabled,
+        front_unknown,
+        rear_disabled,
+        rear_explicit,
+        rear_unknown,
+        front_factor_resolved,
+        len(frame) - front_factor_resolved,
+        rear_factor_resolved,
+        len(frame) - rear_factor_resolved - rear_not_applicable,
+        rear_not_applicable,
+        total_resolved,
+        len(frame) - total_resolved,
+        SPECTRAL_RESPONSE_MODEL_ID,
+    )
+    actual = (
+        diagnostics.receiver_count,
+        diagnostics.bifacial_receiver_count,
+        diagnostics.monofacial_receiver_count,
+        diagnostics.timestamp_count,
+        diagnostics.row_count,
+        diagnostics.front_enabled_receiver_count,
+        diagnostics.front_disabled_receiver_count,
+        diagnostics.front_unknown_receiver_count,
+        diagnostics.rear_disabled_receiver_count,
+        diagnostics.rear_explicit_receiver_count,
+        diagnostics.rear_unknown_receiver_count,
+        diagnostics.front_factor_resolved_row_count,
+        diagnostics.front_factor_unresolved_row_count,
+        diagnostics.rear_factor_resolved_row_count,
+        diagnostics.rear_factor_unresolved_row_count,
+        diagnostics.rear_factor_not_applicable_row_count,
+        diagnostics.spectral_total_resolved_row_count,
+        diagnostics.spectral_total_unresolved_row_count,
+        diagnostics.spectral_response_model,
+    )
+    if actual != expected:
+        raise ValueError("spectral response diagnostics do not replay the admitted frame")
+    if front_enabled + front_disabled + front_unknown != len(receiver_ids):
+        raise ValueError("front spectral activation receiver counts do not close")
+    if rear_disabled + rear_explicit + rear_unknown != bifacial_count:
+        raise ValueError("rear spectral treatment receiver counts do not close")
+
+
+def _replay_spectral_row(row: pd.Series) -> None:
+    front_input = _handoff_optional_nonnegative(
+        row["poa_front_effective_optical_wm2"], "front effective optical irradiance"
+    )
+    front_factor_resolved = _handoff_bool(
+        row["front_spectral_factor_resolved"], "front spectral factor resolved"
+    )
+    front_factor = _handoff_factor(
+        row["front_spectral_mismatch_factor"], front_factor_resolved, "front spectral factor"
+    )
+    front_activation = row["front_spectral_activation_state"]
+    if front_activation not in {"enabled", "disabled", "unknown"}:
+        raise ValueError("front spectral activation state is invalid")
+    front_factor_state = row["front_spectral_factor_state"]
+    if front_activation == "disabled":
+        if (
+            not front_factor_resolved
+            or front_factor is None
+            or not _handoff_close(front_factor, 1.0)
+            or front_factor_state != "resolved_spectral_correction_disabled"
+        ):
+            raise ValueError("disabled front spectral authority is invalid")
+    elif front_activation == "unknown":
+        if (
+            front_factor_resolved
+            or front_factor is not None
+            or front_factor_state != "unresolved_spectral_activation_unknown"
+        ):
+            raise ValueError("unknown front spectral authority is invalid")
+    elif front_factor_resolved:
+        if front_factor_state != "resolved_firstsolar":
+            raise ValueError("resolved enabled front spectral authority is invalid")
+    elif front_factor_state not in {
+        "not_applicable_no_above_horizon_sun",
+        "unresolved_missing_atmospheric_input",
+        "unresolved_firstsolar_precipitable_water_above_max",
+    }:
+        raise ValueError("unresolved enabled front spectral authority is invalid")
+    front_resolved = _handoff_bool(
+        row["front_spectral_electrical_equivalent_resolved"], "front spectral contribution resolved"
+    )
+    _replay_contribution(
+        input_value=front_input,
+        factor=front_factor,
+        factor_resolved=front_factor_resolved,
+        contribution=row["front_spectral_electrical_equivalent_irradiance_wm2"],
+        contribution_resolved=front_resolved,
+        state=row["front_spectral_electrical_equivalent_state"],
+        zero_state="resolved_zero_front_effective_irradiance",
+        unresolved_factor_state="unresolved_front_spectral_factor",
+        unresolved_input_state="unresolved_front_effective_irradiance",
+        label="front",
+    )
+    bifacial = _handoff_bool(row["bifacial_enabled"], "bifacial_enabled")
+    phi = _handoff_finite(row["isc_bifaciality_factor"], "isc_bifaciality_factor")
+    rear_input = _handoff_optional_nonnegative(
+        row["poa_rear_effective_optical_wm2"], "rear effective optical irradiance"
+    )
+    rear_factor_resolved = _handoff_bool(
+        row["rear_spectral_factor_resolved"], "rear spectral factor resolved"
+    )
+    rear_factor = _handoff_factor(
+        row["rear_spectral_mismatch_factor"], rear_factor_resolved, "rear spectral factor"
+    )
+    rear_treatment = row["rear_spectral_treatment"]
+    rear_factor_state = row["rear_spectral_factor_state"]
+    rear_resolved = _handoff_bool(
+        row["rear_spectral_effective_resolved"], "rear spectral contribution resolved"
+    )
+    rear_equivalent_resolved = _handoff_bool(
+        row["rear_spectral_electrical_equivalent_resolved"],
+        "rear spectral electrical equivalent resolved",
+    )
+    if not bifacial:
+        if rear_treatment != "not_applicable_monofacial":
+            raise ValueError("monofacial rear spectral treatment is invalid")
+        if phi != 0.0 or rear_input is not None or rear_factor_resolved or rear_factor is not None:
+            raise ValueError("monofacial spectral rear identity is invalid")
+        if rear_factor_state != "not_applicable_monofacial":
+            raise ValueError("monofacial rear factor state is invalid")
+        for value, resolved, state, label in (
+            (
+                row["poa_rear_spectral_effective_irradiance_wm2"],
+                rear_resolved,
+                row["rear_spectral_effective_state"],
+                "monofacial rear spectral",
+            ),
+            (
+                row["rear_spectral_electrical_equivalent_irradiance_wm2"],
+                rear_equivalent_resolved,
+                row["rear_spectral_electrical_equivalent_state"],
+                "monofacial rear electrical equivalent",
+            ),
+        ):
+            if (
+                not resolved
+                or not _handoff_close(value, 0.0)
+                or state != "resolved_monofacial_zero"
+            ):
+                raise ValueError(f"{label} closure failed")
+    else:
+        if phi <= 0.0 or phi > 1.0:
+            raise ValueError("bifacial phi_Isc must satisfy 0 < factor <= 1")
+        if rear_treatment not in {"disabled", "explicit_factor", "unknown"}:
+            raise ValueError("bifacial rear spectral treatment is invalid")
+        if rear_treatment == "disabled":
+            if (
+                not rear_factor_resolved
+                or rear_factor is None
+                or not _handoff_close(rear_factor, 1.0)
+                or rear_factor_state != "resolved_rear_spectral_correction_disabled"
+            ):
+                raise ValueError("disabled rear spectral authority is invalid")
+        elif rear_treatment == "unknown":
+            if (
+                rear_factor_resolved
+                or rear_factor is not None
+                or rear_factor_state != "unresolved_rear_spectral_treatment_unknown"
+            ):
+                raise ValueError("unknown rear spectral authority is invalid")
+        elif rear_factor_resolved:
+            if rear_factor_state != "resolved_explicit_rear_spectral_factor":
+                raise ValueError("resolved explicit rear spectral authority is invalid")
+        elif rear_factor_state != "unresolved_explicit_rear_spectral_factor":
+            raise ValueError("unresolved explicit rear spectral authority is invalid")
+        _replay_contribution(
+            input_value=rear_input,
+            factor=rear_factor,
+            factor_resolved=rear_factor_resolved,
+            contribution=row["poa_rear_spectral_effective_irradiance_wm2"],
+            contribution_resolved=rear_resolved,
+            state=row["rear_spectral_effective_state"],
+            zero_state="resolved_zero_rear_effective_irradiance",
+            unresolved_factor_state="unresolved_rear_spectral_factor",
+            unresolved_input_state="unresolved_rear_effective_irradiance",
+            label="rear",
+        )
+        if rear_resolved:
+            if not rear_equivalent_resolved or not _handoff_close(
+                row["rear_spectral_electrical_equivalent_irradiance_wm2"],
+                phi * float(row["poa_rear_spectral_effective_irradiance_wm2"]),
+            ):
+                raise ValueError("rear phi_Isc electrical-equivalent closure failed")
+            if (
+                row["rear_spectral_electrical_equivalent_state"]
+                != row["rear_spectral_effective_state"]
+            ):
+                raise ValueError(
+                    "rear electrical-equivalent state does not replay rear spectral state"
+                )
+        elif (
+            rear_equivalent_resolved
+            or not pd.isna(row["rear_spectral_electrical_equivalent_irradiance_wm2"])
+            or row["rear_spectral_electrical_equivalent_state"]
+            != row["rear_spectral_effective_state"]
+        ):
+            raise ValueError("unresolved rear electrical-equivalent closure failed")
+    total_resolved = _handoff_bool(
+        row["spectral_electrical_equivalent_resolved"], "spectral total resolved"
+    )
+    expected_resolved = front_resolved and rear_equivalent_resolved
+    if total_resolved != expected_resolved:
+        raise ValueError("spectral total resolution does not match component resolution")
+    if total_resolved:
+        expected_total = float(row["front_spectral_electrical_equivalent_irradiance_wm2"]) + float(
+            row["rear_spectral_electrical_equivalent_irradiance_wm2"]
+        )
+        total = _handoff_finite(
+            row["spectral_electrical_equivalent_irradiance_wm2"], "spectral total"
+        )
+        if total < 0.0 or not _handoff_close(total, expected_total):
+            raise ValueError("resolved spectral total closure failed")
+        if row["spectral_electrical_equivalent_state"] != "resolved":
+            raise ValueError("resolved spectral total state is invalid")
+    else:
+        expected_state = (
+            "unresolved_front_and_rear_spectral_response"
+            if not front_resolved and not rear_equivalent_resolved
+            else "unresolved_front_spectral_response"
+            if not front_resolved
+            else "unresolved_rear_spectral_response"
+        )
+        if not pd.isna(row["spectral_electrical_equivalent_irradiance_wm2"]):
+            raise ValueError("unresolved spectral total must be NaN")
+        if row["spectral_electrical_equivalent_state"] != expected_state:
+            raise ValueError("unresolved spectral total state is invalid")
+
+
+def _replay_contribution(
+    *,
+    input_value: float | None,
+    factor: float | None,
+    factor_resolved: bool,
+    contribution: object,
+    contribution_resolved: bool,
+    state: object,
+    zero_state: str,
+    unresolved_factor_state: str,
+    unresolved_input_state: str,
+    label: str,
+) -> None:
+    if input_value is None:
+        expected_value, expected_resolved, expected_state = np.nan, False, unresolved_input_state
+    elif input_value == 0.0:
+        expected_value, expected_resolved, expected_state = 0.0, True, zero_state
+    elif factor_resolved:
+        assert factor is not None
+        expected_value, expected_resolved, expected_state = input_value * factor, True, "resolved"
+    else:
+        expected_value, expected_resolved, expected_state = np.nan, False, unresolved_factor_state
+    if contribution_resolved != expected_resolved or state != expected_state:
+        raise ValueError(f"{label} spectral contribution state closure failed")
+    if expected_resolved:
+        if not _handoff_close(contribution, expected_value):
+            raise ValueError(f"{label} spectral contribution algebra failed")
+    elif not pd.isna(contribution):
+        raise ValueError(f"unresolved {label} spectral contribution must be NaN")
+
+
+def _admit_cell_temperature(value: object, expected_index: pd.MultiIndex) -> pd.Series:
+    if not isinstance(value, pd.Series) or not isinstance(value.index, pd.MultiIndex):
+        raise ValueError("cell_temperature_c must be a MultiIndex Series")
+    if value.index.nlevels != 2 or value.index.names != list(expected_index.names):
+        raise ValueError("cell temperature index names must match the spectral grid")
+    timestamps = value.index.get_level_values("timestamp")
+    expected_timestamps = expected_index.get_level_values("timestamp")
+    if not isinstance(timestamps, pd.DatetimeIndex) or timestamps.tz is None:
+        raise ValueError("cell temperature timestamps must be timezone-aware")
+    if timestamps.hasnans or value.index.has_duplicates:
+        raise ValueError("cell temperature index contains NaT or duplicate rows")
+    if str(timestamps.tz) != str(expected_timestamps.tz):
+        raise ValueError("cell temperature timezone must exactly match the spectral grid")
+    if len(value) != len(expected_index) or set(value.index) != set(expected_index):
+        raise ValueError("cell temperature must contain the exact spectral grid")
+    result = value.reindex(expected_index).copy(deep=True)
+    normalized: list[float] = []
+    for item in result:
+        if pd.isna(item):
+            normalized.append(np.nan)
+        else:
+            normalized.append(_handoff_finite(item, "cell temperature"))
+    return pd.Series(normalized, index=expected_index, dtype=float, name=value.name)
+
+
+def _validate_module_handoff_output(output: pd.DataFrame, tier: int) -> None:
+    for _, row in output.iterrows():
+        resolved = _handoff_bool(row["module_electrical_resolved"], "module electrical resolved")
+        values = (row["p_mp_w"], row["v_mp_v"], row["i_mp_a"])
+        if not resolved:
+            if not all(pd.isna(item) for item in values):
+                raise RuntimeError(
+                    "unresolved module electrical output must contain NaN MPP values"
+                )
+            continue
+        if tier == 5 and row["module_electrical_state"] == "resolved_pvwatts_power_only":
+            power = _handoff_finite(row["p_mp_w"], "module MPP power")
+            if (
+                power < -_NUMERICAL_NEGATIVE_TOLERANCE
+                or not pd.isna(row["v_mp_v"])
+                or not pd.isna(row["i_mp_a"])
+            ):
+                raise RuntimeError("resolved Tier-5 output violates power-only contract")
+        else:
+            numeric = [_handoff_finite(item, "module MPP output") for item in values]
+            if any(item < -_NUMERICAL_NEGATIVE_TOLERANCE for item in numeric):
+                raise RuntimeError("module solver produced materially negative MPP output")
+
+
+def _typed_spectral_handoff_output(frame: pd.DataFrame) -> pd.DataFrame:
+    if tuple(frame.columns) != _SPECTRAL_HANDOFF_OUTPUT_COLUMNS:
+        raise RuntimeError("spectral electrical handoff output schema changed unexpectedly")
+    result = frame.copy(deep=True)
+    float_columns = (
+        "spectral_electrical_equivalent_irradiance_wm2",
+        "cell_temperature_c",
+        "p_mp_w",
+        "v_mp_v",
+        "i_mp_a",
+    )
+    string_columns = tuple(
+        column
+        for column in _SPECTRAL_HANDOFF_OUTPUT_COLUMNS
+        if column not in float_columns
+        and column
+        not in (
+            "spectral_electrical_equivalent_resolved",
+            "module_electrical_resolved",
+            "tier_used",
+        )
+    )
+    for column in float_columns:
+        result[column] = result[column].astype(float)
+    for column in string_columns:
+        result[column] = result[column].astype("string")
+    result["spectral_electrical_equivalent_resolved"] = result[
+        "spectral_electrical_equivalent_resolved"
+    ].astype(bool)
+    result["module_electrical_resolved"] = result["module_electrical_resolved"].astype(bool)
+    result["tier_used"] = result["tier_used"].astype("int64")
+    return result
+
+
+def _handoff_bool(value: object, label: str) -> bool:
+    if type(value) not in (bool, np.bool_):
+        raise ValueError(f"{label} must be Boolean")
+    return bool(value)
+
+
+def _handoff_finite(value: object, label: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"{label} must be a finite real value")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"{label} must be a finite real value")
+    return result
+
+
+def _handoff_optional_nonnegative(value: object, label: str) -> float | None:
+    if pd.isna(value):
+        return None
+    result = _handoff_finite(value, label)
+    if result < 0.0:
+        raise ValueError(f"{label} must be non-negative or NaN")
+    return result
+
+
+def _handoff_factor(value: object, resolved: bool, label: str) -> float | None:
+    if resolved:
+        result = _handoff_finite(value, label)
+        if result <= 0.0:
+            raise ValueError(f"resolved {label} must be positive")
+        return result
+    if not pd.isna(value):
+        raise ValueError(f"unresolved {label} must be NaN")
+    return None
+
+
+def _handoff_close(value: object, expected: float) -> bool:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        return False
+    candidate = float(value)
+    return bool(np.isfinite(candidate) and np.isclose(candidate, expected, rtol=1e-10, atol=1e-10))
+
+
 def _resolve_module_electrical_inputs(
     site: SiteConfig,
     poa_total: pd.Series,
     *,
     solar_zenith: pd.Series | None,
     precipitable_water: pd.Series | None,
-) -> tuple[dict, pd.Series]:
+) -> tuple[dict[str, Any], pd.Series]:
     """Resolve module metadata and spectrally corrected irradiance."""
     resolution = _resolve_module_configuration(site)
     effective_irradiance = _calculate_effective_irradiance(
@@ -1244,7 +1931,7 @@ def _resolve_module_electrical_inputs(
     return resolution, effective_irradiance
 
 
-def _resolve_module_configuration(site: SiteConfig) -> dict:
+def _resolve_module_configuration(site: SiteConfig) -> dict[str, Any]:
     """Resolve one site's module parameters and emit its technology warning."""
     module_cfg = site.module
     if module_cfg.technology in _NON_CSI:
@@ -1376,9 +2063,7 @@ def _compute_spectral_factor(
     logger.info(
         "Spectral correction applied (module_type=%s): mean factor=%.4f.",
         module_type,
-        float(spectral_factor.mean())
-        if hasattr(spectral_factor, "mean")
-        else spectral_factor,
+        float(spectral_factor.mean()) if hasattr(spectral_factor, "mean") else spectral_factor,
     )
     return spectral_factor
 
@@ -1418,9 +2103,7 @@ def _sdm_datasheet_parameters(
     reference = _fit_datasheet_sdm_reference(params, technology)
     if reference is None:
         return None
-    return _sdm_datasheet_operating_parameters(
-        reference, effective_irradiance, t_cell
-    )
+    return _sdm_datasheet_operating_parameters(reference, effective_irradiance, t_cell)
 
 
 def _fit_datasheet_sdm_reference(
@@ -1497,9 +2180,7 @@ def _as_sdm_parameters(
     index: pd.Index,
 ) -> _SdmOperatingParameters:
     """Normalize pvlib De Soto outputs to indexed Series."""
-    return _SdmOperatingParameters(
-        *(pd.Series(value, index=index) for value in values)
-    )
+    return _SdmOperatingParameters(*(pd.Series(value, index=index) for value in values))
 
 
 def _solve_sdm(parameters: _SdmOperatingParameters) -> dict:
