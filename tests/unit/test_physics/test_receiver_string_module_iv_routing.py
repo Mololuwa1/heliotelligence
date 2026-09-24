@@ -216,7 +216,9 @@ def test_receiver_sharing_evaluates_once_and_returns_deep_copies(
         [("string-a", "x", 24), ("string-b", "y", 30), ("string-c", "z", 36)]
     )
     original = electrical._evaluate_module_iv_curves_from_electrical_irradiance
+    original_fit = electrical._fit_datasheet_sdm_reference
     calls = 0
+    fit_calls = 0
 
     def recording(
         site: SiteConfig,
@@ -238,11 +240,17 @@ def test_receiver_sharing_evaluates_once_and_returns_deep_copies(
             datasheet_reference=datasheet_reference,
         )
 
+    def recording_fit(params: dict[Any, Any], technology: str) -> Any:
+        nonlocal fit_calls
+        fit_calls += 1
+        return original_fit(params, technology)
+
     monkeypatch.setattr(
         electrical,
         "_evaluate_module_iv_curves_from_electrical_irradiance",
         recording,
     )
+    monkeypatch.setattr(electrical, "_fit_datasheet_sdm_reference", recording_fit)
     assignments = {string_id: receivers[0].id for string_id in ("string-a", "string-b", "string-c")}
     result = _route(
         receivers,
@@ -251,6 +259,7 @@ def test_receiver_sharing_evaluates_once_and_returns_deep_copies(
         assignments=assignments,
     )
     assert calls == 1
+    assert fit_calls == 1
     assert result.diagnostics.shared_receiver_count == 1
     curves = result.module_iv_curves_by_string_id
     pd.testing.assert_frame_equal(curves["string-a"], curves["string-b"])

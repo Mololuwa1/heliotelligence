@@ -468,6 +468,16 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
     resolution = _resolve_module_configuration(site)
     tier = int(resolution["tier"])
     fit_quality = str(resolution["fit_quality"])
+    datasheet_reference: _DatasheetSdmReference | None = None
+    voltage_dependent_available = tier != 5
+    if tier in (3, 4):
+        try:
+            datasheet_reference = _fit_datasheet_sdm_reference(
+                resolution["params"], site.module.technology
+            )
+        except ValueError:
+            datasheet_reference = None
+        voltage_dependent_available = datasheet_reference is not None
     _crosscheck_receiver_module_resolution(
         receiver_module_electrical,
         electrical,
@@ -479,18 +489,9 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
         site,
         electrical,
         resolution,
+        datasheet_reference=datasheet_reference,
+        datasheet_reference_is_precomputed=tier in (3, 4),
     )
-
-    datasheet_reference: _DatasheetSdmReference | None = None
-    voltage_dependent_available = tier != 5
-    if tier in (3, 4):
-        try:
-            datasheet_reference = _fit_datasheet_sdm_reference(
-                resolution["params"], site.module.technology
-            )
-        except ValueError:
-            datasheet_reference = None
-        voltage_dependent_available = datasheet_reference is not None
 
     timestamps = pd.DatetimeIndex(
         electrical.index.get_level_values("timestamp").unique()
@@ -1639,6 +1640,8 @@ def _calculate_module_operating_point_from_electrical_irradiance(
     t_cell: pd.Series,
     *,
     resolution: dict[str, Any] | None = None,
+    datasheet_reference: _DatasheetSdmReference | None = None,
+    datasheet_reference_is_precomputed: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Solve a module from irradiance whose spectral response is already final."""
     module_cfg = site.module
@@ -1650,13 +1653,22 @@ def _calculate_module_operating_point_from_electrical_irradiance(
 
     sdm_parameters = None
     if tier != 5:
-        sdm_parameters = _calculate_sdm_operating_parameters(
-            params,
-            module_cfg.technology,
-            electrical_irradiance,
-            t_cell,
-            tier,
-        )
+        if tier in (3, 4) and datasheet_reference_is_precomputed:
+            if datasheet_reference is not None:
+                sdm_parameters = _sdm_datasheet_operating_parameters(
+                    datasheet_reference,
+                    electrical_irradiance,
+                    t_cell,
+                )
+        else:
+            sdm_parameters = _calculate_sdm_operating_parameters(
+                params,
+                module_cfg.technology,
+                electrical_irradiance,
+                t_cell,
+                tier,
+                datasheet_reference=datasheet_reference,
+            )
 
     if sdm_parameters is None:
         if tier in (3, 4):
@@ -1916,6 +1928,9 @@ def _replay_receiver_module_operating_points(
     site: SiteConfig,
     frame: pd.DataFrame,
     resolution: dict[str, Any],
+    *,
+    datasheet_reference: _DatasheetSdmReference | None,
+    datasheet_reference_is_precomputed: bool,
 ) -> None:
     """Bind positive S7E-1 MPP states to the current resolved module authority."""
     solver_mask = frame["module_electrical_state"].isin(
@@ -1929,6 +1944,8 @@ def _replay_receiver_module_operating_points(
         positive["spectral_electrical_equivalent_irradiance_wm2"].astype(float),
         positive["cell_temperature_c"].astype(float),
         resolution=resolution,
+        datasheet_reference=datasheet_reference,
+        datasheet_reference_is_precomputed=datasheet_reference_is_precomputed,
     )
     for index, supplied in positive.iterrows():
         replay = replayed.loc[index]
