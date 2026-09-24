@@ -1579,6 +1579,34 @@ def _replay_spectral_row(row: pd.Series) -> None:
     front_factor = _handoff_factor(
         row["front_spectral_mismatch_factor"], front_factor_resolved, "front spectral factor"
     )
+    front_activation = row["front_spectral_activation_state"]
+    if front_activation not in {"enabled", "disabled", "unknown"}:
+        raise ValueError("front spectral activation state is invalid")
+    front_factor_state = row["front_spectral_factor_state"]
+    if front_activation == "disabled":
+        if (
+            not front_factor_resolved
+            or front_factor is None
+            or not _handoff_close(front_factor, 1.0)
+            or front_factor_state != "resolved_spectral_correction_disabled"
+        ):
+            raise ValueError("disabled front spectral authority is invalid")
+    elif front_activation == "unknown":
+        if (
+            front_factor_resolved
+            or front_factor is not None
+            or front_factor_state != "unresolved_spectral_activation_unknown"
+        ):
+            raise ValueError("unknown front spectral authority is invalid")
+    elif front_factor_resolved:
+        if front_factor_state != "resolved_firstsolar":
+            raise ValueError("resolved enabled front spectral authority is invalid")
+    elif front_factor_state not in {
+        "not_applicable_no_above_horizon_sun",
+        "unresolved_missing_atmospheric_input",
+        "unresolved_firstsolar_precipitable_water_above_max",
+    }:
+        raise ValueError("unresolved enabled front spectral authority is invalid")
     front_resolved = _handoff_bool(
         row["front_spectral_electrical_equivalent_resolved"], "front spectral contribution resolved"
     )
@@ -1605,6 +1633,8 @@ def _replay_spectral_row(row: pd.Series) -> None:
     rear_factor = _handoff_factor(
         row["rear_spectral_mismatch_factor"], rear_factor_resolved, "rear spectral factor"
     )
+    rear_treatment = row["rear_spectral_treatment"]
+    rear_factor_state = row["rear_spectral_factor_state"]
     rear_resolved = _handoff_bool(
         row["rear_spectral_effective_resolved"], "rear spectral contribution resolved"
     )
@@ -1613,9 +1643,11 @@ def _replay_spectral_row(row: pd.Series) -> None:
         "rear spectral electrical equivalent resolved",
     )
     if not bifacial:
+        if rear_treatment != "not_applicable_monofacial":
+            raise ValueError("monofacial rear spectral treatment is invalid")
         if phi != 0.0 or rear_input is not None or rear_factor_resolved or rear_factor is not None:
             raise ValueError("monofacial spectral rear identity is invalid")
-        if row["rear_spectral_factor_state"] != "not_applicable_monofacial":
+        if rear_factor_state != "not_applicable_monofacial":
             raise ValueError("monofacial rear factor state is invalid")
         for value, resolved, state, label in (
             (
@@ -1640,6 +1672,28 @@ def _replay_spectral_row(row: pd.Series) -> None:
     else:
         if phi <= 0.0 or phi > 1.0:
             raise ValueError("bifacial phi_Isc must satisfy 0 < factor <= 1")
+        if rear_treatment not in {"disabled", "explicit_factor", "unknown"}:
+            raise ValueError("bifacial rear spectral treatment is invalid")
+        if rear_treatment == "disabled":
+            if (
+                not rear_factor_resolved
+                or rear_factor is None
+                or not _handoff_close(rear_factor, 1.0)
+                or rear_factor_state != "resolved_rear_spectral_correction_disabled"
+            ):
+                raise ValueError("disabled rear spectral authority is invalid")
+        elif rear_treatment == "unknown":
+            if (
+                rear_factor_resolved
+                or rear_factor is not None
+                or rear_factor_state != "unresolved_rear_spectral_treatment_unknown"
+            ):
+                raise ValueError("unknown rear spectral authority is invalid")
+        elif rear_factor_resolved:
+            if rear_factor_state != "resolved_explicit_rear_spectral_factor":
+                raise ValueError("resolved explicit rear spectral authority is invalid")
+        elif rear_factor_state != "unresolved_explicit_rear_spectral_factor":
+            raise ValueError("unresolved explicit rear spectral authority is invalid")
         _replay_contribution(
             input_value=rear_input,
             factor=rear_factor,

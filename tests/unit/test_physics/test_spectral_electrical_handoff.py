@@ -71,6 +71,9 @@ def _spectral(
     bifacial: bool = True,
     front_factor: float = 0.95,
     rear_factor: float = 1.05,
+    front_activation: str = "enabled",
+    rear_treatment: str = "explicit_factor",
+    precipitable_water_cm: float = 1.5,
 ) -> SpectralResponseResult:
     upstream = spectral_support._s7d(receivers, bifacial=bifacial, periods=periods)
     if bifacial:
@@ -86,22 +89,28 @@ def _spectral(
     upstream_frame.index = upstream_frame.index.set_names(["timestamp", "receiver_id"])
     upstream = replace(upstream, irradiance=upstream_frame)
     index = pd.DatetimeIndex(upstream.irradiance.index.get_level_values("timestamp").unique())
-    front_admission = {
-        receiver.id: FrontSpectralCorrectionAdmission(
-            activation_state="enabled",
-            activation_source_label="project",
-            coefficient_mode="explicit_coefficients",
-            coefficients=(front_factor, 0.0, 0.0, 0.0, 0.0, 0.0),
-            coefficient_source_label="test constant response",
-        )
-        for receiver in receivers
-    }
+    front_admission = {}
+    for receiver in receivers:
+        if front_activation == "enabled":
+            admission = FrontSpectralCorrectionAdmission(
+                activation_state="enabled",
+                activation_source_label="project",
+                coefficient_mode="explicit_coefficients",
+                coefficients=(front_factor, 0.0, 0.0, 0.0, 0.0, 0.0),
+                coefficient_source_label="test constant response",
+            )
+        else:
+            admission = FrontSpectralCorrectionAdmission(
+                activation_state=cast(Any, front_activation),
+                activation_source_label="project",
+            )
+        front_admission[receiver.id] = admission
     bifacial_ids = [receiver.id for receiver in receivers] if bifacial else []
     rear_admission = {
         receiver_id: RearSpectralCorrectionAdmission(
-            treatment="explicit_factor",
+            treatment=cast(Any, rear_treatment),
             source_label="rear model",
-            model_id="rear-explicit-v1",
+            model_id="rear-explicit-v1" if rear_treatment == "explicit_factor" else None,
         )
         for receiver_id in bifacial_ids
     }
@@ -112,15 +121,21 @@ def _spectral(
                 (index, sorted(bifacial_ids)), names=["timestamp", "receiver_id"]
             ),
         )
-        if bifacial_ids
+        if bifacial_ids and rear_treatment == "explicit_factor"
         else None
     )
+    atmosphere = _atmosphere(index) if front_activation == "enabled" else None
+    if atmosphere is not None and len(index):
+        atmosphere = replace(
+            atmosphere,
+            precipitable_water_cm=pd.Series(precipitable_water_cm, index=index),
+        )
     return calculate_spectral_electrical_equivalent_irradiance(
         receivers,
         upstream,
         front_spectral_admission_by_receiver=front_admission,
         rear_spectral_admission_by_receiver=rear_admission,
-        atmosphere=_atmosphere(index),
+        atmosphere=atmosphere,
         explicit_rear_spectral_factor=factors,
     )
 
@@ -262,7 +277,7 @@ def test_mixed_rows_only_positive_resolved_row_enters_solver(
     third = frame.index[2]
     frame.loc[third, "front_spectral_mismatch_factor"] = np.nan
     frame.loc[third, "front_spectral_factor_resolved"] = False
-    frame.loc[third, "front_spectral_factor_state"] = "unresolved_spectral_activation_unknown"
+    frame.loc[third, "front_spectral_factor_state"] = "unresolved_missing_atmospheric_input"
     frame.loc[third, "front_spectral_electrical_equivalent_irradiance_wm2"] = np.nan
     frame.loc[third, "front_spectral_electrical_equivalent_resolved"] = False
     frame.loc[third, "front_spectral_electrical_equivalent_state"] = (
@@ -310,8 +325,11 @@ def test_mixed_rows_only_positive_resolved_row_enters_solver(
 def test_disabled_spectral_tier3_parity_with_legacy_unity_path() -> None:
     receivers = _receivers()
     spectral = _spectral(
-        receivers, bifacial=False, front=850.0, rear=0.0, front_factor=1.0
+        receivers, bifacial=False, front=850.0, rear=0.0, front_activation="disabled"
     )
+    source = spectral.irradiance.iloc[0]
+    assert source["front_spectral_mismatch_factor"] == 1.0
+    assert source["front_spectral_factor_state"] == "resolved_spectral_correction_disabled"
     site = _site(tier5=False)
     canonical = _calculate(receivers, spectral, site=site).operating_points.iloc[0]
     timestamp = spectral.irradiance.index.get_level_values("timestamp").unique()
@@ -321,6 +339,140 @@ def test_disabled_spectral_tier3_parity_with_legacy_unity_path() -> None:
     assert canonical["p_mp_w"] == pytest.approx(legacy["p_mp_w"])
     assert canonical["v_mp_v"] == pytest.approx(legacy["v_mp_v"])
     assert canonical["i_mp_a"] == pytest.approx(legacy["i_mp_a"])
+
+
+def test_spectral_authority_state_forgery_is_rejected() -> None:
+    receivers = _receivers()
+
+    disabled_front = _spectral(
+        receivers, bifacial=False, front=800.0, front_activation="disabled"
+    )
+    frame = disabled_front.irradiance.copy(deep=True)
+    frame.loc[:, "front_spectral_mismatch_factor"] = 0.5
+    frame.loc[:, "front_spectral_electrical_equivalent_irradiance_wm2"] = 400.0
+    frame.loc[:, "spectral_electrical_equivalent_irradiance_wm2"] = 400.0
+    with pytest.raises(ValueError):
+        _calculate(receivers, replace(disabled_front, irradiance=frame))
+
+    unknown_front = _spectral(
+        receivers, bifacial=False, front=800.0, front_activation="unknown"
+    )
+    frame = unknown_front.irradiance.copy(deep=True)
+    frame.loc[:, "front_spectral_mismatch_factor"] = 0.5
+    frame.loc[:, "front_spectral_factor_resolved"] = True
+    frame.loc[:, "front_spectral_factor_state"] = "resolved_firstsolar"
+    frame.loc[:, "front_spectral_electrical_equivalent_irradiance_wm2"] = 400.0
+    frame.loc[:, "front_spectral_electrical_equivalent_resolved"] = True
+    frame.loc[:, "front_spectral_electrical_equivalent_state"] = "resolved"
+    frame.loc[:, "spectral_electrical_equivalent_irradiance_wm2"] = 400.0
+    frame.loc[:, "spectral_electrical_equivalent_resolved"] = True
+    frame.loc[:, "spectral_electrical_equivalent_state"] = "resolved"
+    diagnostics = replace(
+        unknown_front.diagnostics,
+        front_factor_resolved_row_count=1,
+        front_factor_unresolved_row_count=0,
+        spectral_total_resolved_row_count=1,
+        spectral_total_unresolved_row_count=0,
+    )
+    with pytest.raises(ValueError):
+        _calculate(receivers, replace(unknown_front, irradiance=frame, diagnostics=diagnostics))
+
+    enabled = _spectral(receivers)
+    with pytest.raises(ValueError):
+        _calculate(
+            receivers,
+            _mutate(
+                enabled,
+                "front_spectral_factor_state",
+                "resolved_spectral_correction_disabled",
+            ),
+        )
+
+    enabled_unresolved = _spectral(
+        receivers,
+        bifacial=False,
+        front=800.0,
+        precipitable_water_cm=np.nan,
+    )
+    assert not enabled_unresolved.irradiance["front_spectral_factor_resolved"].iloc[0]
+    with pytest.raises(ValueError):
+        _calculate(
+            receivers,
+            _mutate(
+                enabled_unresolved,
+                "front_spectral_factor_state",
+                "unresolved_spectral_activation_unknown",
+            ),
+        )
+
+
+def test_rear_authority_state_forgery_is_rejected() -> None:
+    receivers = _receivers()
+    disabled = _spectral(
+        receivers,
+        front_activation="disabled",
+        rear_treatment="disabled",
+    )
+    source = disabled.irradiance.iloc[0]
+    assert source["rear_spectral_mismatch_factor"] == 1.0
+    assert source["rear_spectral_factor_state"] == (
+        "resolved_rear_spectral_correction_disabled"
+    )
+    assert _calculate(receivers, disabled).diagnostics.resolved_row_count == 1
+
+    frame = disabled.irradiance.copy(deep=True)
+    frame.loc[:, "rear_spectral_mismatch_factor"] = 1.2
+    frame.loc[:, "poa_rear_spectral_effective_irradiance_wm2"] = 240.0
+    frame.loc[:, "rear_spectral_electrical_equivalent_irradiance_wm2"] = 192.0
+    frame.loc[:, "spectral_electrical_equivalent_irradiance_wm2"] = 992.0
+    with pytest.raises(ValueError):
+        _calculate(receivers, replace(disabled, irradiance=frame))
+
+    unknown = _spectral(
+        receivers,
+        front_activation="disabled",
+        rear_treatment="unknown",
+    )
+    frame = unknown.irradiance.copy(deep=True)
+    frame.loc[:, "rear_spectral_mismatch_factor"] = 1.2
+    frame.loc[:, "rear_spectral_factor_resolved"] = True
+    frame.loc[:, "rear_spectral_factor_state"] = "resolved_explicit_rear_spectral_factor"
+    frame.loc[:, "poa_rear_spectral_effective_irradiance_wm2"] = 240.0
+    frame.loc[:, "rear_spectral_effective_resolved"] = True
+    frame.loc[:, "rear_spectral_effective_state"] = "resolved"
+    frame.loc[:, "rear_spectral_electrical_equivalent_irradiance_wm2"] = 192.0
+    frame.loc[:, "rear_spectral_electrical_equivalent_resolved"] = True
+    frame.loc[:, "rear_spectral_electrical_equivalent_state"] = "resolved"
+    frame.loc[:, "spectral_electrical_equivalent_irradiance_wm2"] = 992.0
+    frame.loc[:, "spectral_electrical_equivalent_resolved"] = True
+    frame.loc[:, "spectral_electrical_equivalent_state"] = "resolved"
+    diagnostics = replace(
+        unknown.diagnostics,
+        rear_factor_resolved_row_count=1,
+        rear_factor_unresolved_row_count=0,
+        spectral_total_resolved_row_count=1,
+        spectral_total_unresolved_row_count=0,
+    )
+    with pytest.raises(ValueError):
+        _calculate(receivers, replace(unknown, irradiance=frame, diagnostics=diagnostics))
+
+    explicit = _spectral(receivers)
+    with pytest.raises(ValueError):
+        _calculate(
+            receivers,
+            _mutate(
+                explicit,
+                "rear_spectral_factor_state",
+                "resolved_rear_spectral_correction_disabled",
+            ),
+        )
+
+    monofacial = _spectral(receivers, bifacial=False)
+    with pytest.raises(ValueError):
+        _calculate(
+            receivers,
+            _mutate(monofacial, "rear_spectral_treatment", "explicit_factor"),
+        )
 
 
 @pytest.mark.parametrize(
