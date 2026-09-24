@@ -14,6 +14,7 @@ import heliotelligence.physics.electrical as electrical
 from heliotelligence.config.site import (
     ElectricalTopologyConfig,
     InverterUnitConfig,
+    ModuleConfig,
     MPPTConfig,
     SiteConfig,
     StringConfig,
@@ -42,6 +43,37 @@ def _receivers(count: int = 1) -> list[PVReceiver]:
 
 def _site(*, tier5: bool = False) -> SiteConfig:
     return cast(SiteConfig, handoff_support._site(tier5=tier5))
+
+
+def _tier4_site(*, variant: str) -> SiteConfig:
+    parameters = (
+        {
+            "pnom_wp": 570.0,
+            "v_mp": 41.64,
+            "i_mp": 13.69,
+            "v_oc": 50.60,
+            "i_sc": 14.36,
+            "alpha_sc": 0.045,
+            "beta_voc": -0.25,
+            "gamma_pmp": -0.29,
+            "cells_in_series": 144,
+        }
+        if variant == "a"
+        else {
+            "pnom_wp": 450.0,
+            "v_mp": 34.5,
+            "i_mp": 13.04,
+            "v_oc": 41.5,
+            "i_sc": 13.75,
+            "alpha_sc": 0.04,
+            "beta_voc": -0.28,
+            "gamma_pmp": -0.34,
+            "cells_in_series": 120,
+        }
+    )
+    return _site().model_copy(
+        update={"module": ModuleConfig(technology="mono_si", **parameters)}
+    )
 
 
 def _spectral(
@@ -403,6 +435,52 @@ def test_s7e1_type_grid_diagnostics_and_site_staleness_rejected() -> None:
         _route(receivers, replace(handoff, operating_points=handoff.operating_points.iloc[0:0]))
     with pytest.raises(ValueError):
         _route(receivers, handoff, site=_site(tier5=True))
+
+
+def test_same_tier_and_fit_quality_stale_module_is_rejected() -> None:
+    receivers = _receivers()
+    site_a = _tier4_site(variant="a")
+    site_b = _tier4_site(variant="b")
+    resolution_a = electrical._resolve_module_configuration(site_a)
+    resolution_b = electrical._resolve_module_configuration(site_b)
+    assert (resolution_a["tier"], resolution_a["fit_quality"]) == (4, "low")
+    assert (resolution_b["tier"], resolution_b["fit_quality"]) == (4, "low")
+    handoff = _electrical(receivers, site=site_a)
+
+    with pytest.raises(ValueError, match="operating point is stale"):
+        _route(receivers, handoff, site=site_b)
+
+
+@pytest.mark.parametrize("column", ["p_mp_w", "v_mp_v", "i_mp_a"])
+def test_positive_operating_point_component_tamper_is_rejected(column: str) -> None:
+    receivers = _receivers()
+    handoff = _electrical(receivers)
+    original = float(handoff.operating_points.iloc[0][column])
+
+    with pytest.raises(ValueError, match="operating point is stale"):
+        _route(receivers, _mutate(handoff, column, original * 0.9))
+
+
+def test_tier5_same_tier_stale_power_authority_is_rejected() -> None:
+    receivers = _receivers()
+    site_a = _site(tier5=True)
+    site_b = site_a.model_copy(
+        update={
+            "module": ModuleConfig(
+                technology="mono_si",
+                pnom_wp=800.0,
+                gamma_pmp=0.0,
+            )
+        }
+    )
+    resolution_a = electrical._resolve_module_configuration(site_a)
+    resolution_b = electrical._resolve_module_configuration(site_b)
+    assert (resolution_a["tier"], resolution_a["fit_quality"]) == (5, "pvwatts")
+    assert (resolution_b["tier"], resolution_b["fit_quality"]) == (5, "pvwatts")
+    handoff = _electrical(receivers, site=site_a)
+
+    with pytest.raises(ValueError, match="operating point is stale"):
+        _route(receivers, handoff, site=site_b)
 
 
 def test_receiver_admission_empty_topology_and_empty_time_axis() -> None:

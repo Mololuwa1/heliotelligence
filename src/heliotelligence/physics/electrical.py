@@ -475,6 +475,11 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
         tier,
         fit_quality,
     )
+    _replay_receiver_module_operating_points(
+        site,
+        electrical,
+        resolution,
+    )
 
     datasheet_reference: _DatasheetSdmReference | None = None
     voltage_dependent_available = tier != 5
@@ -1905,6 +1910,41 @@ def _crosscheck_receiver_module_resolution(
         or not frame["fit_quality"].eq(fit_quality).all()
     ):
         raise ValueError("receiver module electrical module configuration is stale")
+
+
+def _replay_receiver_module_operating_points(
+    site: SiteConfig,
+    frame: pd.DataFrame,
+    resolution: dict[str, Any],
+) -> None:
+    """Bind positive S7E-1 MPP states to the current resolved module authority."""
+    solver_mask = frame["module_electrical_state"].isin(
+        ["resolved", "resolved_pvwatts_power_only"]
+    )
+    if not solver_mask.any():
+        return
+    positive = frame.loc[solver_mask]
+    replayed, _ = _calculate_module_operating_point_from_electrical_irradiance(
+        site,
+        positive["spectral_electrical_equivalent_irradiance_wm2"].astype(float),
+        positive["cell_temperature_c"].astype(float),
+        resolution=resolution,
+    )
+    for index, supplied in positive.iterrows():
+        replay = replayed.loc[index]
+        columns = (
+            ("p_mp_w",)
+            if supplied["module_electrical_state"] == "resolved_pvwatts_power_only"
+            else ("p_mp_w", "v_mp_v", "i_mp_a")
+        )
+        if any(
+            not _handoff_close(supplied[column], float(replay[column]))
+            for column in columns
+        ):
+            raise ValueError(
+                "receiver module electrical operating point is stale or "
+                "inconsistent with current module authority"
+            )
 
 
 def _zero_module_iv_curve(
