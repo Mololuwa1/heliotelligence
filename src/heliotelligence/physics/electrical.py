@@ -150,6 +150,11 @@ TOPOLOGY_STRING_IV_MODEL_ID = "homogeneous_series_module_iv_scaling_v1"
 TOPOLOGY_STRING_IV_SCOPE = "physical_string_iv_before_mppt_parallel_aggregation"
 TOPOLOGY_STRING_IV_COVERAGE_SCOPE = "explicit_topology_homogeneous_series_strings"
 
+TOPOLOGY_MPPT_MISMATCH_CONTRACT_ID = "physical_string_iv_to_common_voltage_mppt_v1"
+TOPOLOGY_MPPT_MISMATCH_MODEL_ID = "iv_consistent_common_voltage_physical_mismatch_v1"
+TOPOLOGY_MPPT_MISMATCH_SCOPE = "mppt_resolved_dc_before_cable_and_inverter"
+TOPOLOGY_MPPT_MISMATCH_COVERAGE_SCOPE = "explicit_topology_parallel_strings_per_mppt"
+
 ReceiverCoveragePolicy = Literal[
     "require_all_receivers",
     "allow_unassigned_receivers",
@@ -248,6 +253,30 @@ _TOPOLOGY_STRING_IV_STATE_COLUMNS = (
     "topology_string_iv_scope",
     "topology_string_iv_coverage_scope",
 )
+_TOPOLOGY_MPPT_MISMATCH_COLUMNS = (
+    "configured_string_count",
+    "active_string_count",
+    "zero_string_count",
+    "unresolved_string_count",
+    "unresolved_string_ids",
+    "unresolved_string_states",
+    "v_common_mppt_v",
+    "i_common_mppt_a",
+    "p_common_mppt_w",
+    "p_independent_mp_w",
+    "p_mismatch_w",
+    "mismatch_pct",
+    "mppt_resolved",
+    "mppt_state",
+    "topology_string_iv_contract",
+    "topology_string_iv_model",
+    "topology_string_iv_scope",
+    "topology_string_iv_coverage_scope",
+    "topology_mppt_mismatch_contract",
+    "topology_mppt_mismatch_model",
+    "topology_mppt_mismatch_scope",
+    "topology_mppt_mismatch_coverage_scope",
+)
 
 
 @dataclass(frozen=True)
@@ -334,6 +363,36 @@ class TopologyStringIVResult:
     string_iv_curves_by_string_id: Mapping[str, pd.DataFrame]
     states: pd.DataFrame
     diagnostics: TopologyStringIVDiagnostics
+
+
+@dataclass(frozen=True)
+class TopologyMPPTMismatchDiagnostics:
+    """Deterministic summary of state-aware common-voltage MPPT aggregation."""
+
+    inverter_count: int
+    mppt_count: int
+    populated_mppt_count: int
+    empty_mppt_count: int
+    string_count: int
+    timestamp_count: int
+    state_row_count: int
+    resolved_mppt_state_count: int
+    unresolved_mppt_state_count: int
+    active_mppt_state_count: int
+    zero_mppt_state_count: int
+    upstream_unresolved_mppt_state_count: int
+    mixed_active_zero_unavailable_count: int
+    physics_row_count: int
+    physics_call_count: int
+    mppt_mismatch_model: str
+
+
+@dataclass(frozen=True)
+class TopologyMPPTMismatchResult:
+    """Per-MPPT DC operating states before cable and inverter integration."""
+
+    operating_points: pd.DataFrame
+    diagnostics: TopologyMPPTMismatchDiagnostics
 
 
 @dataclass(frozen=True)
@@ -796,6 +855,188 @@ def calculate_topology_string_iv_curves_from_receiver_module_iv(
     )
     _validate_topology_string_iv_result(output_curves, output_states, diagnostics)
     return TopologyStringIVResult(output_curves, output_states, diagnostics)
+
+
+def calculate_topology_mppt_mismatch_from_string_iv(
+    topology: ElectricalTopologyConfig,
+    topology_string_iv: TopologyStringIVResult,
+) -> TopologyMPPTMismatchResult:
+    """Aggregate admitted physical strings at one common voltage per MPPT."""
+    ordered_strings = _receiver_string_topology_rows(topology)
+    states, curves = _admit_topology_string_iv(
+        topology,
+        ordered_strings,
+        topology_string_iv,
+    )
+    timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
+    populated_mppts = [
+        (inverter.id, mppt.id, [string.id for string in mppt.strings])
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        if mppt.strings
+    ]
+    empty_mppt_count = sum(
+        not mppt.strings for inverter in topology.inverters for mppt in inverter.mppts
+    )
+    records: list[dict[str, object]] = []
+    index: list[tuple[pd.Timestamp, str, str]] = []
+    active_timestamps_by_mppt: dict[tuple[str, str], list[pd.Timestamp]] = {
+        (inverter_id, mppt_id): []
+        for inverter_id, mppt_id, _ in populated_mppts
+    }
+    for timestamp in timestamps:
+        for inverter_id, mppt_id, string_ids in populated_mppts:
+            rows = [states.loc[(timestamp, string_id)] for string_id in string_ids]
+            string_states = [str(row["string_iv_state"]) for row in rows]
+            unresolved_ids = [
+                string_id
+                for string_id, row in zip(string_ids, rows, strict=True)
+                if not bool(row["string_iv_resolved"])
+            ]
+            unresolved_states = sorted(
+                {state for state in string_states if state not in {
+                    "resolved_string_iv", "resolved_zero_string_iv"
+                }}
+            )
+            active_count = string_states.count("resolved_string_iv")
+            zero_count = string_states.count("resolved_zero_string_iv")
+            unresolved_count = len(unresolved_ids)
+            numeric = {
+                "v_common_mppt_v": np.nan,
+                "i_common_mppt_a": np.nan,
+                "p_common_mppt_w": np.nan,
+                "p_independent_mp_w": np.nan,
+                "p_mismatch_w": np.nan,
+                "mismatch_pct": np.nan,
+            }
+            if unresolved_count:
+                resolved = False
+                state = "unresolved_member_string_iv"
+            elif active_count and zero_count:
+                resolved = False
+                state = "unresolved_mixed_active_zero_requires_blocking_model"
+            elif zero_count == len(string_ids):
+                resolved = True
+                state = "resolved_zero_common_voltage_mppt"
+                numeric = {name: 0.0 for name in numeric}
+            else:
+                resolved = True
+                state = "resolved_common_voltage_mppt"
+                active_timestamps_by_mppt[(inverter_id, mppt_id)].append(timestamp)
+            index.append((timestamp, inverter_id, mppt_id))
+            records.append(
+                {
+                    "configured_string_count": len(string_ids),
+                    "active_string_count": active_count,
+                    "zero_string_count": zero_count,
+                    "unresolved_string_count": unresolved_count,
+                    "unresolved_string_ids": ",".join(unresolved_ids),
+                    "unresolved_string_states": ",".join(unresolved_states),
+                    **numeric,
+                    "mppt_resolved": resolved,
+                    "mppt_state": state,
+                    "topology_string_iv_contract": TOPOLOGY_STRING_IV_CONTRACT_ID,
+                    "topology_string_iv_model": TOPOLOGY_STRING_IV_MODEL_ID,
+                    "topology_string_iv_scope": TOPOLOGY_STRING_IV_SCOPE,
+                    "topology_string_iv_coverage_scope": (
+                        TOPOLOGY_STRING_IV_COVERAGE_SCOPE
+                    ),
+                    "topology_mppt_mismatch_contract": (
+                        TOPOLOGY_MPPT_MISMATCH_CONTRACT_ID
+                    ),
+                    "topology_mppt_mismatch_model": TOPOLOGY_MPPT_MISMATCH_MODEL_ID,
+                    "topology_mppt_mismatch_scope": TOPOLOGY_MPPT_MISMATCH_SCOPE,
+                    "topology_mppt_mismatch_coverage_scope": (
+                        TOPOLOGY_MPPT_MISMATCH_COVERAGE_SCOPE
+                    ),
+                }
+            )
+    output = pd.DataFrame(
+        records,
+        index=pd.MultiIndex.from_tuples(
+            index, names=["timestamp", "inverter_id", "mppt_id"]
+        ),
+        columns=_TOPOLOGY_MPPT_MISMATCH_COLUMNS,
+    )
+
+    physics_calls = 0
+    physics_rows = 0
+    for inverter_id, mppt_id, string_ids in populated_mppts:
+        active_timestamps = active_timestamps_by_mppt[(inverter_id, mppt_id)]
+        if not active_timestamps:
+            continue
+        submitted = [
+            curves[string_id].loc[
+                curves[string_id]["timestamp"].isin(active_timestamps)
+            ].copy(deep=True)
+            for string_id in string_ids
+        ]
+        physics = calculate_physical_mismatch(submitted)
+        _validate_s8_mppt_physics(
+            physics,
+            active_timestamps,
+            len(string_ids),
+        )
+        physics_calls += 1
+        physics_rows += len(active_timestamps)
+        physics_by_timestamp = physics.set_index("timestamp")
+        for timestamp in active_timestamps:
+            result = physics_by_timestamp.loc[timestamp]
+            output.loc[
+                (timestamp, inverter_id, mppt_id),
+                [
+                    "v_common_mppt_v",
+                    "i_common_mppt_a",
+                    "p_common_mppt_w",
+                    "p_independent_mp_w",
+                    "p_mismatch_w",
+                    "mismatch_pct",
+                ],
+            ] = result[
+                [
+                    "v_common_mppt_v",
+                    "i_common_mppt_a",
+                    "p_common_mppt_w",
+                    "p_independent_mp_w",
+                    "p_mismatch_w",
+                    "mismatch_pct",
+                ]
+            ].to_numpy(dtype=float)
+
+    resolved_count = int(output["mppt_resolved"].sum()) if len(output) else 0
+    active_count = int((output["mppt_state"] == "resolved_common_voltage_mppt").sum())
+    zero_count = int(
+        (output["mppt_state"] == "resolved_zero_common_voltage_mppt").sum()
+    )
+    upstream_unresolved = int(
+        (output["mppt_state"] == "unresolved_member_string_iv").sum()
+    )
+    mixed_unavailable = int(
+        (
+            output["mppt_state"]
+            == "unresolved_mixed_active_zero_requires_blocking_model"
+        ).sum()
+    )
+    diagnostics = TopologyMPPTMismatchDiagnostics(
+        inverter_count=topology.inverter_count,
+        mppt_count=topology.mppt_count,
+        populated_mppt_count=len(populated_mppts),
+        empty_mppt_count=empty_mppt_count,
+        string_count=topology.string_count,
+        timestamp_count=len(timestamps),
+        state_row_count=len(output),
+        resolved_mppt_state_count=resolved_count,
+        unresolved_mppt_state_count=len(output) - resolved_count,
+        active_mppt_state_count=active_count,
+        zero_mppt_state_count=zero_count,
+        upstream_unresolved_mppt_state_count=upstream_unresolved,
+        mixed_active_zero_unavailable_count=mixed_unavailable,
+        physics_row_count=physics_rows,
+        physics_call_count=physics_calls,
+        mppt_mismatch_model=TOPOLOGY_MPPT_MISMATCH_MODEL_ID,
+    )
+    _validate_topology_mppt_mismatch_result(output, diagnostics)
+    return TopologyMPPTMismatchResult(output, diagnostics)
 
 
 def calculate_module_operating_point(
@@ -2374,6 +2615,413 @@ def _validate_topology_string_iv_result(
         raise RuntimeError("physical string-I-V curve counts do not close")
     if diagnostics.string_iv_model != TOPOLOGY_STRING_IV_MODEL_ID:
         raise RuntimeError("physical string-I-V model provenance is invalid")
+
+
+def _admit_topology_string_iv(
+    topology: ElectricalTopologyConfig,
+    ordered_strings: list[tuple[str, str, str]],
+    value: object,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Replay the complete S8-1 authority before any MPPT calculation."""
+    if type(value) is not TopologyStringIVResult:
+        raise ValueError("topology_string_iv must be an exact TopologyStringIVResult")
+    states = value.states
+    if not isinstance(states, pd.DataFrame) or not isinstance(states.index, pd.MultiIndex):
+        raise ValueError("topology string-I-V states must use a MultiIndex")
+    if states.index.nlevels != 2 or states.index.names != ["timestamp", "string_id"]:
+        raise ValueError("topology string-I-V index must be timestamp/string_id")
+    if tuple(states.columns) != _TOPOLOGY_STRING_IV_STATE_COLUMNS:
+        raise ValueError("topology string-I-V state schema is not canonical")
+    timestamp_values = states.index.get_level_values("timestamp")
+    if len(states) and (
+        not isinstance(timestamp_values, pd.DatetimeIndex) or timestamp_values.tz is None
+    ):
+        raise ValueError("topology string-I-V timestamps must be timezone-aware")
+    if timestamp_values.hasnans or states.index.has_duplicates:
+        raise ValueError("topology string-I-V state index contains NaT or duplicates")
+    timestamps = (
+        pd.DatetimeIndex(timestamp_values.unique()).sort_values()
+        if len(states)
+        else pd.DatetimeIndex([])
+    )
+    string_ids = [item[2] for item in ordered_strings]
+    expected = pd.MultiIndex.from_tuples(
+        [(timestamp, string_id) for timestamp in timestamps for string_id in string_ids],
+        names=["timestamp", "string_id"],
+    )
+    if len(states) != len(expected) or set(states.index) != set(expected):
+        raise ValueError("topology string-I-V states must contain the complete grid")
+    canonical = states.reindex(expected).copy(deep=True)
+    provenance = {
+        "receiver_string_module_iv_contract": RECEIVER_STRING_MODULE_IV_CONTRACT_ID,
+        "receiver_string_module_iv_model": RECEIVER_STRING_MODULE_IV_MODEL_ID,
+        "receiver_string_module_iv_scope": RECEIVER_STRING_MODULE_IV_SCOPE,
+        "receiver_string_module_iv_coverage_scope": (
+            RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE
+        ),
+        "topology_string_iv_contract": TOPOLOGY_STRING_IV_CONTRACT_ID,
+        "topology_string_iv_model": TOPOLOGY_STRING_IV_MODEL_ID,
+        "topology_string_iv_scope": TOPOLOGY_STRING_IV_SCOPE,
+        "topology_string_iv_coverage_scope": TOPOLOGY_STRING_IV_COVERAGE_SCOPE,
+    }
+    for column, expected_value in provenance.items():
+        if len(canonical) and not canonical[column].eq(expected_value).all():
+            raise ValueError(f"topology string-I-V {column} provenance is invalid")
+
+    topology_identity: dict[str, tuple[str, str, int]] = {}
+    for inverter in topology.inverters:
+        for mppt in inverter.mppts:
+            for string in mppt.strings:
+                topology_identity[string.id] = (
+                    inverter.id,
+                    mppt.id,
+                    string.modules_per_string,
+                )
+    receiver_by_string: dict[str, str] = {}
+    for (_, string_id), row in canonical.iterrows():
+        inverter_id, mppt_id, modules_per_string = topology_identity[string_id]
+        if (row["inverter_id"], row["mppt_id"]) != (inverter_id, mppt_id):
+            raise ValueError("topology string-I-V routing identity is stale")
+        if _s8_nonnegative_integer(
+            row["modules_per_string"], "modules_per_string"
+        ) != modules_per_string:
+            raise ValueError("topology string-I-V series length is stale")
+        receiver_id = row["receiver_id"]
+        if type(receiver_id) is not str or not receiver_id.strip():
+            raise ValueError("topology string-I-V receiver identity is invalid")
+        previous = receiver_by_string.setdefault(string_id, receiver_id)
+        if previous != receiver_id:
+            raise ValueError("receiver identity must remain constant for each string")
+        _replay_receiver_string_module_iv_state(row)
+        _replay_topology_string_iv_state(row)
+
+    _replay_topology_string_iv_diagnostics(topology, canonical, value.diagnostics)
+    curves = _admit_topology_string_iv_curves(
+        string_ids,
+        timestamps,
+        canonical,
+        value.string_iv_curves_by_string_id,
+        value.diagnostics,
+    )
+    _replay_shared_receiver_string_iv(canonical, curves, receiver_by_string)
+    return canonical, curves
+
+
+def _replay_topology_string_iv_state(row: pd.Series) -> None:
+    resolved = _handoff_bool(row["string_iv_resolved"], "string I-V resolved")
+    module_state = row["module_iv_state"]
+    state = row["string_iv_state"]
+    expected = {
+        "resolved_module_iv": (True, "resolved_string_iv"),
+        "resolved_zero_module_iv": (True, "resolved_zero_string_iv"),
+        "unresolved_receiver_module_electrical": (
+            False,
+            "unresolved_receiver_module_electrical",
+        ),
+        "unresolved_tier5_voltage_dependent_iv_unavailable": (
+            False,
+            "unresolved_tier5_voltage_dependent_iv_unavailable",
+        ),
+        "unresolved_voltage_dependent_iv_unavailable": (
+            False,
+            "unresolved_voltage_dependent_iv_unavailable",
+        ),
+    }
+    if module_state not in expected or (resolved, state) != expected[module_state]:
+        raise ValueError("topology string-I-V state is contradictory")
+
+
+def _replay_topology_string_iv_diagnostics(
+    topology: ElectricalTopologyConfig,
+    states: pd.DataFrame,
+    diagnostics: TopologyStringIVDiagnostics,
+) -> None:
+    if type(diagnostics) is not TopologyStringIVDiagnostics:
+        raise ValueError("topology string-I-V diagnostics type is invalid")
+    names = (
+        "inverter_count",
+        "mppt_count",
+        "string_count",
+        "timestamp_count",
+        "state_row_count",
+        "resolved_string_iv_state_count",
+        "unresolved_string_iv_state_count",
+        "zero_string_iv_state_count",
+        "scaled_string_iv_state_count",
+        "power_only_iv_unavailable_count",
+        "iv_curve_row_count",
+        "voltage_points",
+    )
+    counts = {
+        name: _s8_nonnegative_integer(getattr(diagnostics, name), name)
+        for name in names
+    }
+    resolved = int(states["string_iv_resolved"].sum()) if len(states) else 0
+    zero = int((states["string_iv_state"] == "resolved_zero_string_iv").sum())
+    scaled = int((states["string_iv_state"] == "resolved_string_iv").sum())
+    power_only = int(
+        (
+            states["string_iv_state"]
+            == "unresolved_tier5_voltage_dependent_iv_unavailable"
+        ).sum()
+    )
+    timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
+    expected = (
+        topology.inverter_count,
+        topology.mppt_count,
+        topology.string_count,
+        len(timestamps),
+        len(states),
+        resolved,
+        len(states) - resolved,
+        zero,
+        scaled,
+        power_only,
+        resolved * counts["voltage_points"],
+        TOPOLOGY_STRING_IV_MODEL_ID,
+    )
+    actual = (
+        counts["inverter_count"],
+        counts["mppt_count"],
+        counts["string_count"],
+        counts["timestamp_count"],
+        counts["state_row_count"],
+        counts["resolved_string_iv_state_count"],
+        counts["unresolved_string_iv_state_count"],
+        counts["zero_string_iv_state_count"],
+        counts["scaled_string_iv_state_count"],
+        counts["power_only_iv_unavailable_count"],
+        counts["iv_curve_row_count"],
+        diagnostics.string_iv_model,
+    )
+    if actual != expected or counts["voltage_points"] < 3:
+        raise ValueError("topology string-I-V diagnostics are stale")
+    if topology.string_count and len(states) != len(timestamps) * topology.string_count:
+        raise ValueError("topology string-I-V grid diagnostics do not close")
+    if not topology.string_count and len(states):
+        raise ValueError("empty topology cannot contain string state rows")
+
+
+def _admit_topology_string_iv_curves(
+    string_ids: list[str],
+    timestamps: pd.DatetimeIndex,
+    states: pd.DataFrame,
+    supplied: object,
+    diagnostics: TopologyStringIVDiagnostics,
+) -> dict[str, pd.DataFrame]:
+    if not isinstance(supplied, Mapping) or set(supplied) != set(string_ids):
+        raise ValueError("physical string curve keys must exactly match topology")
+    canonical: dict[str, pd.DataFrame] = {}
+    for string_id in string_ids:
+        value = supplied[string_id]
+        if not isinstance(value, pd.DataFrame) or tuple(value.columns) != tuple(_IV_CURVE_COLUMNS):
+            raise ValueError("physical string curve schema is not canonical")
+        curve = value.copy(deep=True)
+        if len(curve):
+            curve_timestamps = pd.DatetimeIndex(curve["timestamp"])
+            if curve_timestamps.tz is None or curve_timestamps.hasnans:
+                raise ValueError("physical string curve timestamps are invalid")
+            if str(curve_timestamps.tz) != str(timestamps.tz):
+                raise ValueError("physical string curve timezone is inconsistent")
+            if not set(curve_timestamps).issubset(set(timestamps)):
+                raise ValueError("physical string curve contains an unexpected timestamp")
+        curve = curve.sort_values(
+            ["timestamp", "curve_point"], kind="stable"
+        ).reset_index(drop=True)
+        if curve.duplicated(["timestamp", "curve_point"]).any():
+            raise ValueError("physical string curve contains duplicate points")
+        for timestamp in timestamps:
+            state = states.loc[(timestamp, string_id)]
+            rows = curve.loc[curve["timestamp"].eq(timestamp)]
+            expected_count = diagnostics.voltage_points if bool(state["string_iv_resolved"]) else 0
+            if len(rows) != expected_count:
+                raise ValueError("physical string curve/state row count does not close")
+            if expected_count and rows["curve_point"].tolist() != list(range(expected_count)):
+                raise ValueError("physical string curve-point grid is not canonical")
+            for _, point in rows.iterrows():
+                values = {
+                    name: _handoff_finite(point[name], f"physical string {name}")
+                    for name in (
+                        "voltage_v",
+                        "current_a",
+                        "power_w",
+                        "effective_irradiance_wm2",
+                    )
+                }
+                if any(item < -_NUMERICAL_NEGATIVE_TOLERANCE for item in values.values()):
+                    raise ValueError("physical string curve values must be non-negative")
+                if not _handoff_close(
+                    values["power_w"], values["voltage_v"] * values["current_a"]
+                ):
+                    raise ValueError("physical string power does not equal voltage times current")
+                if not _handoff_close(
+                    values["effective_irradiance_wm2"],
+                    float(state["spectral_electrical_equivalent_irradiance_wm2"]),
+                ):
+                    raise ValueError("physical string curve irradiance is stale")
+                if (
+                    point["tier_used"] != state["tier_used"]
+                    or point["fit_quality"] != state["fit_quality"]
+                ):
+                    raise ValueError("physical string curve module identity is stale")
+            if state["string_iv_state"] == "resolved_zero_string_iv" and len(rows):
+                if not rows[
+                    ["voltage_v", "current_a", "power_w", "effective_irradiance_wm2"]
+                ].eq(0.0).all().all():
+                    raise ValueError("resolved zero physical string curve must be exact zero")
+            elif state["string_iv_state"] == "resolved_string_iv":
+                _validated_common_mppt_curve(curve, timestamp, 0)
+        canonical[string_id] = curve.loc[:, _IV_CURVE_COLUMNS]
+    if sum(len(frame) for frame in canonical.values()) != diagnostics.iv_curve_row_count:
+        raise ValueError("physical string curve diagnostic count does not close")
+    return canonical
+
+
+def _replay_shared_receiver_string_iv(
+    states: pd.DataFrame,
+    curves: Mapping[str, pd.DataFrame],
+    receiver_by_string: Mapping[str, str],
+) -> None:
+    groups: dict[str, list[str]] = {}
+    for string_id, receiver_id in receiver_by_string.items():
+        groups.setdefault(receiver_id, []).append(string_id)
+    state_columns = [
+        "receiver_module_electrical_resolved",
+        "receiver_module_electrical_state",
+        "spectral_electrical_equivalent_irradiance_wm2",
+        "cell_temperature_c",
+        "module_iv_resolved",
+        "module_iv_state",
+        "string_iv_resolved",
+        "string_iv_state",
+        "tier_used",
+        "fit_quality",
+    ]
+    for string_ids in groups.values():
+        if len(string_ids) < 2:
+            continue
+        reference_id = string_ids[0]
+        reference_state = states.xs(reference_id, level="string_id")[state_columns]
+        reference_curve = _normalized_physical_string_curve(
+            curves[reference_id],
+            int(states.xs(reference_id, level="string_id")["modules_per_string"].iloc[0]),
+        )
+        for string_id in string_ids[1:]:
+            candidate_state = states.xs(string_id, level="string_id")[state_columns]
+            candidate_curve = _normalized_physical_string_curve(
+                curves[string_id],
+                int(states.xs(string_id, level="string_id")["modules_per_string"].iloc[0]),
+            )
+            try:
+                pd.testing.assert_frame_equal(
+                    reference_state, candidate_state, check_exact=False, rtol=1e-10, atol=1e-10
+                )
+                pd.testing.assert_frame_equal(
+                    reference_curve, candidate_curve, check_exact=False, rtol=1e-10, atol=1e-10
+                )
+            except AssertionError as exc:
+                raise ValueError(
+                    "shared-receiver physical string authority is inconsistent"
+                ) from exc
+
+
+def _normalized_physical_string_curve(
+    curve: pd.DataFrame,
+    modules_per_string: int,
+) -> pd.DataFrame:
+    result = curve.copy(deep=True)
+    result["voltage_v"] = result["voltage_v"] / modules_per_string
+    result["power_w"] = result["power_w"] / modules_per_string
+    return result
+
+
+def _validate_s8_mppt_physics(
+    result: pd.DataFrame,
+    timestamps: list[pd.Timestamp],
+    string_count: int,
+) -> None:
+    if result["timestamp"].tolist() != timestamps or result["timestamp"].duplicated().any():
+        raise RuntimeError("physical mismatch timestamps do not match submitted timestamps")
+    if not result["string_count"].eq(string_count).all():
+        raise RuntimeError("physical mismatch string count is inconsistent")
+    for _, row in result.iterrows():
+        values = {
+            name: _handoff_finite(row[name], f"MPPT {name}")
+            for name in (
+                "v_common_mppt_v",
+                "i_common_mppt_a",
+                "p_common_mppt_w",
+                "p_independent_mp_w",
+                "p_mismatch_w",
+                "mismatch_pct",
+            )
+        }
+        if any(value < -_NUMERICAL_NEGATIVE_TOLERANCE for value in values.values()):
+            raise RuntimeError("physical mismatch output must be non-negative")
+        if not _handoff_close(
+            values["p_common_mppt_w"],
+            values["v_common_mppt_v"] * values["i_common_mppt_a"],
+        ):
+            raise RuntimeError("common MPPT power closure failed")
+        if not _handoff_close(
+            values["p_mismatch_w"],
+            values["p_independent_mp_w"] - values["p_common_mppt_w"],
+        ):
+            raise RuntimeError("physical mismatch power closure failed")
+        if (
+            values["p_common_mppt_w"]
+            > values["p_independent_mp_w"] + _NUMERICAL_NEGATIVE_TOLERANCE
+        ):
+            raise RuntimeError("common MPPT power exceeds independent power")
+        expected_pct = (
+            100.0 * values["p_mismatch_w"] / values["p_independent_mp_w"]
+            if values["p_independent_mp_w"] > 0.0
+            else 0.0
+        )
+        if not _handoff_close(values["mismatch_pct"], expected_pct) or not (
+            -_NUMERICAL_NEGATIVE_TOLERANCE
+            <= values["mismatch_pct"]
+            <= 100.0 + _NUMERICAL_NEGATIVE_TOLERANCE
+        ):
+            raise RuntimeError("physical mismatch percentage closure failed")
+
+
+def _validate_topology_mppt_mismatch_result(
+    output: pd.DataFrame,
+    diagnostics: TopologyMPPTMismatchDiagnostics,
+) -> None:
+    if diagnostics.mppt_count != diagnostics.populated_mppt_count + diagnostics.empty_mppt_count:
+        raise RuntimeError("MPPT population counts do not close")
+    if diagnostics.state_row_count != (
+        diagnostics.resolved_mppt_state_count + diagnostics.unresolved_mppt_state_count
+    ):
+        raise RuntimeError("MPPT resolution counts do not close")
+    if diagnostics.resolved_mppt_state_count != (
+        diagnostics.active_mppt_state_count + diagnostics.zero_mppt_state_count
+    ):
+        raise RuntimeError("resolved MPPT state counts do not close")
+    if diagnostics.unresolved_mppt_state_count != (
+        diagnostics.upstream_unresolved_mppt_state_count
+        + diagnostics.mixed_active_zero_unavailable_count
+    ):
+        raise RuntimeError("unresolved MPPT state counts do not close")
+    if diagnostics.physics_row_count != diagnostics.active_mppt_state_count:
+        raise RuntimeError("physical mismatch row count does not close")
+    if diagnostics.state_row_count != (
+        diagnostics.timestamp_count * diagnostics.populated_mppt_count
+    ):
+        raise RuntimeError("MPPT output grid does not close")
+    if diagnostics.physics_call_count > diagnostics.populated_mppt_count:
+        raise RuntimeError("physical mismatch call count is invalid")
+    if diagnostics.mppt_mismatch_model != TOPOLOGY_MPPT_MISMATCH_MODEL_ID:
+        raise RuntimeError("MPPT mismatch model provenance is invalid")
+    for _, row in output.iterrows():
+        if row["configured_string_count"] != (
+            row["active_string_count"]
+            + row["zero_string_count"]
+            + row["unresolved_string_count"]
+        ):
+            raise RuntimeError("MPPT string classification counts do not close")
 
 
 def _admit_receiver_string_assignments(
