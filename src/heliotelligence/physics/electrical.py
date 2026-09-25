@@ -145,6 +145,11 @@ RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE = (
     "explicit_fixed_table_receiver_to_string_assignment"
 )
 
+TOPOLOGY_STRING_IV_CONTRACT_ID = "receiver_string_module_iv_to_physical_string_iv_v1"
+TOPOLOGY_STRING_IV_MODEL_ID = "homogeneous_series_module_iv_scaling_v1"
+TOPOLOGY_STRING_IV_SCOPE = "physical_string_iv_before_mppt_parallel_aggregation"
+TOPOLOGY_STRING_IV_COVERAGE_SCOPE = "explicit_topology_homogeneous_series_strings"
+
 ReceiverCoveragePolicy = Literal[
     "require_all_receivers",
     "allow_unassigned_receivers",
@@ -219,6 +224,30 @@ _RECEIVER_STRING_MODULE_IV_STATE_COLUMNS = (
     "receiver_string_module_iv_scope",
     "receiver_string_module_iv_coverage_scope",
 )
+_TOPOLOGY_STRING_IV_STATE_COLUMNS = (
+    "inverter_id",
+    "mppt_id",
+    "receiver_id",
+    "modules_per_string",
+    "receiver_module_electrical_resolved",
+    "receiver_module_electrical_state",
+    "spectral_electrical_equivalent_irradiance_wm2",
+    "cell_temperature_c",
+    "module_iv_resolved",
+    "module_iv_state",
+    "string_iv_resolved",
+    "string_iv_state",
+    "tier_used",
+    "fit_quality",
+    "receiver_string_module_iv_contract",
+    "receiver_string_module_iv_model",
+    "receiver_string_module_iv_scope",
+    "receiver_string_module_iv_coverage_scope",
+    "topology_string_iv_contract",
+    "topology_string_iv_model",
+    "topology_string_iv_scope",
+    "topology_string_iv_coverage_scope",
+)
 
 
 @dataclass(frozen=True)
@@ -277,6 +306,34 @@ class ReceiverStringModuleIVResult:
     module_iv_curves_by_string_id: Mapping[str, pd.DataFrame]
     states: pd.DataFrame
     diagnostics: ReceiverStringModuleIVDiagnostics
+
+
+@dataclass(frozen=True)
+class TopologyStringIVDiagnostics:
+    """Deterministic summary of physical homogeneous-series string I-V state."""
+
+    inverter_count: int
+    mppt_count: int
+    string_count: int
+    timestamp_count: int
+    state_row_count: int
+    resolved_string_iv_state_count: int
+    unresolved_string_iv_state_count: int
+    zero_string_iv_state_count: int
+    scaled_string_iv_state_count: int
+    power_only_iv_unavailable_count: int
+    iv_curve_row_count: int
+    voltage_points: int
+    string_iv_model: str
+
+
+@dataclass(frozen=True)
+class TopologyStringIVResult:
+    """Physical string I-V curves and state retained before MPPT aggregation."""
+
+    string_iv_curves_by_string_id: Mapping[str, pd.DataFrame]
+    states: pd.DataFrame
+    diagnostics: TopologyStringIVDiagnostics
 
 
 @dataclass(frozen=True)
@@ -644,6 +701,101 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
     )
     _validate_receiver_string_module_iv_result(string_curves, states, diagnostics)
     return ReceiverStringModuleIVResult(string_curves, states, diagnostics)
+
+
+def calculate_topology_string_iv_curves_from_receiver_module_iv(
+    topology: ElectricalTopologyConfig,
+    receiver_string_module_iv: ReceiverStringModuleIVResult,
+) -> TopologyStringIVResult:
+    """Scale fully admitted S8-0 module curves to physical series strings.
+
+    This boundary performs no module, spectral, thermal, mismatch, MPPT, cable,
+    loss, or inverter physics. The current topology supplies only each physical
+    string's series module count and routing identity.
+    """
+    ordered_strings = _receiver_string_topology_rows(topology)
+    canonical_states, canonical_curves = _admit_receiver_string_module_iv(
+        topology,
+        ordered_strings,
+        receiver_string_module_iv,
+    )
+
+    modules_by_string = {
+        string.id: string.modules_per_string
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    }
+    output_curves: dict[str, pd.DataFrame] = {}
+    for _, _, string_id in ordered_strings:
+        source = canonical_curves[string_id]
+        scaled = scale_module_iv_to_string(source, modules_by_string[string_id])
+        _validate_string_curve_scaling(source, scaled, modules_by_string[string_id])
+        output_curves[string_id] = scaled[_IV_CURVE_COLUMNS].copy(deep=True)
+
+    output_states = canonical_states.copy(deep=True)
+    output_states.insert(
+        3,
+        "modules_per_string",
+        [modules_by_string[string_id] for _, string_id in output_states.index],
+    )
+    resolved = output_states["module_iv_resolved"].astype(bool)
+    output_states["string_iv_resolved"] = resolved
+    output_states["string_iv_state"] = output_states["module_iv_state"].map(
+        {
+            "resolved_module_iv": "resolved_string_iv",
+            "resolved_zero_module_iv": "resolved_zero_string_iv",
+            "unresolved_receiver_module_electrical": (
+                "unresolved_receiver_module_electrical"
+            ),
+            "unresolved_tier5_voltage_dependent_iv_unavailable": (
+                "unresolved_tier5_voltage_dependent_iv_unavailable"
+            ),
+            "unresolved_voltage_dependent_iv_unavailable": (
+                "unresolved_voltage_dependent_iv_unavailable"
+            ),
+        }
+    )
+    output_states["topology_string_iv_contract"] = TOPOLOGY_STRING_IV_CONTRACT_ID
+    output_states["topology_string_iv_model"] = TOPOLOGY_STRING_IV_MODEL_ID
+    output_states["topology_string_iv_scope"] = TOPOLOGY_STRING_IV_SCOPE
+    output_states["topology_string_iv_coverage_scope"] = (
+        TOPOLOGY_STRING_IV_COVERAGE_SCOPE
+    )
+    output_states = output_states.loc[:, _TOPOLOGY_STRING_IV_STATE_COLUMNS]
+
+    zero_count = int(
+        (output_states["string_iv_state"] == "resolved_zero_string_iv").sum()
+    )
+    scaled_count = int(
+        (output_states["string_iv_state"] == "resolved_string_iv").sum()
+    )
+    resolved_count = zero_count + scaled_count
+    timestamps = pd.DatetimeIndex(
+        output_states.index.get_level_values("timestamp").unique()
+    )
+    diagnostics = TopologyStringIVDiagnostics(
+        inverter_count=topology.inverter_count,
+        mppt_count=topology.mppt_count,
+        string_count=topology.string_count,
+        timestamp_count=len(timestamps),
+        state_row_count=len(output_states),
+        resolved_string_iv_state_count=resolved_count,
+        unresolved_string_iv_state_count=len(output_states) - resolved_count,
+        zero_string_iv_state_count=zero_count,
+        scaled_string_iv_state_count=scaled_count,
+        power_only_iv_unavailable_count=int(
+            (
+                output_states["string_iv_state"]
+                == "unresolved_tier5_voltage_dependent_iv_unavailable"
+            ).sum()
+        ),
+        iv_curve_row_count=sum(len(frame) for frame in output_curves.values()),
+        voltage_points=receiver_string_module_iv.diagnostics.voltage_points,
+        string_iv_model=TOPOLOGY_STRING_IV_MODEL_ID,
+    )
+    _validate_topology_string_iv_result(output_curves, output_states, diagnostics)
+    return TopologyStringIVResult(output_curves, output_states, diagnostics)
 
 
 def calculate_module_operating_point(
@@ -1719,6 +1871,509 @@ def _receiver_string_topology_rows(
         for mppt in inverter.mppts
         for string in mppt.strings
     ]
+
+
+def _admit_receiver_string_module_iv(
+    topology: ElectricalTopologyConfig,
+    ordered_strings: list[tuple[str, str, str]],
+    value: object,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Defensively replay the complete S8-0 state before any string scaling."""
+    if type(value) is not ReceiverStringModuleIVResult:
+        raise ValueError("receiver_string_module_iv must be an exact result type")
+    states = value.states
+    if not isinstance(states, pd.DataFrame) or not isinstance(states.index, pd.MultiIndex):
+        raise ValueError("receiver-string module-I-V states must use a MultiIndex")
+    if states.index.nlevels != 2 or states.index.names != ["timestamp", "string_id"]:
+        raise ValueError("receiver-string module-I-V index must be timestamp/string_id")
+    if tuple(states.columns) != _RECEIVER_STRING_MODULE_IV_STATE_COLUMNS:
+        raise ValueError("receiver-string module-I-V state schema is not canonical")
+    timestamp_values = states.index.get_level_values("timestamp")
+    if len(states) and (
+        not isinstance(timestamp_values, pd.DatetimeIndex) or timestamp_values.tz is None
+    ):
+        raise ValueError("receiver-string module-I-V timestamps must be timezone-aware")
+    if timestamp_values.hasnans or states.index.has_duplicates:
+        raise ValueError("receiver-string module-I-V state index contains NaT or duplicates")
+    string_ids = [row[2] for row in ordered_strings]
+    timestamps = (
+        pd.DatetimeIndex(timestamp_values.unique()).sort_values()
+        if len(states)
+        else pd.DatetimeIndex([])
+    )
+    expected = pd.MultiIndex.from_tuples(
+        [(timestamp, string_id) for timestamp in timestamps for string_id in string_ids],
+        names=["timestamp", "string_id"],
+    )
+    if len(states) != len(expected) or set(states.index) != set(expected):
+        raise ValueError("receiver-string module-I-V states must contain the complete grid")
+    canonical = states.reindex(expected).copy(deep=True)
+
+    expected_provenance = {
+        "receiver_string_module_iv_contract": RECEIVER_STRING_MODULE_IV_CONTRACT_ID,
+        "receiver_string_module_iv_model": RECEIVER_STRING_MODULE_IV_MODEL_ID,
+        "receiver_string_module_iv_scope": RECEIVER_STRING_MODULE_IV_SCOPE,
+        "receiver_string_module_iv_coverage_scope": (
+            RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE
+        ),
+    }
+    for column, expected_value in expected_provenance.items():
+        if len(canonical) and not canonical[column].eq(expected_value).all():
+            raise ValueError(f"receiver-string module-I-V {column} provenance is invalid")
+
+    topology_identity = {
+        string_id: (inverter_id, mppt_id)
+        for inverter_id, mppt_id, string_id in ordered_strings
+    }
+    receiver_by_string: dict[str, str] = {}
+    for (timestamp, string_id), row in canonical.iterrows():
+        del timestamp
+        if (row["inverter_id"], row["mppt_id"]) != topology_identity[string_id]:
+            raise ValueError("receiver-string module-I-V topology identity is stale")
+        receiver_id = row["receiver_id"]
+        if type(receiver_id) is not str or not receiver_id.strip():
+            raise ValueError("receiver-string module-I-V receiver identity is invalid")
+        previous = receiver_by_string.setdefault(string_id, receiver_id)
+        if previous != receiver_id:
+            raise ValueError("receiver identity must remain constant for each string")
+        _replay_receiver_string_module_iv_state(row)
+
+    _replay_receiver_string_module_iv_diagnostics(
+        topology,
+        canonical,
+        receiver_by_string,
+        value.diagnostics,
+    )
+    curves = _admit_receiver_string_module_iv_curves(
+        string_ids,
+        timestamps,
+        canonical,
+        value.module_iv_curves_by_string_id,
+        value.diagnostics,
+    )
+    _replay_shared_receiver_module_iv(canonical, curves, receiver_by_string)
+    return canonical, curves
+
+
+def _replay_receiver_string_module_iv_state(row: pd.Series) -> None:
+    resolved = _handoff_bool(row["module_iv_resolved"], "module I-V resolved")
+    upstream_resolved = _handoff_bool(
+        row["receiver_module_electrical_resolved"],
+        "receiver module electrical resolved",
+    )
+    state = row["module_iv_state"]
+    upstream_state = row["receiver_module_electrical_state"]
+    tier = _s8_nonnegative_integer(row["tier_used"], "tier_used")
+    fit_quality = row["fit_quality"]
+    _validate_s8_module_identity(tier, fit_quality)
+    irradiance = _handoff_optional_nonnegative(
+        row["spectral_electrical_equivalent_irradiance_wm2"],
+        "spectral electrical equivalent irradiance",
+    )
+    temperature = row["cell_temperature_c"]
+    temperature_value = (
+        None
+        if pd.isna(temperature)
+        else _handoff_finite(temperature, "cell temperature")
+    )
+    unresolved_upstream_states = {
+        "unresolved_spectral_electrical_equivalent_irradiance",
+        "unresolved_cell_temperature",
+        "unresolved_spectral_and_cell_temperature",
+    }
+    if upstream_state == "resolved":
+        if (
+            not upstream_resolved
+            or tier not in {1, 2, 3, 4}
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("resolved receiver module electrical state is contradictory")
+    elif upstream_state == "resolved_pvwatts_power_only":
+        if (
+            not upstream_resolved
+            or tier != 5
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("PVWatts receiver module electrical state is contradictory")
+    elif upstream_state == "resolved_zero_spectral_electrical_irradiance":
+        if not upstream_resolved or irradiance is None or not _handoff_close(irradiance, 0.0):
+            raise ValueError("zero receiver module electrical state is contradictory")
+    elif upstream_state == "unresolved_spectral_electrical_equivalent_irradiance":
+        if upstream_resolved or irradiance is not None or temperature_value is None:
+            raise ValueError("spectral-unresolved receiver module state is contradictory")
+    elif upstream_state == "unresolved_cell_temperature":
+        if (
+            upstream_resolved
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is not None
+        ):
+            raise ValueError("temperature-unresolved receiver module state is contradictory")
+    elif upstream_state == "unresolved_spectral_and_cell_temperature":
+        if upstream_resolved or irradiance is not None or temperature_value is not None:
+            raise ValueError("joint-unresolved receiver module state is contradictory")
+    else:
+        raise ValueError("receiver module electrical state is not canonical")
+
+    if state == "resolved_module_iv":
+        if (
+            not resolved
+            or upstream_state != "resolved"
+            or tier not in {1, 2, 3, 4}
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("resolved module-I-V state is contradictory")
+    elif state == "resolved_zero_module_iv":
+        if (
+            not resolved
+            or upstream_state != "resolved_zero_spectral_electrical_irradiance"
+            or irradiance is None
+            or not _handoff_close(irradiance, 0.0)
+        ):
+            raise ValueError("zero module-I-V state is contradictory")
+    elif state == "unresolved_receiver_module_electrical":
+        if resolved or upstream_state not in unresolved_upstream_states:
+            raise ValueError("unresolved receiver module electrical state is contradictory")
+    elif state == "unresolved_tier5_voltage_dependent_iv_unavailable":
+        if (
+            resolved
+            or not upstream_resolved
+            or upstream_state != "resolved_pvwatts_power_only"
+            or tier != 5
+            or fit_quality != "pvwatts"
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("Tier-5 voltage-dependent unavailable state is contradictory")
+    elif state == "unresolved_voltage_dependent_iv_unavailable":
+        if (
+            resolved
+            or not upstream_resolved
+            or upstream_state != "resolved"
+            or tier not in {3, 4}
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("datasheet voltage-dependent unavailable state is contradictory")
+    else:
+        raise ValueError("receiver-string module-I-V state is not canonical")
+
+
+def _replay_receiver_string_module_iv_diagnostics(
+    topology: ElectricalTopologyConfig,
+    states: pd.DataFrame,
+    receiver_by_string: Mapping[str, str],
+    diagnostics: ReceiverStringModuleIVDiagnostics,
+) -> None:
+    if type(diagnostics) is not ReceiverStringModuleIVDiagnostics:
+        raise ValueError("receiver-string module-I-V diagnostics type is invalid")
+    count_names = (
+        "receiver_count",
+        "referenced_receiver_count",
+        "unreferenced_receiver_count",
+        "shared_receiver_count",
+        "inverter_count",
+        "mppt_count",
+        "string_count",
+        "timestamp_count",
+        "state_row_count",
+        "resolved_iv_state_count",
+        "unresolved_iv_state_count",
+        "zero_iv_state_count",
+        "solved_iv_state_count",
+        "power_only_iv_unavailable_count",
+        "voltage_points",
+    )
+    counts = {
+        name: _s8_nonnegative_integer(getattr(diagnostics, name), name)
+        for name in count_names
+    }
+    tier = _s8_nonnegative_integer(diagnostics.tier_used, "diagnostic tier_used")
+    _validate_s8_module_identity(tier, diagnostics.fit_quality)
+    resolved = int(states["module_iv_resolved"].sum()) if len(states) else 0
+    zero = int((states["module_iv_state"] == "resolved_zero_module_iv").sum())
+    solved = int((states["module_iv_state"] == "resolved_module_iv").sum())
+    power_only = int(
+        (states["module_iv_state"] == "unresolved_tier5_voltage_dependent_iv_unavailable").sum()
+    )
+    timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
+    expected = (
+        topology.inverter_count,
+        topology.mppt_count,
+        topology.string_count,
+        diagnostics.timestamp_count if topology.string_count == 0 else len(timestamps),
+        len(states),
+        resolved,
+        len(states) - resolved,
+        zero,
+        solved,
+        power_only,
+        tier,
+        diagnostics.fit_quality,
+        RECEIVER_STRING_MODULE_IV_MODEL_ID,
+    )
+    actual = (
+        diagnostics.inverter_count,
+        diagnostics.mppt_count,
+        diagnostics.string_count,
+        diagnostics.timestamp_count,
+        diagnostics.state_row_count,
+        diagnostics.resolved_iv_state_count,
+        diagnostics.unresolved_iv_state_count,
+        diagnostics.zero_iv_state_count,
+        diagnostics.solved_iv_state_count,
+        diagnostics.power_only_iv_unavailable_count,
+        diagnostics.tier_used,
+        diagnostics.fit_quality,
+        diagnostics.module_iv_model,
+    )
+    if actual != expected or counts["voltage_points"] < 3:
+        raise ValueError("receiver-string module-I-V diagnostics are stale")
+    if counts["receiver_count"] < 1:
+        raise ValueError("receiver_count must be at least one")
+    if diagnostics.receiver_count != (
+        diagnostics.referenced_receiver_count + diagnostics.unreferenced_receiver_count
+    ):
+        raise ValueError("receiver diagnostic counts do not close")
+    if diagnostics.receiver_coverage_policy not in {
+        "require_all_receivers",
+        "allow_unassigned_receivers",
+    }:
+        raise ValueError("receiver coverage policy is invalid")
+    if (
+        diagnostics.receiver_coverage_policy == "require_all_receivers"
+        and diagnostics.unreferenced_receiver_count != 0
+    ):
+        raise ValueError("receiver coverage diagnostics are contradictory")
+    if (
+        counts["referenced_receiver_count"] > counts["receiver_count"]
+        or counts["referenced_receiver_count"] > topology.string_count
+        or counts["shared_receiver_count"] > counts["referenced_receiver_count"]
+    ):
+        raise ValueError("receiver diagnostic count bounds are invalid")
+    if topology.string_count == 0 and (
+        counts["referenced_receiver_count"] != 0
+        or counts["shared_receiver_count"] != 0
+        or counts["unreferenced_receiver_count"] != counts["receiver_count"]
+    ):
+        raise ValueError("empty-topology receiver diagnostics are contradictory")
+    if topology.string_count > 0 and counts["referenced_receiver_count"] < 1:
+        raise ValueError("non-empty topology must reference at least one receiver")
+    if len(timestamps):
+        reference_counts: dict[str, int] = {}
+        for receiver_id in receiver_by_string.values():
+            reference_counts[receiver_id] = reference_counts.get(receiver_id, 0) + 1
+        if (
+            diagnostics.referenced_receiver_count != len(reference_counts)
+            or diagnostics.shared_receiver_count
+            != sum(count > 1 for count in reference_counts.values())
+        ):
+            raise ValueError("receiver reference diagnostics are stale")
+    elif not (
+        0 <= diagnostics.referenced_receiver_count <= diagnostics.receiver_count
+        and 0 <= diagnostics.shared_receiver_count <= diagnostics.referenced_receiver_count
+    ):
+        raise ValueError("empty-time receiver diagnostics are invalid")
+    if len(states) and (
+        not states["tier_used"].eq(diagnostics.tier_used).all()
+        or not states["fit_quality"].eq(diagnostics.fit_quality).all()
+    ):
+        raise ValueError("module tier or fit-quality provenance is stale")
+
+
+def _s8_nonnegative_integer(value: object, label: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{label} must be a non-negative integer")
+    result = int(value)
+    if result < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return result
+
+
+def _validate_s8_module_identity(tier: int, fit_quality: object) -> None:
+    if tier not in {1, 2, 3, 4, 5}:
+        raise ValueError("tier_used must be one of 1, 2, 3, 4, or 5")
+    if type(fit_quality) is not str or fit_quality not in {"high", "low", "pvwatts"}:
+        raise ValueError("fit_quality is not canonical")
+    allowed = {
+        1: {"high"},
+        2: {"high"},
+        3: {"high", "low"},
+        4: {"low"},
+        5: {"pvwatts"},
+    }
+    if fit_quality not in allowed[tier]:
+        raise ValueError("tier_used and fit_quality are inconsistent")
+
+
+def _admit_receiver_string_module_iv_curves(
+    string_ids: list[str],
+    timestamps: pd.DatetimeIndex,
+    states: pd.DataFrame,
+    supplied: object,
+    diagnostics: ReceiverStringModuleIVDiagnostics,
+) -> dict[str, pd.DataFrame]:
+    if not isinstance(supplied, Mapping) or set(supplied) != set(string_ids):
+        raise ValueError("module curve keys must exactly match topology string IDs")
+    canonical: dict[str, pd.DataFrame] = {}
+    for string_id in string_ids:
+        frame = supplied[string_id]
+        if not isinstance(frame, pd.DataFrame) or tuple(frame.columns) != tuple(_IV_CURVE_COLUMNS):
+            raise ValueError("module curve schema is not canonical")
+        curve = frame.copy(deep=True)
+        if len(curve):
+            curve_timestamps = pd.DatetimeIndex(curve["timestamp"])
+            if curve_timestamps.tz is None or curve_timestamps.hasnans:
+                raise ValueError("module curve timestamps must be timezone-aware without NaT")
+            if str(curve_timestamps.tz) != str(timestamps.tz):
+                raise ValueError("module curve timestamp timezone is inconsistent")
+            if not set(curve_timestamps).issubset(set(timestamps)):
+                raise ValueError("module curve contains an unexpected timestamp")
+        curve = curve.sort_values(
+            ["timestamp", "curve_point"], kind="stable"
+        ).reset_index(drop=True)
+        if curve.duplicated(["timestamp", "curve_point"]).any():
+            raise ValueError("module curve contains duplicate curve points")
+        for timestamp in timestamps:
+            state = states.loc[(timestamp, string_id)]
+            rows = curve.loc[curve["timestamp"].eq(timestamp)]
+            expected_count = diagnostics.voltage_points if bool(state["module_iv_resolved"]) else 0
+            if len(rows) != expected_count:
+                raise ValueError("module curve/state row count does not close")
+            if expected_count and rows["curve_point"].tolist() != list(range(expected_count)):
+                raise ValueError("module curve point grid is not canonical")
+            for _, point in rows.iterrows():
+                values = {
+                    name: _handoff_finite(point[name], f"module curve {name}")
+                    for name in ("voltage_v", "current_a", "power_w", "effective_irradiance_wm2")
+                }
+                if any(value < -_NUMERICAL_NEGATIVE_TOLERANCE for value in values.values()):
+                    raise ValueError("module curve values must be non-negative")
+                if not _handoff_close(values["power_w"], values["voltage_v"] * values["current_a"]):
+                    raise ValueError("module curve power does not equal voltage times current")
+                if not _handoff_close(
+                    values["effective_irradiance_wm2"],
+                    float(state["spectral_electrical_equivalent_irradiance_wm2"]),
+                ):
+                    raise ValueError("module curve irradiance does not match state authority")
+                if (
+                    point["tier_used"] != state["tier_used"]
+                    or point["fit_quality"] != state["fit_quality"]
+                ):
+                    raise ValueError("module curve tier or fit quality is inconsistent")
+                if state["module_iv_state"] == "resolved_zero_module_iv" and any(
+                    not _handoff_close(values[name], 0.0)
+                    for name in ("voltage_v", "current_a", "power_w", "effective_irradiance_wm2")
+                ):
+                    raise ValueError("zero module curve must contain exact zeros")
+        canonical[string_id] = curve.loc[:, _IV_CURVE_COLUMNS]
+    expected_rows = diagnostics.resolved_iv_state_count * diagnostics.voltage_points
+    if sum(len(frame) for frame in canonical.values()) != expected_rows:
+        raise ValueError("module curve diagnostic row count does not close")
+    return canonical
+
+
+def _replay_shared_receiver_module_iv(
+    states: pd.DataFrame,
+    curves: Mapping[str, pd.DataFrame],
+    receiver_by_string: Mapping[str, str],
+) -> None:
+    groups: dict[str, list[str]] = {}
+    for string_id, receiver_id in receiver_by_string.items():
+        groups.setdefault(receiver_id, []).append(string_id)
+    comparable = [
+        "receiver_module_electrical_resolved",
+        "receiver_module_electrical_state",
+        "spectral_electrical_equivalent_irradiance_wm2",
+        "cell_temperature_c",
+        "module_iv_resolved",
+        "module_iv_state",
+        "tier_used",
+        "fit_quality",
+    ]
+    for string_ids in groups.values():
+        if len(string_ids) < 2:
+            continue
+        reference_id = string_ids[0]
+        reference_state = states.xs(reference_id, level="string_id")[comparable]
+        for string_id in string_ids[1:]:
+            try:
+                pd.testing.assert_frame_equal(
+                    reference_state,
+                    states.xs(string_id, level="string_id")[comparable],
+                    check_exact=False,
+                    rtol=1e-10,
+                    atol=1e-10,
+                )
+                pd.testing.assert_frame_equal(
+                    curves[reference_id],
+                    curves[string_id],
+                    check_exact=False,
+                    rtol=1e-10,
+                    atol=1e-10,
+                )
+            except AssertionError as exc:
+                raise ValueError(
+                    "strings sharing a receiver must share identical module state"
+                ) from exc
+
+
+def _validate_string_curve_scaling(
+    source: pd.DataFrame,
+    scaled: pd.DataFrame,
+    modules_per_string: int,
+) -> None:
+    if len(source) != len(scaled):
+        raise RuntimeError("physical string scaling changed the curve row count")
+    for source_row, scaled_row in zip(
+        source.itertuples(index=False),
+        scaled.itertuples(index=False),
+        strict=True,
+    ):
+        if (
+            not _handoff_close(scaled_row.voltage_v, source_row.voltage_v * modules_per_string)
+            or not _handoff_close(scaled_row.current_a, source_row.current_a)
+            or not _handoff_close(scaled_row.power_w, source_row.power_w * modules_per_string)
+            or not _handoff_close(
+                scaled_row.effective_irradiance_wm2,
+                source_row.effective_irradiance_wm2,
+            )
+            or not _handoff_close(
+                scaled_row.power_w,
+                scaled_row.voltage_v * scaled_row.current_a,
+            )
+        ):
+            raise RuntimeError("physical string I-V scaling closure failed")
+
+
+def _validate_topology_string_iv_result(
+    curves: Mapping[str, pd.DataFrame],
+    states: pd.DataFrame,
+    diagnostics: TopologyStringIVDiagnostics,
+) -> None:
+    if diagnostics.state_row_count != (
+        diagnostics.resolved_string_iv_state_count
+        + diagnostics.unresolved_string_iv_state_count
+    ):
+        raise RuntimeError("physical string-I-V resolution counts do not close")
+    if diagnostics.resolved_string_iv_state_count != (
+        diagnostics.zero_string_iv_state_count + diagnostics.scaled_string_iv_state_count
+    ):
+        raise RuntimeError("resolved physical string-I-V counts do not close")
+    if diagnostics.iv_curve_row_count != (
+        diagnostics.resolved_string_iv_state_count * diagnostics.voltage_points
+    ) or diagnostics.iv_curve_row_count != sum(len(frame) for frame in curves.values()):
+        raise RuntimeError("physical string-I-V curve counts do not close")
+    if diagnostics.string_iv_model != TOPOLOGY_STRING_IV_MODEL_ID:
+        raise RuntimeError("physical string-I-V model provenance is invalid")
 
 
 def _admit_receiver_string_assignments(
