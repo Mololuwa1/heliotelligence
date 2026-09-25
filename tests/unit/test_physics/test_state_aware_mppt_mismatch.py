@@ -511,6 +511,31 @@ def test_string_power_grid_and_active_shape_tamper_rejected() -> None:
             )
 
 
+@pytest.mark.parametrize("mode", ["zero_current", "current_only_at_zero_voltage"])
+def test_inactive_resolved_curve_rejected_before_physics(
+    mode: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topology, upstream = _real_s81()
+    curve = upstream.string_iv_curves_by_string_id["string-1"].copy(deep=True)
+    curve["current_a"] = 0.0
+    if mode == "current_only_at_zero_voltage":
+        curve.loc[curve["voltage_v"].eq(0.0), "current_a"] = 1.0
+    curve["power_w"] = curve["voltage_v"] * curve["current_a"]
+    forged = _replace_curve(upstream, "string-1", curve)
+    calls = 0
+
+    def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("physics called")
+
+    monkeypatch.setattr(electrical, "calculate_physical_mismatch", forbidden)
+    with pytest.raises(ValueError, match="positive current and positive power"):
+        calculate_topology_mppt_mismatch_from_string_iv(topology, forged)
+    assert calls == 0
+
+
 def test_shared_receiver_normalized_forgery_rejected() -> None:
     topology = _topology([("mppt-1", [("a", 24), ("b", 30)])])
     _, upstream = _real_s81(topology)

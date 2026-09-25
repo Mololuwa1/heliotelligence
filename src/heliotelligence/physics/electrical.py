@@ -2871,6 +2871,14 @@ def _admit_topology_string_iv_curves(
                     raise ValueError("resolved zero physical string curve must be exact zero")
             elif state["string_iv_state"] == "resolved_string_iv":
                 _validated_common_mppt_curve(curve, timestamp, 0)
+                if (
+                    float(rows["current_a"].max()) <= 0.0
+                    or float(rows["power_w"].max()) <= 0.0
+                ):
+                    raise ValueError(
+                        "resolved active physical string curve must contain "
+                        "positive current and positive power"
+                    )
         canonical[string_id] = curve.loc[:, _IV_CURVE_COLUMNS]
     if sum(len(frame) for frame in canonical.values()) != diagnostics.iv_curve_row_count:
         raise ValueError("physical string curve diagnostic count does not close")
