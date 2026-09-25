@@ -1963,43 +1963,82 @@ def _replay_receiver_string_module_iv_state(row: pd.Series) -> None:
     )
     state = row["module_iv_state"]
     upstream_state = row["receiver_module_electrical_state"]
-    tier_value = _handoff_finite(row["tier_used"], "tier_used")
-    if not tier_value.is_integer():
-        raise ValueError("tier_used must be an integer")
-    tier = int(tier_value)
+    tier = _s8_nonnegative_integer(row["tier_used"], "tier_used")
+    fit_quality = row["fit_quality"]
+    _validate_s8_module_identity(tier, fit_quality)
     irradiance = _handoff_optional_nonnegative(
         row["spectral_electrical_equivalent_irradiance_wm2"],
         "spectral electrical equivalent irradiance",
     )
     temperature = row["cell_temperature_c"]
-    if not pd.isna(temperature):
-        _handoff_finite(temperature, "cell temperature")
+    temperature_value = (
+        None
+        if pd.isna(temperature)
+        else _handoff_finite(temperature, "cell temperature")
+    )
     unresolved_upstream_states = {
         "unresolved_spectral_electrical_equivalent_irradiance",
         "unresolved_cell_temperature",
         "unresolved_spectral_and_cell_temperature",
     }
+    if upstream_state == "resolved":
+        if (
+            not upstream_resolved
+            or tier not in {1, 2, 3, 4}
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("resolved receiver module electrical state is contradictory")
+    elif upstream_state == "resolved_pvwatts_power_only":
+        if (
+            not upstream_resolved
+            or tier != 5
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
+            raise ValueError("PVWatts receiver module electrical state is contradictory")
+    elif upstream_state == "resolved_zero_spectral_electrical_irradiance":
+        if not upstream_resolved or irradiance is None or not _handoff_close(irradiance, 0.0):
+            raise ValueError("zero receiver module electrical state is contradictory")
+    elif upstream_state == "unresolved_spectral_electrical_equivalent_irradiance":
+        if upstream_resolved or irradiance is not None or temperature_value is None:
+            raise ValueError("spectral-unresolved receiver module state is contradictory")
+    elif upstream_state == "unresolved_cell_temperature":
+        if (
+            upstream_resolved
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is not None
+        ):
+            raise ValueError("temperature-unresolved receiver module state is contradictory")
+    elif upstream_state == "unresolved_spectral_and_cell_temperature":
+        if upstream_resolved or irradiance is not None or temperature_value is not None:
+            raise ValueError("joint-unresolved receiver module state is contradictory")
+    else:
+        raise ValueError("receiver module electrical state is not canonical")
+
     if state == "resolved_module_iv":
         if (
             not resolved
-            or not upstream_resolved
             or upstream_state != "resolved"
+            or tier not in {1, 2, 3, 4}
             or irradiance is None
             or irradiance <= 0.0
-            or pd.isna(temperature)
+            or temperature_value is None
         ):
             raise ValueError("resolved module-I-V state is contradictory")
     elif state == "resolved_zero_module_iv":
         if (
             not resolved
-            or not upstream_resolved
             or upstream_state != "resolved_zero_spectral_electrical_irradiance"
             or irradiance is None
             or not _handoff_close(irradiance, 0.0)
         ):
             raise ValueError("zero module-I-V state is contradictory")
     elif state == "unresolved_receiver_module_electrical":
-        if resolved or upstream_resolved or upstream_state not in unresolved_upstream_states:
+        if resolved or upstream_state not in unresolved_upstream_states:
             raise ValueError("unresolved receiver module electrical state is contradictory")
     elif state == "unresolved_tier5_voltage_dependent_iv_unavailable":
         if (
@@ -2007,10 +2046,22 @@ def _replay_receiver_string_module_iv_state(row: pd.Series) -> None:
             or not upstream_resolved
             or upstream_state != "resolved_pvwatts_power_only"
             or tier != 5
+            or fit_quality != "pvwatts"
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
         ):
             raise ValueError("Tier-5 voltage-dependent unavailable state is contradictory")
     elif state == "unresolved_voltage_dependent_iv_unavailable":
-        if resolved or not upstream_resolved or upstream_state != "resolved" or tier not in {3, 4}:
+        if (
+            resolved
+            or not upstream_resolved
+            or upstream_state != "resolved"
+            or tier not in {3, 4}
+            or irradiance is None
+            or irradiance <= 0.0
+            or temperature_value is None
+        ):
             raise ValueError("datasheet voltage-dependent unavailable state is contradictory")
     else:
         raise ValueError("receiver-string module-I-V state is not canonical")
@@ -2024,6 +2075,29 @@ def _replay_receiver_string_module_iv_diagnostics(
 ) -> None:
     if type(diagnostics) is not ReceiverStringModuleIVDiagnostics:
         raise ValueError("receiver-string module-I-V diagnostics type is invalid")
+    count_names = (
+        "receiver_count",
+        "referenced_receiver_count",
+        "unreferenced_receiver_count",
+        "shared_receiver_count",
+        "inverter_count",
+        "mppt_count",
+        "string_count",
+        "timestamp_count",
+        "state_row_count",
+        "resolved_iv_state_count",
+        "unresolved_iv_state_count",
+        "zero_iv_state_count",
+        "solved_iv_state_count",
+        "power_only_iv_unavailable_count",
+        "voltage_points",
+    )
+    counts = {
+        name: _s8_nonnegative_integer(getattr(diagnostics, name), name)
+        for name in count_names
+    }
+    tier = _s8_nonnegative_integer(diagnostics.tier_used, "diagnostic tier_used")
+    _validate_s8_module_identity(tier, diagnostics.fit_quality)
     resolved = int(states["module_iv_resolved"].sum()) if len(states) else 0
     zero = int((states["module_iv_state"] == "resolved_zero_module_iv").sum())
     solved = int((states["module_iv_state"] == "resolved_module_iv").sum())
@@ -2042,7 +2116,7 @@ def _replay_receiver_string_module_iv_diagnostics(
         zero,
         solved,
         power_only,
-        diagnostics.tier_used,
+        tier,
         diagnostics.fit_quality,
         RECEIVER_STRING_MODULE_IV_MODEL_ID,
     )
@@ -2061,8 +2135,10 @@ def _replay_receiver_string_module_iv_diagnostics(
         diagnostics.fit_quality,
         diagnostics.module_iv_model,
     )
-    if actual != expected or diagnostics.voltage_points < 3 or diagnostics.timestamp_count < 0:
+    if actual != expected or counts["voltage_points"] < 3:
         raise ValueError("receiver-string module-I-V diagnostics are stale")
+    if counts["receiver_count"] < 1:
+        raise ValueError("receiver_count must be at least one")
     if diagnostics.receiver_count != (
         diagnostics.referenced_receiver_count + diagnostics.unreferenced_receiver_count
     ):
@@ -2077,13 +2153,28 @@ def _replay_receiver_string_module_iv_diagnostics(
         and diagnostics.unreferenced_receiver_count != 0
     ):
         raise ValueError("receiver coverage diagnostics are contradictory")
+    if (
+        counts["referenced_receiver_count"] > counts["receiver_count"]
+        or counts["referenced_receiver_count"] > topology.string_count
+        or counts["shared_receiver_count"] > counts["referenced_receiver_count"]
+    ):
+        raise ValueError("receiver diagnostic count bounds are invalid")
+    if topology.string_count == 0 and (
+        counts["referenced_receiver_count"] != 0
+        or counts["shared_receiver_count"] != 0
+        or counts["unreferenced_receiver_count"] != counts["receiver_count"]
+    ):
+        raise ValueError("empty-topology receiver diagnostics are contradictory")
+    if topology.string_count > 0 and counts["referenced_receiver_count"] < 1:
+        raise ValueError("non-empty topology must reference at least one receiver")
     if len(timestamps):
-        counts: dict[str, int] = {}
+        reference_counts: dict[str, int] = {}
         for receiver_id in receiver_by_string.values():
-            counts[receiver_id] = counts.get(receiver_id, 0) + 1
+            reference_counts[receiver_id] = reference_counts.get(receiver_id, 0) + 1
         if (
-            diagnostics.referenced_receiver_count != len(counts)
-            or diagnostics.shared_receiver_count != sum(count > 1 for count in counts.values())
+            diagnostics.referenced_receiver_count != len(reference_counts)
+            or diagnostics.shared_receiver_count
+            != sum(count > 1 for count in reference_counts.values())
         ):
             raise ValueError("receiver reference diagnostics are stale")
     elif not (
@@ -2096,6 +2187,31 @@ def _replay_receiver_string_module_iv_diagnostics(
         or not states["fit_quality"].eq(diagnostics.fit_quality).all()
     ):
         raise ValueError("module tier or fit-quality provenance is stale")
+
+
+def _s8_nonnegative_integer(value: object, label: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{label} must be a non-negative integer")
+    result = int(value)
+    if result < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return result
+
+
+def _validate_s8_module_identity(tier: int, fit_quality: object) -> None:
+    if tier not in {1, 2, 3, 4, 5}:
+        raise ValueError("tier_used must be one of 1, 2, 3, 4, or 5")
+    if type(fit_quality) is not str or fit_quality not in {"high", "low", "pvwatts"}:
+        raise ValueError("fit_quality is not canonical")
+    allowed = {
+        1: {"high"},
+        2: {"high"},
+        3: {"high", "low"},
+        4: {"low"},
+        5: {"pvwatts"},
+    }
+    if fit_quality not in allowed[tier]:
+        raise ValueError("tier_used and fit_quality are inconsistent")
 
 
 def _admit_receiver_string_module_iv_curves(

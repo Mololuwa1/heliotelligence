@@ -74,6 +74,31 @@ def _replace_curve(
     return replace(result, module_iv_curves_by_string_id=curves)
 
 
+def _coherent_module_identity_forgery(
+    result: ReceiverStringModuleIVResult,
+    *,
+    tier: object,
+    fit_quality: object,
+) -> ReceiverStringModuleIVResult:
+    states = result.states.copy(deep=True)
+    states["tier_used"] = tier
+    states["fit_quality"] = fit_quality
+    curves = {
+        key: frame.assign(tier_used=tier, fit_quality=fit_quality)
+        for key, frame in result.module_iv_curves_by_string_id.items()
+    }
+    return replace(
+        result,
+        states=states,
+        module_iv_curves_by_string_id=curves,
+        diagnostics=replace(
+            result.diagnostics,
+            tier_used=cast(Any, tier),
+            fit_quality=cast(Any, fit_quality),
+        ),
+    )
+
+
 def test_real_series_physics_and_contract() -> None:
     topology, upstream = _real_s8()
     result = calculate_topology_string_iv_curves_from_receiver_module_iv(topology, upstream)
@@ -228,6 +253,139 @@ def test_exact_type_and_diagnostic_tamper_rejected() -> None:
     )
     with pytest.raises(ValueError, match="diagnostics"):
         calculate_topology_string_iv_curves_from_receiver_module_iv(topology, stale)
+
+
+@pytest.mark.parametrize(
+    ("tier", "fit_quality"),
+    [(5, "pvwatts"), (6, "high"), (3, "forged"), (0, "high"), (2.5, "high"), (True, "high")],
+)
+def test_coherent_impossible_module_identity_rejected_before_scaling(
+    tier: object,
+    fit_quality: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topology, upstream = _real_s8()
+    forged = _coherent_module_identity_forgery(
+        upstream, tier=tier, fit_quality=fit_quality
+    )
+    calls = 0
+
+    def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("scaler called")
+
+    monkeypatch.setattr(electrical, "scale_module_iv_to_string", forbidden)
+    with pytest.raises(ValueError):
+        calculate_topology_string_iv_curves_from_receiver_module_iv(topology, forged)
+    assert calls == 0
+
+
+def test_unresolved_root_cause_swap_is_rejected() -> None:
+    receivers = s8_support._receivers()
+    topology = _topology([("string-1", None, 24)])
+    spectral = s8_support._spectral(receivers)
+    handoff = s8_support._electrical(receivers, spectral=spectral)
+    frame = handoff.operating_points.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("spectral_electrical_equivalent_irradiance_wm2")] = np.nan
+    frame.iloc[0, frame.columns.get_loc("spectral_electrical_equivalent_resolved")] = False
+    frame.iloc[0, frame.columns.get_loc("spectral_electrical_equivalent_state")] = (
+        "unresolved_front_spectral_response"
+    )
+    frame.iloc[0, frame.columns.get_loc("module_electrical_resolved")] = False
+    frame.iloc[0, frame.columns.get_loc("module_electrical_state")] = (
+        "unresolved_spectral_electrical_equivalent_irradiance"
+    )
+    frame.loc[:, ["p_mp_w", "v_mp_v", "i_mp_a"]] = np.nan
+    unresolved = replace(
+        handoff,
+        operating_points=frame,
+        diagnostics=replace(
+            handoff.diagnostics,
+            resolved_row_count=0,
+            unresolved_row_count=1,
+            solver_row_count=0,
+        ),
+    )
+    upstream = s8_support._route(receivers, unresolved, topology=topology)
+    states = upstream.states.copy(deep=True)
+    states.iloc[0, states.columns.get_loc("receiver_module_electrical_state")] = (
+        "unresolved_cell_temperature"
+    )
+    forged = replace(upstream, states=states)
+    with pytest.raises(ValueError, match="temperature-unresolved"):
+        calculate_topology_string_iv_curves_from_receiver_module_iv(topology, forged)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("spectral_electrical_equivalent_irradiance_wm2", 0.0),
+        ("cell_temperature_c", np.nan),
+    ],
+)
+def test_tier5_positive_unavailable_condition_forgery_rejected(
+    column: str,
+    value: float,
+) -> None:
+    receivers = s8_support._receivers()
+    topology = _topology([("string-1", None, 24)])
+    site = s8_support._site(tier5=True)
+    upstream = s8_support._route(
+        receivers,
+        s8_support._electrical(receivers, site=site),
+        topology=topology,
+        site=site,
+    )
+    states = upstream.states.copy(deep=True)
+    states.iloc[0, states.columns.get_loc(column)] = value
+    with pytest.raises(ValueError):
+        calculate_topology_string_iv_curves_from_receiver_module_iv(
+            topology, replace(upstream, states=states)
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("receiver_count", 0),
+        ("state_row_count", 1.5),
+        ("voltage_points", True),
+        ("shared_receiver_count", -1),
+    ],
+)
+def test_diagnostic_integer_contract_rejected(field: str, value: object) -> None:
+    topology, upstream = _real_s8(periods=0)
+    forged = replace(
+        upstream,
+        diagnostics=replace(upstream.diagnostics, **{field: cast(Any, value)}),
+    )
+    with pytest.raises(ValueError):
+        calculate_topology_string_iv_curves_from_receiver_module_iv(topology, forged)
+
+
+def test_empty_topology_receiver_count_forgery_rejected() -> None:
+    receivers = s8_support._receivers()
+    empty_topology = ElectricalTopologyConfig(inverters=[])
+    upstream = s8_support._route(
+        receivers,
+        s8_support._electrical(receivers),
+        topology=empty_topology,
+        assignments={},
+        policy="allow_unassigned_receivers",
+    )
+    forged = replace(
+        upstream,
+        diagnostics=replace(
+            upstream.diagnostics,
+            referenced_receiver_count=1,
+            unreferenced_receiver_count=0,
+        ),
+    )
+    with pytest.raises(ValueError):
+        calculate_topology_string_iv_curves_from_receiver_module_iv(
+            empty_topology, forged
+        )
 
 
 def test_input_reordering_immutability_and_output_isolation() -> None:
