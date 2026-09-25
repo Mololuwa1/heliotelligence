@@ -25,6 +25,24 @@ When beginning from a new conversation or development session:
 Do not trust a SHA written in documentation as "current main" indefinitely.
 Always query Git first.
 
+## Status language
+
+Use these terms consistently throughout this document:
+
+- **VALIDATED / MERGED / CLOSED** — independently reviewed, merged to `main`,
+  exact merge ancestry checked, and exact-main push CI verified.
+- **OPEN / IN REVIEW** — code exists only on a branch or pull request and must
+  not be described as a current `main` capability.
+- **PLANNED / PROPOSED** — architecture or implementation direction only; no
+  production capability should be inferred.
+- **PARKED** — deliberately deferred until a later product or physics phase.
+- **BLOCKED** — implementation depends on unavailable evidence, topology, data,
+  or another prerequisite.
+
+Future stage numbers after the current open work are **provisional** until an
+architecture review locks each contract. Do not treat a proposed stage number
+as an implementation commitment.
+
 ## Current validated baseline
 
 As of the latest validated merge in this handoff:
@@ -77,7 +95,7 @@ Physical homogeneous string I-V scaling
   ↓
 S8-2 common-voltage MPPT + physical mismatch  ← currently in PR #58
   ↓
-Later: cable / inverter / system integration
+Future architecture review before cable / inverter / system integration
 ```
 
 Thermal remains a separate physical authority and must not consume
@@ -109,9 +127,10 @@ surrogate.
 - S7E-1 — VALIDATED / MERGED / CLOSED
 - S8-0 — VALIDATED / MERGED / CLOSED
 - S8-1 — VALIDATED / MERGED / CLOSED
-- S8-2 — open in PR #58; implementation complete but merge currently withheld
-  pending one narrow active-string replay correction
-- S8-3 — not started; architecture review required before inverter integration
+- S8-2 — OPEN / IN REVIEW in PR #58; merge currently withheld pending one
+  narrow active-string replay correction
+- S8-3 and later — PROPOSED only; architecture must be reviewed before stage
+  numbering and boundaries are locked
 
 ## Recent validated merge history
 
@@ -579,36 +598,460 @@ The frontend CI job may run as a passive compatibility build, but S7E/S8 PRs
 must not change frontend components, routes, styles, or UI logic unless a
 separate frontend task is explicitly approved.
 
-## Next physics sequence
+## Future implementation roadmap — NOT YET IMPLEMENTED
 
-Immediate sequence:
+Everything in this section is **future architecture direction**, not a claim
+about current `main` capability.
 
-1. close the narrow S8-2 active-string replay correction;
-2. independently re-review PR #58 at its new exact head;
-3. merge only after exact-head PR CI is green;
-4. verify exact-main merge ancestry and exact-main push CI;
-5. mark S8-2 VALIDATED / MERGED / CLOSED;
-6. perform an architecture review before S8-3.
+The only current coding work beyond validated `main` is S8-2 in PR #58.
+All stages after S8-2 remain proposed until their own architecture contract is
+reviewed and locked.
 
-Do **not** jump directly from S8-2 to one aggregate inverter voltage.
+### Gate 0 — close and validate S8-2
 
-S8-3 must explicitly decide how:
+Before starting any later electrical stage:
 
-- independently resolved MPPT voltages;
-- MPPT currents / powers;
-- cable / collection losses;
-- inverter input constraints;
-- inverter conversion / clipping
+1. add the genuine-positive active-string checks:
+   `max(current_a) > 0` and `max(power_w) > 0`;
+2. independently review the correction delta;
+3. verify new exact-head pull-request CI;
+4. merge only the reviewed exact head;
+5. verify merge ancestry;
+6. verify exact-main push CI on the merge SHA;
+7. mark S8-2 VALIDATED / MERGED / CLOSED.
 
-meet without averaging physically distinct MPPT voltage states.
+No later stage should be built on an unvalidated S8-2 branch state.
 
-Likely later stages include:
+### Proposed S8-3 — electrical reference-plane and DC collection architecture
 
-- physical string / homerun / combiner cable losses using `I²R`;
-- inverter MPPT voltage/current constraints;
-- inverter conversion and clipping;
-- site-level DC/AC aggregation;
-- AC collection and transformers.
+**Status: PROPOSED — architecture review required before implementation.**
+
+The next step must first define the electrical reference planes in the DC
+network. At minimum distinguish:
+
+```text
+module terminals
+  ↓
+physical string terminals
+  ↓
+string / branch cable
+  ↓
+combiner or parallel junction, if present
+  ↓
+DC homerun / feeder, if present
+  ↓
+inverter MPPT input terminals
+  ↓
+inverter conversion stage
+```
+
+The architecture must establish exactly where each voltage/current/power value
+is measured and which component owns each loss.
+
+This review is necessary because cable resistance is not merely an aggregate
+post-processing percentage. A branch resistance can change the voltage-current
+relationship presented to the MPPT:
+
+```text
+V_terminal = V_source - I × R
+P_loss = I²R
+```
+
+Therefore a string/branch cable model may need to transform each string I-V
+curve **before** common-voltage MPPT optimization. Do not simply append all
+cable loss after S8-2 because that can preserve the wrong MPPT operating point.
+
+The S8-3 architecture review must decide, based on actual topology, which
+resistive elements belong:
+
+- on each string branch before parallel aggregation;
+- after a combiner / parallel node;
+- on a shared homerun;
+- directly at inverter input terminals.
+
+No implementation should start until those reference planes are explicit.
+
+### Proposed physical DC collection model
+
+**Status: PLANNED — exact stage number depends on S8-3 architecture.**
+
+Required physical basis:
+
+```text
+R = ρ × L / A
+P_loss = I²R
+ΔV = I × R
+```
+
+Potentially model:
+
+- positive and negative conductor path lengths;
+- conductor material / resistivity;
+- conductor cross-sectional area;
+- conductor temperature or an explicitly documented resistance basis;
+- string cable;
+- branch cable;
+- combiner connectivity;
+- shared DC homerun / feeder;
+- parallel branch current distribution.
+
+Do not implement physical cable loss from a static percentage alone.
+
+Minimum evidence required before physical cable implementation:
+
+- actual cable topology;
+- one-way or loop length definition;
+- conductor material;
+- cross-section or authoritative resistance-per-length;
+- location of combiners / junctions;
+- mapping from strings to those DC paths.
+
+If these are unavailable, retain an explicit unresolved or compatibility state;
+do not invent cable lengths or conductor sizes.
+
+### Proposed inverter input capability model
+
+**Status: PLANNED — not yet implemented in the canonical S8 chain.**
+
+Future inverter integration must preserve **independent MPPT inputs**.
+
+For each `(inverter_id, mppt_id)` retain its own:
+
+- DC voltage;
+- DC current;
+- DC power;
+- resolved / unresolved state;
+- physical mismatch provenance;
+- upstream cable / collection provenance when implemented.
+
+Do **not** average MPPT voltages into one inverter voltage.
+
+Future inverter capability evidence may include:
+
+- MPPT operating-voltage window;
+- absolute maximum DC voltage;
+- MPPT input current limit;
+- short-circuit current limit where relevant;
+- number of MPPT trackers;
+- string inputs per tracker;
+- nominal / maximum DC power;
+- manufacturer-specific clipping or derating rules.
+
+These limits must come from authoritative inverter configuration or equipment
+data, not from generic defaults guessed from inverter size.
+
+### Proposed inverter conversion and clipping
+
+**Status: PLANNED.**
+
+After the DC reference plane and input-limit architecture are validated, add
+per-inverter conversion using an appropriate validated model.
+
+Potential capabilities:
+
+- per-unit DC → AC conversion;
+- model-specific efficiency curve;
+- DC input clipping;
+- AC nameplate clipping;
+- voltage-dependent inverter behavior where supported;
+- thermal / power derating only when authoritative inputs exist;
+- explicit unresolved state when required manufacturer data is absent.
+
+Do not collapse multiple independently controlled MPPT voltages into one
+synthetic voltage merely to satisfy an aggregate inverter API.
+
+If an existing lower-level inverter primitive cannot represent multiple MPPT
+inputs faithfully, build an explicit adapter/contract or improve the inverter
+model rather than fabricating one voltage.
+
+### Proposed site-level DC / AC aggregation
+
+**Status: PLANNED.**
+
+Only after per-inverter electrical states are validated should the canonical
+pipeline aggregate to site level.
+
+Future site-level outputs should preserve enough provenance to answer:
+
+- which inverter / MPPT caused a loss;
+- which strings were unresolved;
+- how much physical mismatch occurred;
+- how much cable loss occurred;
+- how much inverter conversion / clipping occurred;
+- whether a grid/export constraint was active.
+
+A site total must be a composition of component-resolved states, not a shortcut
+that bypasses them.
+
+### Proposed AC collection and transformer model
+
+**Status: PLANNED.**
+
+Potential later layers:
+
+```text
+inverter AC terminals
+  ↓
+LV cable
+  ↓
+local transformer
+  ↓
+MV collection
+  ↓
+main transformer
+  ↓
+HV / export network
+  ↓
+revenue meter / grid boundary
+```
+
+Physical AC network modelling may require:
+
+- phase / voltage level;
+- cable length and conductor data;
+- transformer ratings;
+- no-load and load losses;
+- impedance;
+- power factor / reactive-power state;
+- topology and switching state.
+
+Do not represent a physical AC network by a new arbitrary percentage if the
+required physical data becomes available.
+
+### Future dark-string / blocking-device model
+
+**Status: PLANNED / evidence-dependent.**
+
+S8-2 intentionally leaves active + zero parallel strings unresolved.
+
+A future implementation may resolve this only after choosing a physically
+justified model for the site/equipment, such as:
+
+- dark-string reverse current;
+- blocking diode behavior;
+- string isolation / switching;
+- other equipment-specific reverse-bias protection.
+
+Required evidence may include:
+
+- module reverse I-V characteristics;
+- blocking-diode presence and orientation;
+- protection / combiner design;
+- inverter reverse-current behavior.
+
+Do not assume every plant has blocking diodes.
+
+### Future bypass-diode and partial-shading electrical model
+
+**Status: PLANNED.**
+
+The target dependency is:
+
+```text
+module / substring irradiance distribution
+  ↓
+cell or substring electrical state
+  ↓
+bypass-diode conduction
+  ↓
+module I-V
+  ↓
+heterogeneous string I-V
+  ↓
+possible multiple local maxima
+  ↓
+MPPT tracking behavior
+```
+
+This is separate from the current homogeneous-string S8 contract.
+
+Do not add a scalar "partial shading loss" to the canonical component-resolved
+chain as a substitute for this physics.
+
+### Future MPPT tracking behavior
+
+**Status: PLANNED.**
+
+Current common-voltage MPPT physics finds the static maximum over the supplied
+I-V curves. Future higher-fidelity behavior may include:
+
+- multiple local maxima;
+- tracker search algorithm;
+- scan cadence;
+- local-vs-global MPP capture;
+- dynamic irradiance changes;
+- tracker operating limits.
+
+Only implement this when the product requirement justifies the additional
+complexity and suitable validation evidence exists.
+
+### Tracker geometry / irradiance modelling
+
+**Status: PARKED (S6C).**
+
+Heliotelligence v1 remains fixed-tilt / fixed-table.
+
+Future tracker support requires an explicit architecture for:
+
+- tracker axis geometry;
+- rotation convention;
+- backtracking;
+- row-to-row shading under motion;
+- dynamic front/rear normals;
+- rear irradiance under changing geometry;
+- tracker control / stow states where relevant.
+
+Do not route tracker sites through fixed-table assumptions.
+
+### Future soiling, LID and degradation replacement
+
+**Status: PLANNED / evidence-dependent.**
+
+The legacy aggregate percentages remain compatibility assumptions.
+
+Future replacements should use measured or physically supported state where
+possible, for example:
+
+- time-varying measured soiling ratio;
+- rainfall / cleaning events when scientifically justified;
+- validated LID / LeTID or degradation state;
+- equipment-specific degradation models.
+
+Never remove a legacy percentage from a production path until its replacement
+has been independently validated and the migration boundary is explicit.
+
+### Future SCADA / digital-twin validation layer
+
+**Status: PLANNED and iterative.**
+
+As the physical chain matures, validate at multiple reference planes rather
+than only comparing final site energy.
+
+Potential validation hierarchy:
+
+```text
+weather
+irradiance
+module / string DC
+MPPT DC
+inverter DC input
+inverter AC output
+transformer / feeder output
+revenue meter
+```
+
+For each comparison preserve:
+
+- timestamp alignment;
+- timezone;
+- sensor quality flags;
+- measurement uncertainty;
+- availability / curtailment state;
+- data provenance.
+
+Do not tune one physical mechanism merely to compensate for error in another
+layer.
+
+### Future multi-site / portfolio layer
+
+**Status: PLANNED platform layer, not part of the current physics migration.**
+
+Portfolio analytics should compose independently validated site results.
+
+Potential future capabilities:
+
+- organisation / client ownership;
+- portfolios;
+- portfolio energy aggregation;
+- cross-site benchmarking;
+- fleet availability;
+- fleet anomaly detection;
+- loss attribution across sites;
+- portfolio financial / revenue analytics.
+
+Do not treat multiple sites as one electrical plant.
+
+### Evidence required before future mechanisms are enabled
+
+Future implementation should prefer explicit `unknown`, `unresolved`, or
+`not_applicable` states over guessed parameters.
+
+Examples of mechanism-specific evidence:
+
+| Mechanism | Minimum authoritative evidence before high-fidelity implementation |
+|---|---|
+| String / DC cable | topology, path length, conductor size or resistance, conductor material |
+| Combiner / homerun | connectivity, shared path, resistance / conductor data |
+| Inverter MPPT limits | exact inverter model or authoritative configured limits |
+| Blocking devices | confirmed device presence, topology, electrical behavior |
+| Bypass diodes | module substring / diode architecture or validated module model |
+| Tracker | axis geometry, control convention, backtracking / stow behavior |
+| AC cable | topology, voltage level, length, conductor / impedance data |
+| Transformer | rating, loss / impedance data, topology |
+| SCADA calibration | channel mapping, timestamp basis, units, quality / availability flags |
+
+Absence of evidence is not permission to infer a convenient default.
+
+### Definition of done for every future physical stage
+
+A future stage is not complete merely because its implementation runs.
+
+At minimum require:
+
+1. **Narrow physical contract** — define exactly what mechanism is owned by the
+   stage and where its electrical / optical reference plane sits.
+2. **Explicit authority inputs** — identify configuration, measurements, or
+   upstream result types that are allowed to drive the model.
+3. **Unresolved semantics** — define behavior when required evidence is absent
+   or contradictory; no silent fallback to zero/unity unless physically
+   justified.
+4. **Provenance** — emit contract/model/scope identifiers where appropriate.
+5. **No double counting** — prove legacy or upstream mechanisms are not applied
+   again after the physical replacement.
+6. **Limiting cases** — test exact zero, unity/no-loss, symmetry, and other
+   physically meaningful limits.
+7. **Conservation / closure** — e.g. `P = V × I`, energy/loss balance, or
+   mechanism-specific conservation checks.
+8. **Reference parity** — compare against a trusted lower-level primitive,
+   pvlib, analytical result, manufacturer curve, or another defensible
+   reference where applicable.
+9. **Adversarial authority tests** — forged provenance, stale topology,
+   contradictory state, NaN/inf, duplicate/missing rows, and wrong parameter
+   domains must fail before downstream physics.
+10. **Immutability / determinism** — input reordering or deep-copy behavior must
+    not silently change physical output.
+11. **Focused regression suite** — existing upstream and adjacent physics must
+    remain green.
+12. **Full backend** — unit suite green without increasing known static-analysis
+    debt.
+13. **Exact-head PR CI** — verify the actual reviewed commit, not only local
+    tests.
+14. **Independent live-code review** — do not rely only on an implementation
+    report.
+15. **Exact merge ancestry** — confirm the merged head is the reviewed head.
+16. **Exact-main push CI** — only then mark the stage
+    VALIDATED / MERGED / CLOSED.
+
+### Explicitly prohibited future shortcuts
+
+Unless a future architecture explicitly proves otherwise, do **not**:
+
+- average distinct MPPT voltages;
+- use `Σ Pmp,string` as actual shared-MPPT power;
+- drop unresolved or zero strings from a parallel MPPT;
+- treat a zero string as disconnected;
+- infer blocking diodes;
+- infer string-to-MPPT mapping from geometry;
+- infer cable length from receiver spacing;
+- use `zone_id` as electrical authority;
+- apply static mismatch after physical mismatch;
+- apply static wiring loss after physical cable loss;
+- reapply spectral response after S7E-0/S7E-1;
+- feed electrical-equivalent irradiance into thermal without an explicit
+  thermal contract;
+- combine separate site electrical networks into one physics solve;
+- label a proposed roadmap capability as implemented before its exact-main
+  validation gate is complete.
 
 ## Non-negotiable project rules
 
