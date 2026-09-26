@@ -1,13 +1,13 @@
 # Heliotelligence AI / Developer Handoff
 
 This is the durable recovery and architectural checkpoint for Heliotelligence.
-It does **not** replace the repository, automated tests, Git history, or direct
-inspection of current code.
+It does **not** replace the repository, automated tests, Git history, CI, or
+direct inspection of current code.
 
-Heliotelligence is now being developed as an **enterprise-grade solar digital
-twin / physics benchmarking platform**, not an MVP. The current implementation
-strategy is physics-first, component-resolved, provenance-aware, and defensive
-at every authority boundary.
+Heliotelligence is being developed as an **enterprise-grade solar digital twin
+and physics benchmarking platform**, not an MVP. The implementation strategy is
+physics-first, component-resolved, provenance-aware, and defensive at every
+authority boundary.
 
 ## Recovery rule
 
@@ -22,12 +22,12 @@ When beginning from a new conversation or development session:
 7. Treat current source, tests, CI, and Git history as authoritative when
    documentation or remembered conversation context disagrees.
 
-Do not trust a SHA written in documentation as "current main" indefinitely.
-Always query Git first.
+Do not trust a SHA written in documentation as permanently current. Always
+query Git first.
 
 ## Status language
 
-Use these terms consistently throughout this document:
+Use these terms consistently:
 
 - **VALIDATED / MERGED / CLOSED** — independently reviewed, merged to `main`,
   exact merge ancestry checked, and exact-main push CI verified.
@@ -39,26 +39,25 @@ Use these terms consistently throughout this document:
 - **BLOCKED** — implementation depends on unavailable evidence, topology, data,
   or another prerequisite.
 
-Future stage numbers after the current open work are **provisional** until an
-architecture review locks each contract. Do not treat a proposed stage number
-as an implementation commitment.
+Future stage numbers after the current validated work are **provisional** until
+an architecture review locks each contract.
 
 ## Current validated baseline
 
-As of the latest validated merge in this handoff:
+As of this handoff:
 
 - live validated `main`:
-  `11ef177b609a284ff48830a035d56d62933d2b7a`
-- merge: PR #57 — S8-1 state-aware physical string I-V scaling
-- exact-main CI: run #149
-- backend exact-main result: **2366 passed**
+  `a91707dfce34ea42dd42cdb32298145163a0c52f`
+- merge: PR #58 — S8-2 state-aware common-voltage MPPT and physical mismatch
+- reviewed S8-2 head:
+  `5c81a809cd440490ffdaa0c5fa637a2b05d5fbf6`
+- exact-main CI: run #154, ID `36208581017`
+- exact-main backend result: **2392 passed in 104.53s**
 - frontend build: passed as a passive compatibility check
 
 This SHA is a checkpoint, not a permanent source of truth. Always query Git.
 
-## Current implementation status
-
-### Completed / validated physics chain
+## Current validated physics chain
 
 The validated backend now reaches:
 
@@ -93,9 +92,11 @@ Explicit receiver → physical string module-I-V routing
   ↓
 Physical homogeneous string I-V scaling
   ↓
-S8-2 common-voltage MPPT + physical mismatch  ← currently in PR #58
+State-aware common-voltage MPPT aggregation
   ↓
-Future architecture review before cable / inverter / system integration
+IV-consistent physical mismatch
+  ↓
+Future electrical-reference-plane / cable / inverter architecture
 ```
 
 Thermal remains a separate physical authority and must not consume
@@ -105,20 +106,16 @@ surrogate.
 ## Stage tracker
 
 - S1 / S2 / S3 / S4A — completed
-- S4B — blocked by private PVcase `.pvc2` evidence
+- S4B — BLOCKED by private PVcase `.pvc2` evidence
 - S5A ray backend — completed
 - S5B mesh adapter — completed
 - S5C near-object beam — completed
 - S6A terrain horizon — completed
 - S6B fixed inter-row — completed
-- S6C tracker — parked
+- S6C tracker — PARKED
 - S6D diffuse — completed
 - S6E fixed rear raw — completed
-- S6F-0 — completed
-- S6F-1 — completed
-- S6F-2 — completed
-- S6F-3 — completed
-- S6F-4 — completed / merged
+- S6F-0 through S6F-4 — completed / merged
 - S7A — completed, v2 authority active
 - S7B-1 / S7B-2 — completed
 - S7C — completed
@@ -127,8 +124,7 @@ surrogate.
 - S7E-1 — VALIDATED / MERGED / CLOSED
 - S8-0 — VALIDATED / MERGED / CLOSED
 - S8-1 — VALIDATED / MERGED / CLOSED
-- S8-2 — OPEN / IN REVIEW in PR #58; merge currently withheld pending one
-  narrow active-string replay correction
+- S8-2 — VALIDATED / MERGED / CLOSED
 - S8-3 and later — PROPOSED only; architecture must be reviewed before stage
   numbering and boundaries are locked
 
@@ -148,10 +144,8 @@ final front direct geometry
 ```
 
 Raw terrain, fixed-row, and near-shading channels are retained as evidence and
-provenance, but are not independently re-applied downstream.
-
-The design prevents direct-shading double counting and keeps diffuse visibility
-separate.
+provenance, but are not independently re-applied downstream. The design
+prevents direct-shading double counting and keeps diffuse visibility separate.
 
 ### S7E-0 — component-resolved spectral response
 
@@ -165,7 +159,7 @@ Merge / validated main at that checkpoint:
 
 `719875aba6d61b652f39c6a2da1080ff1a3be1bd`
 
-Exact-main backend result at that checkpoint:
+Exact-main backend result:
 
 **2276 passed**
 
@@ -206,12 +200,10 @@ Rear spectral authority:
 - `explicit_factor`
 - `unknown`
 
-There is no HJT → mono-Si spectral inference in the canonical path.
-
-There is no rear spectral inference from broadband albedo.
-
-Atmospheric inputs are explicit. The spectral layer does not fabricate
-precipitable water, pressure, altitude-derived pressure, or weather.
+There is no HJT → mono-Si spectral inference in the canonical path. There is no
+rear spectral inference from broadband albedo. Atmospheric inputs are explicit;
+the spectral layer does not fabricate precipitable water, pressure,
+altitude-derived pressure, or weather.
 
 S7E-0 also retains a compatibility lock with `pvlib>=0.11.0`: Heliotelligence
 performs explicit absolute-airmass clamping before calling the First Solar
@@ -306,11 +298,10 @@ Do **not** infer receiver/string assignment from:
 Multiple strings may legitimately share one receiver.
 
 S8-0 creates representative-module voltage-dependent I-V curves for the
-assigned receiver state, but does **not** yet scale them by
-`modules_per_string`.
+assigned receiver state, but does **not** scale them by `modules_per_string`.
 
-S8-0 defensively replays S7E-1 authority and rejects stale module physics.
-The current module configuration is resolved once per call and is used for both
+S8-0 defensively replays S7E-1 authority and rejects stale module physics. The
+current module configuration is resolved once per call and is used for both
 upstream operating-point replay and I-V generation.
 
 Tier 3/4 datasheet reference fitting is performed at most once per call; the
@@ -335,7 +326,7 @@ Reviewed head:
 
 `34a1e5ac329e28a0708aa5403ecd4514f70bdb05`
 
-Merge commit / current validated main:
+Merge commit:
 
 `11ef177b609a284ff48830a035d56d62933d2b7a`
 
@@ -365,8 +356,7 @@ and pointwise:
 P_string = V_string × I_string
 ```
 
-S8-1 requires exact `TopologyStringIVResult`-style authority replay from S8-0,
-including:
+S8-1 requires defensive replay of S8-0 authority, including:
 
 - complete timestamp/string grid;
 - explicit inverter/MPPT routing identity;
@@ -382,45 +372,76 @@ Strings sharing one receiver may have different physical string voltage and
 power only because they can have different `modules_per_string`; their
 representative-module basis remains identical.
 
-S8-1 still does **not** perform parallel MPPT aggregation, mismatch, cable loss,
-or inverter conversion.
+S8-1 does **not** perform parallel MPPT aggregation, mismatch, cable loss, or
+inverter conversion.
 
-## Current open work — S8-2
+### S8-2 — state-aware common-voltage MPPT and physical mismatch
 
-PR #58:
-
-`feature/state-aware-mppt-mismatch`
+PR #58 is VALIDATED / MERGED / CLOSED.
 
 Exact base:
 
 `11ef177b609a284ff48830a035d56d62933d2b7a`
 
-Current reviewed head before correction:
+Reviewed final head:
 
-`449f33c2784dc9b0f6765036bbfc1bca5cc90f9b`
+`5c81a809cd440490ffdaa0c5fa637a2b05d5fbf6`
 
-PR CI #150:
+Merge commit / current validated main:
 
-- event: `pull_request`
+`a91707dfce34ea42dd42cdb32298145163a0c52f`
+
+Final PR CI:
+
+- run #151
+- exact head: `5c81a809cd440490ffdaa0c5fa637a2b05d5fbf6`
+- exact base: `11ef177b609a284ff48830a035d56d62933d2b7a`
 - frontend: success
 - backend: success
-- backend result: **2390 passed in 63.81s**
+- backend result: **2392 passed in 102.81s**
 
-The implementation is **not yet merge-authorized**.
+Exact-main CI:
 
-### S8-2 intended contract
+- run #154
+- run ID: `36208581017`
+- event: `push`
+- exact SHA: `a91707dfce34ea42dd42cdb32298145163a0c52f`
+- frontend: success
+- backend: success
+- backend result: **2392 passed in 104.53s**
 
 Public API:
 
 `calculate_topology_mppt_mismatch_from_string_iv(...)`
 
-Per populated MPPT and timestamp, every member string is classified as:
+Canonical contract:
+
+- `physical_string_iv_to_common_voltage_mppt_v1`
+- model: `iv_consistent_common_voltage_physical_mismatch_v1`
+- scope: `mppt_resolved_dc_before_cable_and_inverter`
+- coverage: `explicit_topology_parallel_strings_per_mppt`
+
+S8-2 consumes exact S8-1 physical string I-V authority and replays:
+
+- exact result type;
+- complete timestamp/string grid;
+- current inverter/MPPT routing;
+- stale `modules_per_string` rejection;
+- S8-0 and S8-1 provenance;
+- diagnostic closure;
+- string state closure;
+- curve schema, point grid and `P = V × I` closure;
+- active-curve shape;
+- shared-receiver normalized equivalence.
+
+For each populated MPPT/timestamp, every member string is classified as exactly
+one of:
 
 - active;
 - exact zero;
 - unresolved.
 
-Rules:
+State rules:
 
 1. Any unresolved member makes the whole MPPT unresolved.
 2. Active + zero is explicitly unresolved because Heliotelligence does not yet
@@ -448,27 +469,28 @@ P_mismatch = P_independent - P_common
 Active timestamps are batched so physical mismatch is called once per eligible
 MPPT, not once per timestamp.
 
-### Current S8-2 merge blocker
-
-The S8-2 defensive admission layer must additionally prove that every row
-labelled:
-
-`resolved_string_iv`
-
-contains a genuinely active physical string curve.
-
-In addition to the existing voltage-grid and algebra checks, it must require:
+A canonical `resolved_string_iv` curve must be genuinely active. In addition to
+its voltage-grid and algebra checks, S8-2 requires:
 
 ```text
 max(current_a) > 0
 max(power_w) > 0
 ```
 
-This prevents a forged "active" curve with positive voltage samples but zero
-usable current/power from reaching common-voltage MPPT physics.
+This prevents forged positive-voltage but zero-usable-power curves from
+reaching common-voltage MPPT physics.
 
-Until that correction is committed, reviewed, and exact-head CI is green, PR
-#58 must remain unmerged.
+S8-2 does **not** introduce:
+
+- string scaling;
+- module re-solving;
+- spectral correction;
+- thermal calculation;
+- cable loss;
+- inverter conversion;
+- MPPT manufacturer voltage/current limits;
+- dark-string or blocking-device physics;
+- legacy static mismatch percentages.
 
 ## Common-voltage MPPT and mismatch authority
 
@@ -528,7 +550,7 @@ Legacy aggregate APIs remain available for compatibility.
 - `wiring_loss_dc_pct` remains active in the legacy path.
 - `soiling_loss_pct` and `lid_loss_pct` remain active in the legacy path.
 
-The new canonical S7/S8 chain must **not** reuse those percentages at the
+The canonical S7/S8 chain must **not** reuse those percentages at the
 component-resolved authority boundaries.
 
 In particular:
@@ -536,7 +558,7 @@ In particular:
 - do not apply `mismatch_loss_pct` after S8-2 physical mismatch;
 - do not apply `wiring_loss_dc_pct` before a physical cable model exists;
 - do not apply a second spectral correction;
-- do not use the electrical-equivalent irradiance as thermal irradiance.
+- do not use electrical-equivalent irradiance as thermal irradiance.
 
 ## Geometry and topology locks
 
@@ -586,43 +608,26 @@ a relationship.
 
 The existing `_DELTA_T_COEFF = 0.03/1000.0` comment/code discrepancy is locked
 by current tests and should be addressed separately rather than casually
-changed during S8 work.
+changed during electrical migration work.
 
 ## Frontend boundary
 
 The recent S7E / S8 work is **backend physics only**.
 
-Frontend source is frozen during these stages.
+Frontend source remains frozen during these stages. The frontend CI job may run
+as a passive compatibility build, but backend physics PRs must not change
+frontend components, routes, styles, or UI logic unless a separate frontend
+task is explicitly approved.
 
-The frontend CI job may run as a passive compatibility build, but S7E/S8 PRs
-must not change frontend components, routes, styles, or UI logic unless a
-separate frontend task is explicitly approved.
-
-## Future implementation roadmap — NOT YET IMPLEMENTED
+# Future implementation roadmap — NOT YET IMPLEMENTED
 
 Everything in this section is **future architecture direction**, not a claim
 about current `main` capability.
 
-The only current coding work beyond validated `main` is S8-2 in PR #58.
-All stages after S8-2 remain proposed until their own architecture contract is
-reviewed and locked.
+S8-2 is complete. The next engineering step is an architecture review before
+any new DC collection or inverter integration stage is locked.
 
-### Gate 0 — close and validate S8-2
-
-Before starting any later electrical stage:
-
-1. add the genuine-positive active-string checks:
-   `max(current_a) > 0` and `max(power_w) > 0`;
-2. independently review the correction delta;
-3. verify new exact-head pull-request CI;
-4. merge only the reviewed exact head;
-5. verify merge ancestry;
-6. verify exact-main push CI on the merge SHA;
-7. mark S8-2 VALIDATED / MERGED / CLOSED.
-
-No later stage should be built on an unvalidated S8-2 branch state.
-
-### Proposed S8-3 — electrical reference-plane and DC collection architecture
+## Proposed S8-3 — electrical reference-plane and DC collection architecture
 
 **Status: PROPOSED — architecture review required before implementation.**
 
@@ -671,7 +676,7 @@ resistive elements belong:
 
 No implementation should start until those reference planes are explicit.
 
-### Proposed physical DC collection model
+## Proposed physical DC collection model
 
 **Status: PLANNED — exact stage number depends on S8-3 architecture.**
 
@@ -709,7 +714,7 @@ Minimum evidence required before physical cable implementation:
 If these are unavailable, retain an explicit unresolved or compatibility state;
 do not invent cable lengths or conductor sizes.
 
-### Proposed inverter input capability model
+## Proposed inverter input capability model
 
 **Status: PLANNED — not yet implemented in the canonical S8 chain.**
 
@@ -740,7 +745,7 @@ Future inverter capability evidence may include:
 These limits must come from authoritative inverter configuration or equipment
 data, not from generic defaults guessed from inverter size.
 
-### Proposed inverter conversion and clipping
+## Proposed inverter conversion and clipping
 
 **Status: PLANNED.**
 
@@ -764,7 +769,7 @@ If an existing lower-level inverter primitive cannot represent multiple MPPT
 inputs faithfully, build an explicit adapter/contract or improve the inverter
 model rather than fabricating one voltage.
 
-### Proposed site-level DC / AC aggregation
+## Proposed site-level DC / AC aggregation
 
 **Status: PLANNED.**
 
@@ -783,7 +788,7 @@ Future site-level outputs should preserve enough provenance to answer:
 A site total must be a composition of component-resolved states, not a shortcut
 that bypasses them.
 
-### Proposed AC collection and transformer model
+## Proposed AC collection and transformer model
 
 **Status: PLANNED.**
 
@@ -818,7 +823,7 @@ Physical AC network modelling may require:
 Do not represent a physical AC network by a new arbitrary percentage if the
 required physical data becomes available.
 
-### Future dark-string / blocking-device model
+## Future dark-string / blocking-device model
 
 **Status: PLANNED / evidence-dependent.**
 
@@ -841,11 +846,11 @@ Required evidence may include:
 
 Do not assume every plant has blocking diodes.
 
-### Future bypass-diode and partial-shading electrical model
+## Future bypass-diode and partial-shading electrical model
 
 **Status: PLANNED.**
 
-The target dependency is:
+Target dependency:
 
 ```text
 module / substring irradiance distribution
@@ -868,7 +873,7 @@ This is separate from the current homogeneous-string S8 contract.
 Do not add a scalar "partial shading loss" to the canonical component-resolved
 chain as a substitute for this physics.
 
-### Future MPPT tracking behavior
+## Future MPPT tracking behavior
 
 **Status: PLANNED.**
 
@@ -885,7 +890,7 @@ I-V curves. Future higher-fidelity behavior may include:
 Only implement this when the product requirement justifies the additional
 complexity and suitable validation evidence exists.
 
-### Tracker geometry / irradiance modelling
+## Tracker geometry / irradiance modelling
 
 **Status: PARKED (S6C).**
 
@@ -903,7 +908,7 @@ Future tracker support requires an explicit architecture for:
 
 Do not route tracker sites through fixed-table assumptions.
 
-### Future soiling, LID and degradation replacement
+## Future soiling, LID and degradation replacement
 
 **Status: PLANNED / evidence-dependent.**
 
@@ -920,7 +925,7 @@ possible, for example:
 Never remove a legacy percentage from a production path until its replacement
 has been independently validated and the migration boundary is explicit.
 
-### Future SCADA / digital-twin validation layer
+## Future SCADA / digital-twin validation layer
 
 **Status: PLANNED and iterative.**
 
@@ -952,7 +957,7 @@ For each comparison preserve:
 Do not tune one physical mechanism merely to compensate for error in another
 layer.
 
-### Future multi-site / portfolio layer
+## Future multi-site / portfolio layer
 
 **Status: PLANNED platform layer, not part of the current physics migration.**
 
@@ -971,12 +976,10 @@ Potential future capabilities:
 
 Do not treat multiple sites as one electrical plant.
 
-### Evidence required before future mechanisms are enabled
+## Evidence required before future mechanisms are enabled
 
 Future implementation should prefer explicit `unknown`, `unresolved`, or
 `not_applicable` states over guessed parameters.
-
-Examples of mechanism-specific evidence:
 
 | Mechanism | Minimum authoritative evidence before high-fidelity implementation |
 |---|---|
@@ -992,7 +995,7 @@ Examples of mechanism-specific evidence:
 
 Absence of evidence is not permission to infer a convenient default.
 
-### Definition of done for every future physical stage
+## Definition of done for every future physical stage
 
 A future stage is not complete merely because its implementation runs.
 
@@ -1032,7 +1035,7 @@ At minimum require:
 16. **Exact-main push CI** — only then mark the stage
     VALIDATED / MERGED / CLOSED.
 
-### Explicitly prohibited future shortcuts
+## Explicitly prohibited future shortcuts
 
 Unless a future architecture explicitly proves otherwise, do **not**:
 
@@ -1072,8 +1075,8 @@ Unless a future architecture explicitly proves otherwise, do **not**:
 - Treat exact commit SHA and exact CI checkout as part of the validation gate.
 - PR CI is not exact-main CI; after merge, verify the push workflow on the exact
   merge SHA.
-- Do not merge a PR merely because a Codex report says tests passed; inspect the
-  live repository independently.
+- Do not merge a PR merely because an implementation report says tests passed;
+  inspect the live repository independently.
 - Do not modify the frontend during backend-only physics increments.
 - Never generalize Bracon Ash-specific values to another site unless that
   site's own configuration establishes them.
