@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ModuleConfig(BaseModel):
@@ -82,6 +84,35 @@ class InverterConfig(BaseModel):
     grid_limit_kwac: float | None = None
 
 
+class DcBranchPathConfig(BaseModel):
+    """Explicit string-terminal to parent-MPPT DC branch authority.
+
+    ``series_resistance_ohm`` is the total lumped series loop resistance;
+    it is not a one-way or per-length value.
+    """
+
+    series_resistance_ohm: float
+    parameter_source: str
+    confidence: Literal["high", "medium", "low", "unknown"]
+
+    @field_validator("series_resistance_ohm", mode="before")
+    @classmethod
+    def validate_series_resistance(cls, value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError("series_resistance_ohm must be a real non-Boolean number")
+        resistance = float(value)
+        if not math.isfinite(resistance) or resistance < 0.0:
+            raise ValueError("series_resistance_ohm must be finite and non-negative")
+        return resistance
+
+    @field_validator("parameter_source", mode="before")
+    @classmethod
+    def validate_parameter_source(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("parameter_source must be a non-empty string")
+        return value
+
+
 class StringConfig(BaseModel):
     """One physical PV string in the electrical topology.
 
@@ -94,6 +125,7 @@ class StringConfig(BaseModel):
     modules_per_string: int = Field(gt=0)
     zone_id: str | None = None
     label: str | None = None
+    dc_branch_path: DcBranchPathConfig | None = None
 
 
 class MPPTConfig(BaseModel):
@@ -116,7 +148,7 @@ class InverterUnitConfig(BaseModel):
     mppts: list[MPPTConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_mppt_ids(self) -> "InverterUnitConfig":
+    def validate_unique_mppt_ids(self) -> InverterUnitConfig:
         mppt_ids = [mppt.id for mppt in self.mppts]
         if len(mppt_ids) != len(set(mppt_ids)):
             raise ValueError(f"Duplicate MPPT id within inverter '{self.id}'")
@@ -137,7 +169,7 @@ class ElectricalTopologyConfig(BaseModel):
     inverters: list[InverterUnitConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_ids(self) -> "ElectricalTopologyConfig":
+    def validate_unique_ids(self) -> ElectricalTopologyConfig:
         inverter_ids = [inverter.id for inverter in self.inverters]
         if len(inverter_ids) != len(set(inverter_ids)):
             raise ValueError("Duplicate inverter id in electrical topology")
