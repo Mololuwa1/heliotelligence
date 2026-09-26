@@ -86,6 +86,12 @@ def test_topology_preserves_physical_hierarchy_and_counts() -> None:
     assert topology.mppt_count == 3
     assert topology.string_count == 4
     assert topology.inverters[0].mppts[0].strings[0].zone_id == "ZONE-A"
+    assert all(
+        string.dc_branch_path is None
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    )
 
 
 def test_same_mppt_id_is_allowed_on_different_inverters() -> None:
@@ -134,3 +140,25 @@ def test_string_requires_positive_module_count() -> None:
 
     with pytest.raises(ValidationError, match="greater than 0"):
         _site(electrical_topology=topology)
+
+
+def test_dc_branch_path_survives_site_serialization_roundtrip() -> None:
+    topology = _topology()
+    first_inverter = topology["inverters"][0]  # type: ignore[index]
+    first_string = first_inverter["mppts"][0]["strings"][0]  # type: ignore[index]
+    first_string["dc_branch_path"] = {  # type: ignore[index]
+        "series_resistance_ohm": 0.42,
+        "parameter_source": "as_built_schedule:test",
+        "confidence": "high",
+    }
+    original = _site(electrical_topology=topology)
+
+    restored = SiteConfig.model_validate(original.model_dump())
+
+    assert restored == original
+    assert restored.electrical_topology is not None
+    branch = restored.electrical_topology.inverters[0].mppts[0].strings[0].dc_branch_path
+    assert branch is not None
+    assert branch.series_resistance_ohm == 0.42
+    assert branch.parameter_source == "as_built_schedule:test"
+    assert branch.confidence == "high"
