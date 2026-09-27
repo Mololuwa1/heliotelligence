@@ -441,6 +441,8 @@ def calculate_topology_mppt_input_string_iv(
 
 def calculate_topology_mppt_input_operating_points(
     topology: ElectricalTopologyConfig,
+    topology_string_iv: electrical.TopologyStringIVResult,
+    branch_authority: DcBranchPathAuthorityResult,
     mppt_input_string_iv: TopologyMpptInputStringIVResult,
 ) -> TopologyMpptInputOperatingPointResult:
     """Solve one common-voltage operating point per populated MPPT.
@@ -450,10 +452,10 @@ def calculate_topology_mppt_input_operating_points(
     resistance, loss percentage, inverter constraint, or conversion.
     """
 
-    ordered_strings = electrical._receiver_string_topology_rows(topology)
     states, curves = _admit_topology_mppt_input_string_iv(
         topology,
-        ordered_strings,
+        topology_string_iv,
+        branch_authority,
         mppt_input_string_iv,
     )
     timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
@@ -648,86 +650,73 @@ def calculate_topology_mppt_input_operating_points(
 
 def _admit_topology_mppt_input_string_iv(
     topology: ElectricalTopologyConfig,
-    ordered_strings: list[tuple[str, str, str]],
-    value: object,
+    topology_string_iv: electrical.TopologyStringIVResult,
+    branch_authority: DcBranchPathAuthorityResult,
+    supplied: object,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """Replay complete S8-3B authority before common-voltage physics."""
+    """Replay S8-3B and require exact identity before MPPT physics."""
 
-    if type(value) is not TopologyMpptInputStringIVResult:
+    if type(supplied) is not TopologyMpptInputStringIVResult:
         raise ValueError(
             "mppt_input_string_iv must be an exact TopologyMpptInputStringIVResult"
         )
-    if type(value.diagnostics) is not TopologyMpptInputStringIVDiagnostics:
+    if type(supplied.diagnostics) is not TopologyMpptInputStringIVDiagnostics:
         raise ValueError("MPPT-input string-I-V diagnostics type is invalid")
-    states = value.states
-    if not isinstance(states, pd.DataFrame) or not isinstance(states.index, pd.MultiIndex):
-        raise ValueError("MPPT-input string-I-V states must use a MultiIndex")
-    if states.index.nlevels != 2 or states.index.names != ["timestamp", "string_id"]:
-        raise ValueError("MPPT-input string-I-V index must be timestamp/string_id")
-    if tuple(states.columns) != _TRANSFORM_STATE_COLUMNS:
-        raise ValueError("MPPT-input string-I-V state schema is not canonical")
-    timestamp_values = states.index.get_level_values("timestamp")
-    if len(states) and (
-        not isinstance(timestamp_values, pd.DatetimeIndex) or timestamp_values.tz is None
-    ):
-        raise ValueError("MPPT-input string-I-V timestamps must be timezone-aware")
-    if timestamp_values.hasnans or states.index.has_duplicates:
-        raise ValueError("MPPT-input string-I-V state index contains NaT or duplicates")
-    timestamps = (
-        pd.DatetimeIndex(timestamp_values.unique()).sort_values()
-        if len(states)
-        else pd.DatetimeIndex([])
+    replayed = calculate_topology_mppt_input_string_iv(
+        topology,
+        topology_string_iv,
+        branch_authority,
     )
-    string_ids = [item[2] for item in ordered_strings]
-    expected_index = pd.MultiIndex.from_tuples(
-        [(timestamp, string_id) for timestamp in timestamps for string_id in string_ids],
-        names=["timestamp", "string_id"],
-    )
-    if len(states) != len(expected_index) or set(states.index) != set(expected_index):
-        raise ValueError("MPPT-input string-I-V states must contain the complete grid")
-    canonical = states.reindex(expected_index).copy(deep=True)
+    try:
+        pd.testing.assert_frame_equal(
+            supplied.states,
+            replayed.states,
+            check_exact=True,
+            check_like=False,
+        )
+    except AssertionError as error:
+        raise ValueError(
+            "supplied MPPT-input string-I-V states do not match canonical S8-3B replay"
+        ) from error
 
-    topology_identity = {
-        string.id: (inverter.id, mppt.id, string)
+    ordered_string_ids = [
+        string.id
         for inverter in topology.inverters
         for mppt in inverter.mppts
         for string in mppt.strings
-    }
-    transform_provenance = {
-        "dc_branch_path_contract": DC_BRANCH_PATH_CONTRACT_ID,
-        "dc_branch_path_model": DC_BRANCH_PATH_MODEL_ID,
-        "dc_branch_path_scope": DC_BRANCH_PATH_SCOPE,
-        "dc_branch_path_coverage_scope": DC_BRANCH_PATH_COVERAGE_SCOPE,
-        "dc_branch_iv_transform_contract": DC_BRANCH_IV_TRANSFORM_CONTRACT_ID,
-        "dc_branch_iv_transform_model": DC_BRANCH_IV_TRANSFORM_MODEL_ID,
-        "dc_branch_iv_transform_scope": DC_BRANCH_IV_TRANSFORM_SCOPE,
-        "dc_branch_iv_transform_coverage_scope": (
-            DC_BRANCH_IV_TRANSFORM_COVERAGE_SCOPE
-        ),
-    }
-    for (_, string_id), row in canonical.iterrows():
-        inverter_id, mppt_id, string = topology_identity[string_id]
-        if (row["inverter_id"], row["mppt_id"]) != (inverter_id, mppt_id):
-            raise ValueError("MPPT-input string-I-V topology ownership is stale")
-        electrical._replay_receiver_string_module_iv_state(row)
-        electrical._replay_topology_string_iv_state(row)
-        for column, expected in transform_provenance.items():
-            if row[column] != expected:
-                raise ValueError(f"MPPT-input string-I-V {column} provenance is invalid")
-        if row["source_reference_plane"] != STRING_TERMINAL_REFERENCE_PLANE:
-            raise ValueError("MPPT-input string-I-V source reference plane is invalid")
-        if row["sink_reference_plane"] != MPPT_INPUT_REFERENCE_PLANE:
-            raise ValueError("MPPT-input string-I-V sink reference plane is invalid")
-        _replay_mppt_input_string_state(row, string.dc_branch_path)
-
-    curves = _admit_mppt_input_curves(
-        string_ids,
-        timestamps,
-        canonical,
-        value.mppt_input_iv_curves_by_string_id,
+    ]
+    supplied_curves = supplied.mppt_input_iv_curves_by_string_id
+    replayed_curves = replayed.mppt_input_iv_curves_by_string_id
+    if (
+        not isinstance(supplied_curves, Mapping)
+        or list(supplied_curves) != ordered_string_ids
+        or list(replayed_curves) != ordered_string_ids
+    ):
+        raise ValueError("supplied MPPT-input curve identity or order is not canonical")
+    for string_id in ordered_string_ids:
+        try:
+            pd.testing.assert_frame_equal(
+                supplied_curves[string_id],
+                replayed_curves[string_id],
+                check_exact=True,
+                check_like=False,
+            )
+        except AssertionError as error:
+            raise ValueError(
+                f"supplied MPPT-input curve for {string_id!r} does not match "
+                "canonical S8-3B replay"
+            ) from error
+    if supplied.diagnostics != replayed.diagnostics:
+        raise ValueError(
+            "supplied MPPT-input string-I-V diagnostics do not match canonical replay"
+        )
+    return (
+        replayed.states.copy(deep=True),
+        {
+            string_id: replayed_curves[string_id].copy(deep=True)
+            for string_id in ordered_string_ids
+        },
     )
-    _replay_mppt_input_diagnostics(topology, canonical, curves, value.diagnostics)
-    return canonical, curves
 
 
 def _replay_mppt_input_string_state(row: pd.Series, configured_path: object) -> None:
