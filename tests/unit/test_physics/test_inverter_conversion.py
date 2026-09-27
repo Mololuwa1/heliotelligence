@@ -6,6 +6,7 @@ import importlib
 from dataclasses import replace
 from typing import Any
 
+import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import pvlib.inverter  # type: ignore[import-untyped]
 import pytest
@@ -98,6 +99,12 @@ def test_single_mppt_has_exact_scalar_parity() -> None:
     assert row["ac_to_dc_ratio"] == direct.iloc[0]["ac_to_dc_ratio"]
     assert row["at_ac_power_limit"] == direct.iloc[0]["at_ac_power_limit"]
     assert row["sandia_conversion_path"] == "sandia_single_mppt"
+    assert [
+        row["active_mppt_count"],
+        row["inactive_mppt_count"],
+        row["unresolved_mppt_count"],
+        row["violating_mppt_count"],
+    ] == [1, 0, 0, 0]
 
 
 def test_multi_mppt_exact_public_parity_preserves_distinct_voltages(
@@ -171,6 +178,12 @@ def test_all_zero_multi_mppt_applies_one_night_tare() -> None:
     assert row["p_dc_inverter_input_w"] == 0.0
     assert row["p_ac_available_w"] == -model.parameters.pnt_w
     assert row["inverter_conversion_state"] == "resolved_sandia_night_tare"
+    assert [
+        row["active_mppt_count"],
+        row["inactive_mppt_count"],
+        row["unresolved_mppt_count"],
+        row["violating_mppt_count"],
+    ] == [0, 2, 0, 0]
 
 
 @pytest.mark.parametrize(
@@ -188,6 +201,12 @@ def test_constraint_violation_blocks_conversion(voltage: float, current: float, 
     assert row["inverter_conversion_state"] == state
     assert pd.isna(row["p_ac_available_w"])
     assert row["sandia_conversion_path"] == "not_evaluated"
+    assert [
+        row["active_mppt_count"],
+        row["inactive_mppt_count"],
+        row["unresolved_mppt_count"],
+        row["violating_mppt_count"],
+    ] == [0, 0, 0, 1]
 
 
 def test_missing_multi_tracker_authority_blocks_conversion() -> None:
@@ -196,6 +215,48 @@ def test_missing_multi_tracker_authority_blocks_conversion() -> None:
     assert row["inverter_conversion_state"] == "unresolved_member_dc_envelope"
     assert row["unresolved_mppt_count"] == 2
     assert pd.isna(row["p_ac_available_w"])
+    assert [
+        row["active_mppt_count"],
+        row["inactive_mppt_count"],
+        row["unresolved_mppt_count"],
+        row["violating_mppt_count"],
+    ] == [0, 0, 2, 0]
+
+
+@pytest.mark.parametrize(
+    ("mppts", "voltage", "current", "zero", "with_limits"),
+    [
+        (("mppt-1",), 360.0, 10.0, False, False),
+        (("mppt-1",), 601.0, 10.0, False, False),
+        (("mppt-1",), 360.0, 33.0, False, False),
+        (("mppt-1", "mppt-2"), 360.0, 10.0, True, False),
+        (("mppt-1", "mppt-2"), 360.0, 10.0, False, False),
+        (("mppt-1", "mppt-2"), 360.0, 10.0, False, True),
+    ],
+)
+def test_mppt_classification_counts_close_for_every_returned_row(
+    mppts: tuple[str, ...],
+    voltage: float,
+    current: float,
+    zero: bool,
+    with_limits: bool,
+) -> None:
+    topology = s91_support._topology(mppts)
+    limits = _multi_limits(topology) if with_limits else None
+    result = _run(
+        topology,
+        _inputs(topology, voltage=voltage, current=current, zero=zero, limits=limits),
+    )
+    for _, row in result.operating_points.iterrows():
+        counts = [
+            row["active_mppt_count"],
+            row["inactive_mppt_count"],
+            row["unresolved_mppt_count"],
+            row["violating_mppt_count"],
+        ]
+        assert all(isinstance(value, (int, np.integer)) for value in counts)
+        assert all(value >= 0 for value in counts)
+        assert sum(counts) == row["populated_mppt_count"]
 
 
 def test_repeated_mppt_ids_and_one_bad_inverter_remain_independent() -> None:

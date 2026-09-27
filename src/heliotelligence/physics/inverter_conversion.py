@@ -155,17 +155,21 @@ def calculate_topology_sandia_inverter_ac(
     for timestamp in timestamps:
         for inverter, mppts in represented:
             rows = [envelope.loc[(timestamp, inverter.id, mppt.id)] for mppt in mppts]
-            unresolved = [
-                mppt.id
-                for mppt, row in zip(mppts, rows, strict=True)
-                if not bool(row["dc_envelope_resolved"])
-            ]
-            violating = [
-                mppt.id
-                for mppt, row in zip(mppts, rows, strict=True)
-                if bool(row["dc_envelope_resolved"]) and not bool(row["dc_limits_satisfied"])
-            ]
-            active = sum(bool(row["is_active_dc_input"]) for row in rows)
+            unresolved: list[str] = []
+            violating: list[str] = []
+            active = 0
+            inactive = 0
+            for mppt, row in zip(mppts, rows, strict=True):
+                if not bool(row["dc_envelope_resolved"]):
+                    unresolved.append(mppt.id)
+                    continue
+                if not bool(row["dc_limits_satisfied"]):
+                    violating.append(mppt.id)
+                    continue
+                if bool(row["is_active_dc_input"]):
+                    active += 1
+                else:
+                    inactive += 1
             numeric = {
                 "p_dc_inverter_input_w": np.nan,
                 "p_ac_available_w": np.nan,
@@ -190,7 +194,7 @@ def calculate_topology_sandia_inverter_ac(
                     "configured_mppt_count": len(inverter.mppts),
                     "populated_mppt_count": len(mppts),
                     "active_mppt_count": active,
-                    "inactive_mppt_count": len(mppts) - active - len(unresolved) - len(violating),
+                    "inactive_mppt_count": inactive,
                     "unresolved_mppt_count": len(unresolved),
                     "violating_mppt_count": len(violating),
                     "unresolved_mppt_ids": ",".join(unresolved),
@@ -455,6 +459,22 @@ def _validate_result(
     ):
         raise RuntimeError("S9-2 output grid does not close")
     for (_, inverter_id), row in output.iterrows():
+        count_columns = (
+            "active_mppt_count",
+            "inactive_mppt_count",
+            "unresolved_mppt_count",
+            "violating_mppt_count",
+        )
+        counts: list[int] = []
+        for column in count_columns:
+            value = row[column]
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+                raise RuntimeError(f"S9-2 {column} must be an integer")
+            if value < 0:
+                raise RuntimeError(f"S9-2 {column} must be non-negative")
+            counts.append(int(value))
+        if sum(counts) != int(row["populated_mppt_count"]):
+            raise RuntimeError("S9-2 MPPT classification counts do not close")
         if (
             row["source_reference_plane"] != MPPT_INPUT_REFERENCE_PLANE
             or row["sink_reference_plane"] != INVERTER_AC_OUTPUT_REFERENCE_PLANE
