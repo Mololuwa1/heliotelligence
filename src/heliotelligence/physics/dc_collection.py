@@ -1,17 +1,11 @@
-"""Static DC branch-path and electrical reference-plane authority.
+"""Canonical DC collection authority and reference-plane physics.
 
 This module admits explicit total loop resistance from each physical string's
 ``string_terminal`` reference plane to its configured parent ``mppt_input``
-reference plane.  It deliberately performs no I-squared-R loss calculation,
-voltage-drop calculation, I-V transformation, MPPT solve, or inverter physics.
-
-The next physical stage must consume both ``TopologyStringIVResult`` and
-``DcBranchPathAuthorityResult``, transform each string I-V curve from
-``string_terminal`` to ``mppt_input``, and only then solve the shared MPPT
-operating point.  A naive ``V_mppt = V_string - I * R`` transform can produce
-negative voltage at low-voltage/high-current points.  That future stage must
-define the physical domain and interpolation/crossing treatment explicitly;
-it must not silently clamp negative voltage to zero.
+reference plane.  S8-3A admits that static authority, S8-3B transforms each
+physical string I-V curve to ``mppt_input``, and S8-3C solves the common-voltage
+parallel operating point at that sink plane.  Shared feeders, inverter limits,
+conversion, and production-pipeline integration remain outside this module.
 """
 
 from __future__ import annotations
@@ -41,6 +35,17 @@ DC_BRANCH_IV_TRANSFORM_SCOPE = (
 )
 DC_BRANCH_IV_TRANSFORM_COVERAGE_SCOPE = (
     "explicit_direct_string_branch_series_resistance"
+)
+
+MPPT_INPUT_COMMON_VOLTAGE_CONTRACT_ID = (
+    "mppt_input_string_iv_to_common_voltage_mppt_v1"
+)
+MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID = "iv_consistent_common_voltage_mppt_input_v1"
+MPPT_INPUT_COMMON_VOLTAGE_SCOPE = (
+    "mppt_input_common_voltage_dc_operating_point_before_inverter_envelope"
+)
+MPPT_INPUT_COMMON_VOLTAGE_COVERAGE_SCOPE = (
+    "explicit_parallel_strings_after_direct_branch_resistance"
 )
 
 _PATH_COLUMNS = (
@@ -76,6 +81,33 @@ _TRANSFORM_STATE_COLUMNS = (
     "dc_branch_iv_transform_model",
     "dc_branch_iv_transform_scope",
     "dc_branch_iv_transform_coverage_scope",
+)
+
+_MPPT_INPUT_OPERATING_POINT_COLUMNS = (
+    "configured_string_count",
+    "active_string_count",
+    "zero_string_count",
+    "unresolved_string_count",
+    "unresolved_string_ids",
+    "unresolved_string_states",
+    "v_mppt_input_v",
+    "i_mppt_input_a",
+    "p_mppt_input_w",
+    "p_independent_mppt_input_w",
+    "p_mppt_input_mismatch_w",
+    "mppt_input_mismatch_pct",
+    "mppt_input_resolved",
+    "mppt_input_state",
+    "source_reference_plane",
+    "sink_reference_plane",
+    "dc_branch_iv_transform_contract",
+    "dc_branch_iv_transform_model",
+    "dc_branch_iv_transform_scope",
+    "dc_branch_iv_transform_coverage_scope",
+    "mppt_input_common_voltage_contract",
+    "mppt_input_common_voltage_model",
+    "mppt_input_common_voltage_scope",
+    "mppt_input_common_voltage_coverage_scope",
 )
 
 
@@ -128,6 +160,36 @@ class TopologyMpptInputStringIVResult:
     mppt_input_iv_curves_by_string_id: Mapping[str, pd.DataFrame]
     states: pd.DataFrame
     diagnostics: TopologyMpptInputStringIVDiagnostics
+
+
+@dataclass(frozen=True)
+class TopologyMpptInputOperatingPointDiagnostics:
+    """Deterministic summary of MPPT-input common-voltage aggregation."""
+
+    inverter_count: int
+    mppt_count: int
+    populated_mppt_count: int
+    empty_mppt_count: int
+    string_count: int
+    timestamp_count: int
+    state_row_count: int
+    resolved_mppt_state_count: int
+    unresolved_mppt_state_count: int
+    active_mppt_state_count: int
+    zero_mppt_state_count: int
+    upstream_unresolved_mppt_state_count: int
+    mixed_active_zero_unavailable_count: int
+    physics_row_count: int
+    physics_call_count: int
+    common_voltage_model: str
+
+
+@dataclass(frozen=True)
+class TopologyMpptInputOperatingPointResult:
+    """Per-MPPT operating points expressed at the MPPT-input plane."""
+
+    operating_points: pd.DataFrame
+    diagnostics: TopologyMpptInputOperatingPointDiagnostics
 
 
 def _empty_paths() -> pd.DataFrame:
@@ -375,6 +437,639 @@ def calculate_topology_mppt_input_string_iv(
         states=output_states.loc[:, _TRANSFORM_STATE_COLUMNS],
         diagnostics=diagnostics,
     )
+
+
+def calculate_topology_mppt_input_operating_points(
+    topology: ElectricalTopologyConfig,
+    topology_string_iv: electrical.TopologyStringIVResult,
+    branch_authority: DcBranchPathAuthorityResult,
+    mppt_input_string_iv: TopologyMpptInputStringIVResult,
+) -> TopologyMpptInputOperatingPointResult:
+    """Solve one common-voltage operating point per populated MPPT.
+
+    Input curves already include the direct branch-resistance transform and
+    are expressed at ``mppt_input``.  This function applies no additional
+    resistance, loss percentage, inverter constraint, or conversion.
+    """
+
+    states, curves = _admit_topology_mppt_input_string_iv(
+        topology,
+        topology_string_iv,
+        branch_authority,
+        mppt_input_string_iv,
+    )
+    timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
+    populated_mppts = [
+        (inverter.id, mppt.id, [string.id for string in mppt.strings])
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        if mppt.strings
+    ]
+    empty_mppt_count = sum(
+        not mppt.strings for inverter in topology.inverters for mppt in inverter.mppts
+    )
+    records: list[dict[str, object]] = []
+    keys: list[tuple[pd.Timestamp, str, str]] = []
+    active_timestamps_by_mppt: dict[tuple[str, str], list[pd.Timestamp]] = {
+        (inverter_id, mppt_id): []
+        for inverter_id, mppt_id, _ in populated_mppts
+    }
+
+    for timestamp in timestamps:
+        for inverter_id, mppt_id, string_ids in populated_mppts:
+            rows = [states.loc[(timestamp, string_id)] for string_id in string_ids]
+            member_states = [str(row["mppt_input_iv_state"]) for row in rows]
+            unresolved_ids = [
+                string_id
+                for string_id, row in zip(string_ids, rows, strict=True)
+                if not bool(row["mppt_input_iv_resolved"])
+            ]
+            unresolved_states = sorted(
+                {
+                    state
+                    for state in member_states
+                    if state
+                    not in {
+                        "resolved_zero_resistance_identity",
+                        "resolved_resistive_branch_iv",
+                        "resolved_zero_string_iv",
+                    }
+                }
+            )
+            active_count = sum(
+                state
+                in {"resolved_zero_resistance_identity", "resolved_resistive_branch_iv"}
+                for state in member_states
+            )
+            zero_count = member_states.count("resolved_zero_string_iv")
+            unresolved_count = len(unresolved_ids)
+            numeric = {
+                "v_mppt_input_v": np.nan,
+                "i_mppt_input_a": np.nan,
+                "p_mppt_input_w": np.nan,
+                "p_independent_mppt_input_w": np.nan,
+                "p_mppt_input_mismatch_w": np.nan,
+                "mppt_input_mismatch_pct": np.nan,
+            }
+            if unresolved_count:
+                resolved = False
+                state = "unresolved_member_mppt_input_iv"
+            elif active_count and zero_count:
+                resolved = False
+                state = "unresolved_mixed_active_zero_requires_blocking_model"
+            elif zero_count == len(string_ids):
+                resolved = True
+                state = "resolved_zero_mppt_input_common_voltage"
+                numeric = {name: 0.0 for name in numeric}
+            else:
+                resolved = True
+                state = "resolved_mppt_input_common_voltage"
+                active_timestamps_by_mppt[(inverter_id, mppt_id)].append(timestamp)
+
+            keys.append((timestamp, inverter_id, mppt_id))
+            records.append(
+                {
+                    "configured_string_count": len(string_ids),
+                    "active_string_count": active_count,
+                    "zero_string_count": zero_count,
+                    "unresolved_string_count": unresolved_count,
+                    "unresolved_string_ids": ",".join(unresolved_ids),
+                    "unresolved_string_states": ",".join(unresolved_states),
+                    **numeric,
+                    "mppt_input_resolved": resolved,
+                    "mppt_input_state": state,
+                    "source_reference_plane": STRING_TERMINAL_REFERENCE_PLANE,
+                    "sink_reference_plane": MPPT_INPUT_REFERENCE_PLANE,
+                    "dc_branch_iv_transform_contract": DC_BRANCH_IV_TRANSFORM_CONTRACT_ID,
+                    "dc_branch_iv_transform_model": DC_BRANCH_IV_TRANSFORM_MODEL_ID,
+                    "dc_branch_iv_transform_scope": DC_BRANCH_IV_TRANSFORM_SCOPE,
+                    "dc_branch_iv_transform_coverage_scope": (
+                        DC_BRANCH_IV_TRANSFORM_COVERAGE_SCOPE
+                    ),
+                    "mppt_input_common_voltage_contract": (
+                        MPPT_INPUT_COMMON_VOLTAGE_CONTRACT_ID
+                    ),
+                    "mppt_input_common_voltage_model": (
+                        MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID
+                    ),
+                    "mppt_input_common_voltage_scope": MPPT_INPUT_COMMON_VOLTAGE_SCOPE,
+                    "mppt_input_common_voltage_coverage_scope": (
+                        MPPT_INPUT_COMMON_VOLTAGE_COVERAGE_SCOPE
+                    ),
+                }
+            )
+
+    output = pd.DataFrame(
+        records,
+        index=pd.MultiIndex.from_tuples(
+            keys, names=["timestamp", "inverter_id", "mppt_id"]
+        ),
+        columns=_MPPT_INPUT_OPERATING_POINT_COLUMNS,
+    )
+    physics_calls = 0
+    physics_rows = 0
+    for inverter_id, mppt_id, string_ids in populated_mppts:
+        active_timestamps = active_timestamps_by_mppt[(inverter_id, mppt_id)]
+        if not active_timestamps:
+            continue
+        submitted = [
+            curves[string_id].loc[
+                curves[string_id]["timestamp"].isin(active_timestamps)
+            ].copy(deep=True)
+            for string_id in string_ids
+        ]
+        physics = electrical.calculate_physical_mismatch(submitted)
+        electrical._validate_s8_mppt_physics(
+            physics,
+            active_timestamps,
+            len(string_ids),
+        )
+        physics_calls += 1
+        physics_rows += len(active_timestamps)
+        physics_by_timestamp = physics.set_index("timestamp")
+        for timestamp in active_timestamps:
+            result = physics_by_timestamp.loc[timestamp]
+            output.loc[
+                (timestamp, inverter_id, mppt_id),
+                [
+                    "v_mppt_input_v",
+                    "i_mppt_input_a",
+                    "p_mppt_input_w",
+                    "p_independent_mppt_input_w",
+                    "p_mppt_input_mismatch_w",
+                    "mppt_input_mismatch_pct",
+                ],
+            ] = result[
+                [
+                    "v_common_mppt_v",
+                    "i_common_mppt_a",
+                    "p_common_mppt_w",
+                    "p_independent_mp_w",
+                    "p_mismatch_w",
+                    "mismatch_pct",
+                ]
+            ].to_numpy(dtype=float)
+
+    resolved_count = int(output["mppt_input_resolved"].sum()) if len(output) else 0
+    active_count = int(
+        (output["mppt_input_state"] == "resolved_mppt_input_common_voltage").sum()
+    )
+    zero_count = int(
+        (output["mppt_input_state"] == "resolved_zero_mppt_input_common_voltage").sum()
+    )
+    member_unresolved = int(
+        (output["mppt_input_state"] == "unresolved_member_mppt_input_iv").sum()
+    )
+    mixed_unavailable = int(
+        (
+            output["mppt_input_state"]
+            == "unresolved_mixed_active_zero_requires_blocking_model"
+        ).sum()
+    )
+    diagnostics = TopologyMpptInputOperatingPointDiagnostics(
+        inverter_count=topology.inverter_count,
+        mppt_count=topology.mppt_count,
+        populated_mppt_count=len(populated_mppts),
+        empty_mppt_count=empty_mppt_count,
+        string_count=topology.string_count,
+        timestamp_count=len(timestamps),
+        state_row_count=len(output),
+        resolved_mppt_state_count=resolved_count,
+        unresolved_mppt_state_count=len(output) - resolved_count,
+        active_mppt_state_count=active_count,
+        zero_mppt_state_count=zero_count,
+        upstream_unresolved_mppt_state_count=member_unresolved,
+        mixed_active_zero_unavailable_count=mixed_unavailable,
+        physics_row_count=physics_rows,
+        physics_call_count=physics_calls,
+        common_voltage_model=MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID,
+    )
+    _validate_mppt_input_operating_point_result(output, diagnostics)
+    return TopologyMpptInputOperatingPointResult(output, diagnostics)
+
+
+def _admit_topology_mppt_input_string_iv(
+    topology: ElectricalTopologyConfig,
+    topology_string_iv: electrical.TopologyStringIVResult,
+    branch_authority: DcBranchPathAuthorityResult,
+    supplied: object,
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Replay S8-3B and require exact identity before MPPT physics."""
+
+    if type(supplied) is not TopologyMpptInputStringIVResult:
+        raise ValueError(
+            "mppt_input_string_iv must be an exact TopologyMpptInputStringIVResult"
+        )
+    if type(supplied.diagnostics) is not TopologyMpptInputStringIVDiagnostics:
+        raise ValueError("MPPT-input string-I-V diagnostics type is invalid")
+    replayed = calculate_topology_mppt_input_string_iv(
+        topology,
+        topology_string_iv,
+        branch_authority,
+    )
+    try:
+        pd.testing.assert_frame_equal(
+            supplied.states,
+            replayed.states,
+            check_exact=True,
+            check_like=False,
+        )
+    except AssertionError as error:
+        raise ValueError(
+            "supplied MPPT-input string-I-V states do not match canonical S8-3B replay"
+        ) from error
+
+    ordered_string_ids = [
+        string.id
+        for inverter in topology.inverters
+        for mppt in inverter.mppts
+        for string in mppt.strings
+    ]
+    supplied_curves = supplied.mppt_input_iv_curves_by_string_id
+    replayed_curves = replayed.mppt_input_iv_curves_by_string_id
+    if (
+        not isinstance(supplied_curves, Mapping)
+        or list(supplied_curves) != ordered_string_ids
+        or list(replayed_curves) != ordered_string_ids
+    ):
+        raise ValueError("supplied MPPT-input curve identity or order is not canonical")
+    for string_id in ordered_string_ids:
+        try:
+            pd.testing.assert_frame_equal(
+                supplied_curves[string_id],
+                replayed_curves[string_id],
+                check_exact=True,
+                check_like=False,
+            )
+        except AssertionError as error:
+            raise ValueError(
+                f"supplied MPPT-input curve for {string_id!r} does not match "
+                "canonical S8-3B replay"
+            ) from error
+    if supplied.diagnostics != replayed.diagnostics:
+        raise ValueError(
+            "supplied MPPT-input string-I-V diagnostics do not match canonical replay"
+        )
+    return (
+        replayed.states.copy(deep=True),
+        {
+            string_id: replayed_curves[string_id].copy(deep=True)
+            for string_id in ordered_string_ids
+        },
+    )
+
+
+def _replay_mppt_input_string_state(row: pd.Series, configured_path: object) -> None:
+    upstream_resolved = electrical._handoff_bool(
+        row["string_iv_resolved"], "string_iv_resolved"
+    )
+    output_resolved = electrical._handoff_bool(
+        row["mppt_input_iv_resolved"], "mppt_input_iv_resolved"
+    )
+    path_resolved = electrical._handoff_bool(
+        row["dc_branch_path_resolved"], "dc_branch_path_resolved"
+    )
+    output_state = row["mppt_input_iv_state"]
+    upstream_state = row["string_iv_state"]
+
+    if configured_path is None:
+        expected_path = (False, "unresolved_no_explicit_dc_branch_path", "", "unknown")
+        if not pd.isna(row["series_resistance_ohm"]):
+            raise ValueError("missing branch resistance must remain NaN")
+    else:
+        expected_path = (
+            True,
+            "resolved_explicit_series_loop_resistance",
+            configured_path.parameter_source,
+            configured_path.confidence,
+        )
+        resistance = _nonnegative_finite(
+            row["series_resistance_ohm"], "series_resistance_ohm"
+        )
+        if resistance != configured_path.series_resistance_ohm:
+            raise ValueError("MPPT-input branch resistance is stale")
+    if (
+        path_resolved,
+        row["dc_branch_path_state"],
+        row["parameter_source"],
+        row["confidence"],
+    ) != expected_path:
+        raise ValueError("MPPT-input branch authority state is contradictory")
+
+    if not upstream_resolved:
+        expected_output = (False, upstream_state)
+    elif not path_resolved:
+        expected_output = (False, "unresolved_no_explicit_dc_branch_path")
+    elif upstream_state == "resolved_zero_string_iv":
+        expected_output = (True, "resolved_zero_string_iv")
+    else:
+        resistance = float(row["series_resistance_ohm"])
+        if resistance == 0.0:
+            expected_output = (True, "resolved_zero_resistance_identity")
+        elif output_state == "unresolved_no_nonnegative_mppt_input_voltage_domain":
+            expected_output = (False, output_state)
+        else:
+            expected_output = (True, "resolved_resistive_branch_iv")
+    if (output_resolved, output_state) != expected_output:
+        raise ValueError("MPPT-input string-I-V resolution state is contradictory")
+
+
+def _admit_mppt_input_curves(
+    string_ids: list[str],
+    timestamps: pd.DatetimeIndex,
+    states: pd.DataFrame,
+    supplied: object,
+) -> dict[str, pd.DataFrame]:
+    if not isinstance(supplied, Mapping) or set(supplied) != set(string_ids):
+        raise ValueError("MPPT-input curve keys must exactly match topology")
+    canonical: dict[str, pd.DataFrame] = {}
+    for string_id in string_ids:
+        value = supplied[string_id]
+        if not isinstance(value, pd.DataFrame) or tuple(value.columns) != tuple(
+            electrical._IV_CURVE_COLUMNS
+        ):
+            raise ValueError("MPPT-input curve schema is not canonical")
+        curve = value.copy(deep=True)
+        if len(curve):
+            curve_timestamps = pd.DatetimeIndex(curve["timestamp"])
+            if curve_timestamps.tz is None or curve_timestamps.hasnans:
+                raise ValueError("MPPT-input curve timestamps are invalid")
+            if str(curve_timestamps.tz) != str(timestamps.tz):
+                raise ValueError("MPPT-input curve timezone is inconsistent")
+            if not set(curve_timestamps).issubset(set(timestamps)):
+                raise ValueError("MPPT-input curve contains an unexpected timestamp")
+        curve = curve.sort_values(["timestamp", "curve_point"], kind="stable").reset_index(
+            drop=True
+        )
+        if curve.duplicated(["timestamp", "curve_point"]).any():
+            raise ValueError("MPPT-input curve contains duplicate points")
+        for timestamp in timestamps:
+            state = states.loc[(timestamp, string_id)]
+            rows = curve.loc[curve["timestamp"].eq(timestamp)]
+            resolved = bool(state["mppt_input_iv_resolved"])
+            if resolved != bool(len(rows)):
+                raise ValueError("MPPT-input curve/state resolution does not close")
+            if len(rows) and rows["curve_point"].tolist() != list(range(len(rows))):
+                raise ValueError("MPPT-input curve-point grid is not canonical")
+            for _, point in rows.iterrows():
+                values = {
+                    name: electrical._handoff_finite(point[name], f"MPPT-input {name}")
+                    for name in (
+                        "voltage_v",
+                        "current_a",
+                        "power_w",
+                        "effective_irradiance_wm2",
+                    )
+                }
+                if any(
+                    value < -electrical._NUMERICAL_NEGATIVE_TOLERANCE
+                    for value in values.values()
+                ):
+                    raise ValueError("MPPT-input curve values must be non-negative")
+                if not electrical._handoff_close(
+                    values["power_w"], values["voltage_v"] * values["current_a"]
+                ):
+                    raise ValueError("MPPT-input curve power closure failed")
+                if not electrical._handoff_close(
+                    values["effective_irradiance_wm2"],
+                    float(state["spectral_electrical_equivalent_irradiance_wm2"]),
+                ):
+                    raise ValueError("MPPT-input curve irradiance is stale")
+                if (
+                    point["tier_used"] != state["tier_used"]
+                    or point["fit_quality"] != state["fit_quality"]
+                ):
+                    raise ValueError("MPPT-input curve module identity is stale")
+            if state["mppt_input_iv_state"] == "resolved_zero_string_iv" and len(rows):
+                if not rows[
+                    ["voltage_v", "current_a", "power_w", "effective_irradiance_wm2"]
+                ].eq(0.0).all().all():
+                    raise ValueError("resolved zero MPPT-input curve must be exact zero")
+            elif state["mppt_input_iv_state"] in {
+                "resolved_zero_resistance_identity",
+                "resolved_resistive_branch_iv",
+            }:
+                electrical._validated_common_mppt_curve(curve, timestamp, 0)
+                if (
+                    float(rows["current_a"].max()) <= 0.0
+                    or float(rows["power_w"].max()) <= 0.0
+                ):
+                    raise ValueError("resolved MPPT-input curve must contain positive power")
+        canonical[string_id] = curve.loc[:, electrical._IV_CURVE_COLUMNS]
+    return canonical
+
+
+def _replay_mppt_input_diagnostics(
+    topology: ElectricalTopologyConfig,
+    states: pd.DataFrame,
+    curves: Mapping[str, pd.DataFrame],
+    diagnostics: TopologyMpptInputStringIVDiagnostics,
+) -> None:
+    names = (
+        "inverter_count",
+        "mppt_count",
+        "string_count",
+        "timestamp_count",
+        "state_row_count",
+        "resolved_state_count",
+        "unresolved_state_count",
+        "zero_string_state_count",
+        "zero_resistance_identity_state_count",
+        "positive_resistance_transform_state_count",
+        "missing_authority_state_count",
+        "upstream_unresolved_state_count",
+        "no_nonnegative_domain_state_count",
+        "input_curve_row_count",
+        "output_curve_row_count",
+        "inserted_zero_crossing_count",
+        "transformed_string_count",
+    )
+    counts = {
+        name: _nonnegative_integer(getattr(diagnostics, name), name) for name in names
+    }
+    state_counts = states["mppt_input_iv_state"].value_counts()
+    resolved = int(states["mppt_input_iv_resolved"].sum()) if len(states) else 0
+    timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
+    transformed_strings = len(
+        set(
+            states.loc[states["mppt_input_iv_resolved"]]
+            .index.get_level_values("string_id")
+        )
+    )
+    expected = (
+        topology.inverter_count,
+        topology.mppt_count,
+        topology.string_count,
+        len(timestamps),
+        len(states),
+        resolved,
+        len(states) - resolved,
+        int(state_counts.get("resolved_zero_string_iv", 0)),
+        int(state_counts.get("resolved_zero_resistance_identity", 0)),
+        int(state_counts.get("resolved_resistive_branch_iv", 0)),
+        int(state_counts.get("unresolved_no_explicit_dc_branch_path", 0)),
+        int((~states["string_iv_resolved"]).sum()) if len(states) else 0,
+        int(state_counts.get("unresolved_no_nonnegative_mppt_input_voltage_domain", 0)),
+        sum(len(curve) for curve in curves.values()),
+        transformed_strings,
+        DC_BRANCH_IV_TRANSFORM_MODEL_ID,
+    )
+    actual = (
+        counts["inverter_count"],
+        counts["mppt_count"],
+        counts["string_count"],
+        counts["timestamp_count"],
+        counts["state_row_count"],
+        counts["resolved_state_count"],
+        counts["unresolved_state_count"],
+        counts["zero_string_state_count"],
+        counts["zero_resistance_identity_state_count"],
+        counts["positive_resistance_transform_state_count"],
+        counts["missing_authority_state_count"],
+        counts["upstream_unresolved_state_count"],
+        counts["no_nonnegative_domain_state_count"],
+        counts["output_curve_row_count"],
+        counts["transformed_string_count"],
+        diagnostics.transformation_model,
+    )
+    if actual != expected:
+        raise ValueError("MPPT-input string-I-V diagnostics are stale")
+    if (
+        counts["input_curve_row_count"]
+        < counts["output_curve_row_count"] - counts["inserted_zero_crossing_count"]
+        or counts["inserted_zero_crossing_count"]
+        > counts["positive_resistance_transform_state_count"]
+    ):
+        raise ValueError("MPPT-input transform diagnostic counts are impossible")
+
+
+def _validate_mppt_input_operating_point_result(
+    output: pd.DataFrame,
+    diagnostics: TopologyMpptInputOperatingPointDiagnostics,
+) -> None:
+    if tuple(output.columns) != _MPPT_INPUT_OPERATING_POINT_COLUMNS:
+        raise RuntimeError("MPPT-input operating-point schema is invalid")
+    if not isinstance(output.index, pd.MultiIndex) or output.index.names != [
+        "timestamp",
+        "inverter_id",
+        "mppt_id",
+    ]:
+        raise RuntimeError("MPPT-input operating-point index is invalid")
+    if output.index.has_duplicates:
+        raise RuntimeError("MPPT-input operating-point index contains duplicates")
+    if diagnostics.mppt_count != diagnostics.populated_mppt_count + diagnostics.empty_mppt_count:
+        raise RuntimeError("MPPT-input population counts do not close")
+    if diagnostics.state_row_count != (
+        diagnostics.resolved_mppt_state_count + diagnostics.unresolved_mppt_state_count
+    ):
+        raise RuntimeError("MPPT-input resolution counts do not close")
+    if diagnostics.resolved_mppt_state_count != (
+        diagnostics.active_mppt_state_count + diagnostics.zero_mppt_state_count
+    ):
+        raise RuntimeError("resolved MPPT-input counts do not close")
+    if diagnostics.unresolved_mppt_state_count != (
+        diagnostics.upstream_unresolved_mppt_state_count
+        + diagnostics.mixed_active_zero_unavailable_count
+    ):
+        raise RuntimeError("unresolved MPPT-input counts do not close")
+    if diagnostics.physics_row_count != diagnostics.active_mppt_state_count:
+        raise RuntimeError("MPPT-input physics row counts do not close")
+    if diagnostics.state_row_count != (
+        diagnostics.timestamp_count * diagnostics.populated_mppt_count
+    ):
+        raise RuntimeError("MPPT-input output grid does not close")
+    if diagnostics.physics_call_count > diagnostics.populated_mppt_count:
+        raise RuntimeError("MPPT-input physics call count is invalid")
+    if diagnostics.common_voltage_model != MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID:
+        raise RuntimeError("MPPT-input common-voltage model is invalid")
+    numeric_columns = (
+        "v_mppt_input_v",
+        "i_mppt_input_a",
+        "p_mppt_input_w",
+        "p_independent_mppt_input_w",
+        "p_mppt_input_mismatch_w",
+        "mppt_input_mismatch_pct",
+    )
+    provenance = {
+        "source_reference_plane": STRING_TERMINAL_REFERENCE_PLANE,
+        "sink_reference_plane": MPPT_INPUT_REFERENCE_PLANE,
+        "dc_branch_iv_transform_contract": DC_BRANCH_IV_TRANSFORM_CONTRACT_ID,
+        "dc_branch_iv_transform_model": DC_BRANCH_IV_TRANSFORM_MODEL_ID,
+        "dc_branch_iv_transform_scope": DC_BRANCH_IV_TRANSFORM_SCOPE,
+        "dc_branch_iv_transform_coverage_scope": (
+            DC_BRANCH_IV_TRANSFORM_COVERAGE_SCOPE
+        ),
+        "mppt_input_common_voltage_contract": (
+            MPPT_INPUT_COMMON_VOLTAGE_CONTRACT_ID
+        ),
+        "mppt_input_common_voltage_model": MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID,
+        "mppt_input_common_voltage_scope": MPPT_INPUT_COMMON_VOLTAGE_SCOPE,
+        "mppt_input_common_voltage_coverage_scope": (
+            MPPT_INPUT_COMMON_VOLTAGE_COVERAGE_SCOPE
+        ),
+    }
+    state_resolution = {
+        "resolved_mppt_input_common_voltage": True,
+        "resolved_zero_mppt_input_common_voltage": True,
+        "unresolved_member_mppt_input_iv": False,
+        "unresolved_mixed_active_zero_requires_blocking_model": False,
+    }
+    for _, row in output.iterrows():
+        for column, expected in provenance.items():
+            if row[column] != expected:
+                raise RuntimeError(f"MPPT-input {column} provenance is invalid")
+        if row["configured_string_count"] != (
+            row["active_string_count"]
+            + row["zero_string_count"]
+            + row["unresolved_string_count"]
+        ):
+            raise RuntimeError("MPPT-input classification counts do not close")
+        resolved = electrical._handoff_bool(
+            row["mppt_input_resolved"], "mppt_input_resolved"
+        )
+        state = row["mppt_input_state"]
+        if state not in state_resolution or resolved is not state_resolution[state]:
+            raise RuntimeError("MPPT-input operating-point state is contradictory")
+        if resolved:
+            values = {
+                column: _nonnegative_finite(row[column], column)
+                for column in numeric_columns
+            }
+            if not electrical._handoff_close(
+                values["p_mppt_input_w"],
+                values["v_mppt_input_v"] * values["i_mppt_input_a"],
+            ):
+                raise RuntimeError("MPPT-input common power closure failed")
+            if not electrical._handoff_close(
+                values["p_mppt_input_mismatch_w"],
+                values["p_independent_mppt_input_w"] - values["p_mppt_input_w"],
+            ):
+                raise RuntimeError("MPPT-input mismatch closure failed")
+            if (
+                values["p_mppt_input_w"]
+                > values["p_independent_mppt_input_w"]
+                + electrical._NUMERICAL_NEGATIVE_TOLERANCE
+            ):
+                raise RuntimeError("MPPT-input common power exceeds independent power")
+            expected_pct = (
+                100.0
+                * values["p_mppt_input_mismatch_w"]
+                / values["p_independent_mppt_input_w"]
+                if values["p_independent_mppt_input_w"] > 0.0
+                else 0.0
+            )
+            if not electrical._handoff_close(
+                values["mppt_input_mismatch_pct"], expected_pct
+            ) or not (
+                -electrical._NUMERICAL_NEGATIVE_TOLERANCE
+                <= values["mppt_input_mismatch_pct"]
+                <= 100.0 + electrical._NUMERICAL_NEGATIVE_TOLERANCE
+            ):
+                raise RuntimeError("MPPT-input mismatch percentage closure failed")
+            if state == "resolved_zero_mppt_input_common_voltage" and any(values.values()):
+                raise RuntimeError("resolved zero MPPT-input values must be exact zero")
+        elif not all(pd.isna(row[column]) for column in numeric_columns):
+            raise RuntimeError("unresolved MPPT-input values must be NaN")
 
 
 def _admit_dc_branch_path_authority(
