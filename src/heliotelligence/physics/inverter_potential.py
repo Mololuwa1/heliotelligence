@@ -246,7 +246,7 @@ def calculate_topology_sandia_pre_limit_ac(
                     would_hit = candidate >= parameters.paco_w
                     exceeds_dc = candidate > float(pdc)
                     state = "resolved_sandia_pre_limit_potential"
-                    expected = max(-parameters.pnt_w, min(parameters.paco_w, candidate))
+                    expected = min(parameters.paco_w, candidate)
                     if not electrical._handoff_close(expected, float(ac_row["p_ac_available_w"])):
                         raise RuntimeError("S9-3A to S9-2 Sandia closure failed")
                 else:

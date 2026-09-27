@@ -163,6 +163,56 @@ def test_clipping_preserves_raw_above_paco_and_available_at_paco() -> None:
     assert ac.operating_points.iloc[0]["at_ac_power_limit"]
 
 
+def test_above_startup_negative_raw_is_not_clamped_to_night_tare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def strong_voltage_coefficient_database() -> pd.DataFrame:
+        data = conversion_support._database()
+        data.loc["C2", MODEL] = 0.01
+        return data
+
+    monkeypatch.setattr(
+        inverter_lookup,
+        "_load_cec_inverter_database",
+        strong_voltage_coefficient_database,
+    )
+    monkeypatch.setattr(
+        inverter_envelope_lookup,
+        "_load_cec_inverter_database",
+        strong_voltage_coefficient_database,
+    )
+    topology = s91_support._topology()
+    values, _, result = _evaluate(topology, voltage=400.0, current=0.1)
+    row = result.operating_points.iloc[0]
+    envelope_row = values[-1].states.iloc[0]
+    model = values[-3].sandia_models_by_inverter_id["inverter-1"]
+    oracle = float(
+        pvlib.inverter._sandia_eff(
+            envelope_row["v_mppt_input_v"],
+            envelope_row["p_mppt_input_w"],
+            model.parameters.to_pvlib_dict(),
+        )
+    )
+    assert row["p_dc_inverter_input_w"] >= row["pso_w"]
+    assert row["pre_limit_ac_applicable"]
+    assert row["pre_limit_ac_resolved"]
+    assert row["p_ac_pre_limit_w"] == pytest.approx(oracle)
+    assert row["p_ac_available_w"] == min(row["paco_w"], oracle)
+    assert row["p_ac_available_w"] < -row["pnt_w"]
+
+
+def test_exact_startup_boundary_uses_applicable_sandia_path() -> None:
+    topology = s91_support._topology()
+    _, _, result = _evaluate(topology, voltage=360.0, current=0.1)
+    row = result.operating_points.iloc[0]
+    assert row["p_dc_inverter_input_w"] == row["pso_w"]
+    assert row["pre_limit_ac_applicable"]
+    assert row["pre_limit_ac_resolved"]
+    assert row["pre_limit_ac_state"] == "resolved_sandia_pre_limit_potential"
+    assert row["sandia_pre_limit_path"] == "sandia_pre_limit_single_mppt"
+    assert row["p_ac_available_w"] == min(row["paco_w"], row["p_ac_pre_limit_w"])
+
+
 def test_all_zero_is_resolved_not_applicable_without_raw_evaluation() -> None:
     topology = s91_support._topology(("mppt-1", "mppt-2"))
     _, _, result = _evaluate(topology, zero=True)
