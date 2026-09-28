@@ -111,6 +111,60 @@ def test_clipping_is_strictly_above_paco() -> None:
     assert row["clipping_loss_w"] == pytest.approx(
         row["p_ac_pre_limit_w"] - row["p_ac_available_w"]
     )
+    assert row["net_dc_to_available_ac_delta_w"] == pytest.approx(
+        row["p_dc_inverter_input_w"] - row["p_ac_available_w"]
+    )
+
+
+def test_exact_paco_boundary_is_not_clipping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boundary_database() -> pd.DataFrame:
+        data = conversion_support._database()
+        data.loc["Pdco", MODEL] = 3600.0
+        return data
+
+    monkeypatch.setattr(inverter_lookup, "_load_cec_inverter_database", boundary_database)
+    monkeypatch.setattr(inverter_envelope_lookup, "_load_cec_inverter_database", boundary_database)
+    topology = s91_support._topology()
+    values, ac, potential = _inputs(topology, voltage=360.0, current=10.0)
+    result = _call(topology, values, ac, potential)
+    row = result.accounting.iloc[0]
+    assert row["p_ac_pre_limit_w"] == row["paco_w"]
+    assert row["p_ac_available_w"] == row["paco_w"]
+    assert row["would_hit_paco"]
+    assert not row["clipping_active"]
+    assert row["clipping_loss_w"] == 0.0
+    assert result.diagnostics.paco_boundary_without_clipping_count == 1
+
+
+def test_empirical_conversion_gain_is_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def gain_database() -> pd.DataFrame:
+        data = conversion_support._database()
+        data.loc["C0", MODEL] = -0.001
+        return data
+
+    monkeypatch.setattr(inverter_lookup, "_load_cec_inverter_database", gain_database)
+    monkeypatch.setattr(inverter_envelope_lookup, "_load_cec_inverter_database", gain_database)
+    topology = s91_support._topology()
+    values, ac, potential = _inputs(topology, voltage=360.0, current=1000.0 / 360.0)
+    row = _call(topology, values, ac, potential).accounting.iloc[0]
+    assert row["p_ac_pre_limit_w"] > row["p_dc_inverter_input_w"]
+    assert row["conversion_delta_w"] < 0.0
+    assert row["conversion_loss_w"] == 0.0
+    assert row["conversion_gain_w"] == pytest.approx(
+        row["p_ac_pre_limit_w"] - row["p_dc_inverter_input_w"]
+    )
+    assert row["conversion_gain_present"]
+    assert row["pre_limit_ac_exceeds_dc_input"]
+    assert row["p_dc_inverter_input_w"] + row["conversion_gain_w"] - row[
+        "clipping_loss_w"
+    ] == pytest.approx(row["p_ac_available_w"])
+    assert row["net_dc_to_available_ac_delta_w"] == pytest.approx(
+        row["p_dc_inverter_input_w"] - row["p_ac_available_w"]
+    )
 
 
 def test_below_startup_and_all_zero_use_tare_only() -> None:
@@ -161,6 +215,9 @@ def test_negative_above_startup_is_conversion_not_tare(
     assert row["conversion_loss_w"] > row["p_dc_inverter_input_w"]
     assert row["conversion_gain_w"] == 0.0
     assert row["clipping_loss_w"] == 0.0
+    assert row["net_dc_to_available_ac_delta_w"] == pytest.approx(
+        row["p_dc_inverter_input_w"] - row["p_ac_available_w"]
+    )
 
 
 @pytest.mark.parametrize(

@@ -330,8 +330,18 @@ def _validate(
         raise RuntimeError("S9-3B index is invalid")
     if diagnostics.row_count != diagnostics.resolved_count + diagnostics.unresolved_count:
         raise RuntimeError("S9-3B resolution counts do not close")
+    if diagnostics.row_count != (
+        diagnostics.conversion_clipping_accounting_count
+        + diagnostics.tare_accounting_count
+        + diagnostics.unresolved_count
+    ):
+        raise RuntimeError("S9-3B accounting categories do not close")
     for _, row in output.iterrows():
         if not bool(row["accounting_resolved"]):
+            if bool(row["conversion_clipping_accounting_applicable"]) or bool(
+                row["tare_accounting_applicable"]
+            ):
+                raise RuntimeError("unresolved S9-3B row has an accounting category")
             for column in _COLUMNS[6:12]:
                 if pd.notna(row[column]):
                     raise RuntimeError("unresolved S9-3B accounting must be NaN")
@@ -339,19 +349,54 @@ def _validate(
         pdc = float(row["p_dc_inverter_input_w"])
         pac = float(row["p_ac_available_w"])
         if bool(row["conversion_clipping_accounting_applicable"]):
+            if bool(row["tare_accounting_applicable"]):
+                raise RuntimeError("S9-3B accounting categories overlap")
             loss = float(row["conversion_loss_w"])
             gain = float(row["conversion_gain_w"])
             clipping = float(row["clipping_loss_w"])
             raw = float(row["p_ac_pre_limit_w"])
+            delta = float(row["conversion_delta_w"])
+            net_delta = float(row["net_dc_to_available_ac_delta_w"])
             if min(loss, gain, clipping) < -_ACCOUNTING_ABS_TOL:
                 raise RuntimeError("S9-3B accounting components must be non-negative")
             if loss > 0.0 and gain > 0.0:
                 raise RuntimeError("conversion loss and gain are mutually exclusive")
+            if not electrical._handoff_close(delta, pdc - raw):
+                raise RuntimeError("S9-3B conversion delta does not close")
+            if not electrical._handoff_close(loss - gain, delta):
+                raise RuntimeError("S9-3B conversion loss/gain split does not close")
+            if not electrical._handoff_close(net_delta, pdc - pac):
+                raise RuntimeError("S9-3B net boundary delta does not close")
             if not electrical._handoff_close(pdc + gain - loss - clipping, pac):
                 raise RuntimeError("S9-3B applicable power balance failed")
             if not electrical._handoff_close(raw - pac, clipping):
                 raise RuntimeError("S9-3B clipping closure failed")
+            if bool(row["clipping_active"]) != (raw > float(row["paco_w"])):
+                raise RuntimeError("S9-3B clipping flag is inconsistent")
+            if bool(row["conversion_gain_present"]) != (raw > pdc):
+                raise RuntimeError("S9-3B conversion gain flag is inconsistent")
+            if bool(row["pre_limit_ac_negative"]) != (raw < 0.0):
+                raise RuntimeError("S9-3B negative pre-limit flag is inconsistent")
+            if not electrical._handoff_close(float(row["sandia_tare_ac_consumption_w"]), 0.0):
+                raise RuntimeError("applicable S9-3B row contains tare accounting")
         else:
+            if not bool(row["tare_accounting_applicable"]):
+                raise RuntimeError("resolved S9-3B row has no accounting category")
+            for column in (
+                "conversion_delta_w",
+                "conversion_loss_w",
+                "conversion_gain_w",
+                "clipping_loss_w",
+            ):
+                if pd.notna(row[column]):
+                    raise RuntimeError("tare-only S9-3B conversion accounting must be NaN")
+            for column in (
+                "clipping_active",
+                "conversion_gain_present",
+                "pre_limit_ac_negative",
+            ):
+                if pd.notna(row[column]):
+                    raise RuntimeError("tare-only S9-3B flags must be NA")
             if not electrical._handoff_close(pac, -float(row["pnt_w"])):
                 raise RuntimeError("S9-3B tare closure failed")
             if not electrical._handoff_close(
