@@ -55,10 +55,14 @@ Production uses `APP_ENV=production` and production-only secrets. The production
 
 Pull requests to `main` run:
 
-1. backend unit tests
-2. frontend dependency installation and production build
+1. backend unit tests;
+2. frontend dependency installation and production build.
 
-Additional physics regression tests will be added as the Stage 4/5 architecture is upgraded.
+The current backend unit suite includes the independently validated component-physics contracts through S9-3B inverter power accounting. Focused stage regressions, broader electrical regressions, optical/rear regressions, static checks, and exact synthetic-merge review are still expected during physics PR development even when the CI workflow itself executes the full backend suite as one job.
+
+At the PR #68 merge checkpoint (`ad0828f42d5a5b733d79e70850df800dbc1aa5a2`), exact-main CI run #179 passed 2565 backend unit tests on Python 3.13.15 with `pvlib==0.15.2`, and the frontend build succeeded. Treat this as a historical checkpoint and re-check current CI before release decisions.
+
+Validated dormant physics capability is not automatically production-active. Production activation of new S8/S9 physics requires a separately reviewed integration proving safe fallbacks, reference-plane alignment, and no double counting against the legacy compatibility path.
 
 ## Configuration rules
 
@@ -68,6 +72,7 @@ Additional physics regression tests will be added as the Stage 4/5 architecture 
 - CORS origins are provided through comma-separated `CORS_ORIGINS`.
 - secrets are never committed to the repository.
 - frontend staging and production must point to their matching API environment.
+- physics equipment/topology authority must come from explicit configuration or validated data sources; deployment configuration must not invent missing electrical relationships.
 
 ## Staging operations
 
@@ -85,11 +90,13 @@ The `/health` response includes the runtime environment so deployment wiring can
 
 ## Scheduler architecture note
 
-The API currently starts APScheduler inside the FastAPI lifespan. Cloud Run is configured with multiple workers and can scale to multiple instances, so scheduled jobs can run more than once. Do not change this behavior until an external scheduler/worker path is provisioned. The target architecture is:
+The API currently starts APScheduler inside the FastAPI lifespan unless the scheduler gate disables it. Cloud Run may run multiple workers and multiple service instances, so in-process scheduling can execute a scheduled workload more than once if enabled.
+
+The request-serving staging API has been validated with `RUN_SCHEDULER=false`. The target long-term architecture remains:
 
 ```text
 Cloud Run API        -> request/response only
 Cloud Scheduler      -> Cloud Run Job / worker -> collectors + physics jobs
 ```
 
-This should be implemented as a separate migration after staging exists, so job execution can be validated without interrupting production ingestion.
+The dedicated scheduler/worker migration is operational work and should remain separate from component-physics development unless a specific runtime dependency requires them to move together.
