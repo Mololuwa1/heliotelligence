@@ -93,6 +93,11 @@ class InverterAcCapabilityAuthority:
             raise ValueError("ac_voltage_basis is unsupported")
         if type(self.phase_configuration) is not str or self.phase_configuration not in _PHASES:
             raise ValueError("phase_configuration is unsupported")
+        if (
+            self.phase_configuration == "three_phase"
+            and self.ac_voltage_basis == "single_phase_terminal"
+        ):
+            raise ValueError("three_phase authority cannot use single_phase_terminal voltage basis")
         if type(self.parameter_source) is not str or not self.parameter_source.strip():
             raise ValueError("parameter_source must be a non-empty string")
         if type(self.confidence) is not str or self.confidence not in _CONFIDENCES:
@@ -218,6 +223,22 @@ def resolve_topology_inverter_ac_capability_authority(
         states = pd.DataFrame(
             columns=_COLUMNS, index=pd.Index([], name="inverter_id", dtype=object)
         )
+    numeric_columns = {
+        "nominal_ac_voltage_v",
+        "rated_apparent_power_va",
+        "reactive_power_min_var",
+        "reactive_power_max_var",
+    }
+    boolean_columns = {
+        "fixed_reactive_power_limits_resolved",
+        "ac_capability_authority_resolved",
+    }
+    for column in numeric_columns:
+        states[column] = states[column].astype(float)
+    for column in boolean_columns:
+        states[column] = states[column].astype(bool)
+    for column in set(_COLUMNS) - numeric_columns - boolean_columns:
+        states[column] = states[column].astype(object)
     diagnostics = _diagnostics(topology, states)
     _validate_result(topology, explicit, states, diagnostics)
     return TopologyInverterAcCapabilityAuthorityResult(
@@ -270,6 +291,18 @@ def _validate_result(
     expected = _diagnostics(topology, states)
     if diagnostics != expected:
         raise RuntimeError("AC capability authority diagnostics are inconsistent")
+    if diagnostics.inverter_count != topology.inverter_count:
+        raise RuntimeError("AC capability topology count is inconsistent")
+    if diagnostics.explicit_authority_count != len(
+        explicit
+    ) or diagnostics.resolved_inverter_count != len(explicit):
+        raise RuntimeError("AC capability explicit-authority counts are inconsistent")
+    missing_count = topology.inverter_count - len(explicit)
+    if (
+        diagnostics.missing_authority_count != missing_count
+        or diagnostics.unresolved_inverter_count != missing_count
+    ):
+        raise RuntimeError("AC capability missing-authority counts are inconsistent")
     if (
         diagnostics.resolved_inverter_count + diagnostics.unresolved_inverter_count
         != diagnostics.inverter_count
@@ -292,3 +325,85 @@ def _validate_result(
         != diagnostics.resolved_inverter_count
     ):
         raise RuntimeError("AC capability voltage-basis counts do not close")
+    provenance = {
+        "topology_inverter_ac_capability_authority_contract": (
+            TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_CONTRACT_ID
+        ),
+        "topology_inverter_ac_capability_authority_model": (
+            TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_MODEL_ID
+        ),
+        "topology_inverter_ac_capability_authority_scope": (
+            TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_SCOPE
+        ),
+        "topology_inverter_ac_capability_authority_coverage_scope": (
+            TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_COVERAGE_SCOPE
+        ),
+    }
+    for inverter_id, row in states.iterrows():
+        for column, value in provenance.items():
+            if row[column] != value:
+                raise RuntimeError(f"AC capability {column} is invalid")
+        authority = explicit.get(inverter_id)
+        if authority is None:
+            numeric = (
+                "nominal_ac_voltage_v",
+                "rated_apparent_power_va",
+                "reactive_power_min_var",
+                "reactive_power_max_var",
+            )
+            if not all(pd.isna(row[column]) for column in numeric):
+                raise RuntimeError("unresolved AC capability numeric values are invalid")
+            actual = (
+                row["ac_voltage_basis"],
+                row["phase_configuration"],
+                row["fixed_reactive_power_limits_resolved"],
+                row["ac_capability_authority_resolved"],
+                row["ac_capability_authority_state"],
+                row["parameter_source"],
+                row["confidence"],
+            )
+            expected_unresolved = (
+                "",
+                "",
+                False,
+                False,
+                "unresolved_no_explicit_ac_capability_authority",
+                "",
+                "unknown",
+            )
+            if actual != expected_unresolved:
+                raise RuntimeError("unresolved AC capability state is contradictory")
+            continue
+        expected_core = (
+            authority.nominal_ac_voltage_v,
+            authority.ac_voltage_basis,
+            authority.phase_configuration,
+            authority.rated_apparent_power_va,
+            authority.parameter_source,
+            authority.confidence,
+            True,
+            "resolved_explicit_ac_capability_authority",
+        )
+        actual_core = (
+            row["nominal_ac_voltage_v"],
+            row["ac_voltage_basis"],
+            row["phase_configuration"],
+            row["rated_apparent_power_va"],
+            row["parameter_source"],
+            row["confidence"],
+            row["ac_capability_authority_resolved"],
+            row["ac_capability_authority_state"],
+        )
+        if actual_core != expected_core:
+            raise RuntimeError("resolved AC capability state does not match authority")
+        if authority.reactive_power_min_var is None:
+            if bool(row["fixed_reactive_power_limits_resolved"]) or not (
+                pd.isna(row["reactive_power_min_var"]) and pd.isna(row["reactive_power_max_var"])
+            ):
+                raise RuntimeError("absent fixed-Q authority is contradictory")
+        elif (
+            not bool(row["fixed_reactive_power_limits_resolved"])
+            or row["reactive_power_min_var"] != authority.reactive_power_min_var
+            or row["reactive_power_max_var"] != authority.reactive_power_max_var
+        ):
+            raise RuntimeError("resolved fixed-Q authority does not match source")

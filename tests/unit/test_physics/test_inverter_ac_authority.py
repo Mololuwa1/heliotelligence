@@ -19,7 +19,9 @@ from heliotelligence.config.site import (
 )
 from heliotelligence.physics.inverter_ac_authority import (
     TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_CONTRACT_ID,
+    TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_COVERAGE_SCOPE,
     TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_MODEL_ID,
+    TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_SCOPE,
     InverterAcCapabilityAuthority,
     resolve_topology_inverter_ac_capability_authority,
 )
@@ -77,6 +79,15 @@ def test_resolved_authority_and_exact_schema() -> None:
     assert row["topology_inverter_ac_capability_authority_contract"] == (
         TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_CONTRACT_ID
     )
+    assert row["topology_inverter_ac_capability_authority_model"] == (
+        TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_MODEL_ID
+    )
+    assert row["topology_inverter_ac_capability_authority_scope"] == (
+        TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_SCOPE
+    )
+    assert row["topology_inverter_ac_capability_authority_coverage_scope"] == (
+        TOPOLOGY_INVERTER_AC_CAPABILITY_AUTHORITY_COVERAGE_SCOPE
+    )
     assert result.states.index.names == ["inverter_id"]
     assert result.states["ac_capability_authority_resolved"].dtype == bool
 
@@ -124,6 +135,7 @@ def test_no_inference_from_topology_or_other_inverter_metadata() -> None:
     )
     for forbidden in (
         "Paco",
+        "Vac",
         "pnom_kwac",
         "grid_limit_kwac",
         "model_ref",
@@ -145,6 +157,23 @@ def test_supported_voltage_and_phase_authorities(basis: str, phase: str) -> None
     authority = _authority(basis=basis, phase=phase)
     assert authority.ac_voltage_basis == basis
     assert authority.phase_configuration == phase
+
+
+def test_three_phase_single_phase_terminal_is_rejected() -> None:
+    with pytest.raises(ValueError, match="three_phase"):
+        _authority(basis="single_phase_terminal", phase="three_phase")
+
+
+@pytest.mark.parametrize(
+    ("basis", "phase"),
+    [
+        ("line_to_line", "three_phase"),
+        ("line_to_neutral", "three_phase"),
+        ("single_phase_terminal", "single_phase"),
+    ],
+)
+def test_phase_voltage_basis_compatible_pairs_are_accepted(basis: str, phase: str) -> None:
+    assert _authority(basis=basis, phase=phase).phase_configuration == phase
 
 
 @pytest.mark.parametrize("field", ["voltage", "apparent"])
@@ -192,6 +221,14 @@ def test_invalid_q_ranges_rejected(q_min: float | None, q_max: float | None) -> 
         _authority(q_min=q_min, q_max=q_max)
 
 
+@pytest.mark.parametrize("value", [True, False, float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("boundary", ["q_min", "q_max"])
+def test_nonfinite_and_boolean_q_boundaries_rejected(boundary: str, value: object) -> None:
+    values: dict[str, object] = {"q_min": 0.0, "q_max": 0.0, boundary: value}
+    with pytest.raises(ValueError):
+        _authority(**values)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -232,6 +269,26 @@ def test_unexpected_id_and_empty_topology() -> None:
     assert result.states.empty
     assert result.states.index.names == ["inverter_id"]
     assert result.diagnostics.inverter_count == 0
+
+
+def test_empty_and_populated_results_have_identical_column_dtypes() -> None:
+    empty = resolve_topology_inverter_ac_capability_authority(ElectricalTopologyConfig(), {})
+    populated = resolve_topology_inverter_ac_capability_authority(
+        _topology("inverter-1"), {"inverter-1": _authority()}
+    )
+    assert empty.states.dtypes.to_dict() == populated.states.dtypes.to_dict()
+    for column in (
+        "nominal_ac_voltage_v",
+        "rated_apparent_power_va",
+        "reactive_power_min_var",
+        "reactive_power_max_var",
+    ):
+        assert str(populated.states[column].dtype) == "float64"
+    for column in (
+        "fixed_reactive_power_limits_resolved",
+        "ac_capability_authority_resolved",
+    ):
+        assert str(populated.states[column].dtype) == "bool"
 
 
 def test_diagnostics_closure_immutability_and_output_ownership() -> None:
