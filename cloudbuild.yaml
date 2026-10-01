@@ -46,7 +46,7 @@ steps:
       - '--allow-unauthenticated'
       - '--memory=2Gi'
       - '--cpu=2'
-      - '--min-instances=1'
+      - '--min-instances=0'
       - '--max-instances=10'
       - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SOLCAST_API_KEY=SOLCAST_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest'
       - '--set-env-vars=SITE_CONFIG_PATH=config/sites.yaml,APP_ENV=production'
