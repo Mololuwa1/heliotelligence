@@ -2,53 +2,138 @@
 
 ## Status
 
-Accepted
+Accepted and active.
 
 ## Context
 
-The legacy system contains useful aggregate percentage losses and provides a
-stable production-compatible result. The target digital twin, however, needs
-component-resolved mechanisms that explain where energy is converted or lost.
+The legacy system contains useful aggregate percentage losses and provides a stable production-compatible result. The target digital twin needs component-resolved mechanisms that explain where energy is converted, limited, transported, curtailed, or lost.
 
-Replacing the entire electrical chain simultaneously would couple too many
-assumptions and make regressions difficult to attribute. Missing physical
-topology also prevents some mechanisms from being modelled honestly today.
+Replacing the entire electrical chain simultaneously would couple too many assumptions and make regressions difficult to attribute. Missing physical topology and equipment authority also prevent some mechanisms from being modelled honestly today.
 
 ## Decision
 
 Introduce physical layers incrementally:
 
-`module → string → MPPT → DC collection → inverter → AC collection`
+`module → string → MPPT → DC collection → inverter conversion → inverter capability → controller → AC collection → transformer → meter`
 
-Validate each layer independently before integrating it into the next layer or
-the production calculation. Retain legacy aggregate behaviour as a safe
-compatibility path until the physical replacement is validated.
+Validate each layer independently before integrating it into the next layer or the production calculation. Retain legacy aggregate behaviour as a compatibility path until its physical replacement is validated and a separate production migration proves no double counting.
 
-The decision applies generically to every onboarded site. Reusable electrical
-models must consume each site's explicit equipment and topology rather than
-encoding assumptions from any reference site.
+The decision applies generically to every onboarded site. Reusable electrical models must consume each site's explicit equipment and topology rather than encoding assumptions from any reference site.
 
-Static mismatch remains temporarily, even though the final target is mismatch
-derived from independent-string and actual common-MPPT power.
+Missing authority must remain explicit. An unresolved result is preferable to a numerically convenient invented value.
+
+## Current implementation consequence
+
+The migration has now produced independently validated contracts through static inverter AC capability authority:
+
+```text
+S8-1  physical string I-V
+S8-2  common-voltage MPPT / physical mismatch
+S8-3A direct branch resistance authority
+S8-3B resistive branch I-V transform
+S8-3C MPPT-input common-voltage operating point
+S9-0  inverter CEC/SAM authority
+S9-1  inverter DC envelope classification
+S9-2  Sandia inverter conversion
+S9-3A Sandia pre-Paco AC potential
+S9-3B conversion / clipping / tare accounting
+S9-4A explicit static inverter AC capability authority
+```
+
+At the 2026-10-01 checkpoint, these stages are merged through commit:
+
+`28f4ada0b3ac9a29762cbbbb094de967d2ca0902`
+
+This implementation progress does not change the ADR's migration principle: validated capability is not automatically production-active.
+
+## Legacy coexistence rule
+
+The compatibility production path still contains aggregate effects including static soiling, LID, mismatch, DC wiring, and legacy AC wiring/grid-cap behaviour.
+
+Physical mismatch and direct-branch resistance now exist as validated independent contracts, but they must not be layered on top of the legacy percentages in production without an explicit migration decision.
+
+The same rule applies to future AC current/cabling, transformer, controller, and network physics.
+
+## Physical reference-plane rule
+
+Electrical quantities must retain their physical location. In particular:
+
+- string-terminal state;
+- branch output;
+- parallel junction;
+- shared feeder output;
+- inverter MPPT input;
+- inverter AC output;
+- future controller-dispatched output;
+- downstream AC network / meter boundaries
+
+must not be collapsed into a single generic power state when the distinction matters to the mechanism being modelled.
+
+A counterfactual accounting quantity, such as Sandia pre-Paco AC potential, must be labelled as a model quantity rather than misrepresented as a physical terminal measurement.
+
+Static nameplate/capability authority such as nominal AC voltage, phase or `Smax` is equipment metadata, not an operating reference plane.
+
+## Shared-network rule
+
+A resistance after parallel combination acts on total shared current and cannot be duplicated into independent string branches. Generalized DC collection must therefore use explicit network authority rather than pretending a shared feeder is another per-string resistance.
+
+## Inverter conversion rule
+
+Independent MPPT voltages must not be averaged. Inverter-level current limits must not be duplicated to every tracker. One physical inverter must be converted and limited once.
+
+## Inverter AC capability rule
+
+S9-4A establishes a separate static authority boundary for AC-side capability.
+
+Do not infer:
+
+- `Smax` from `Paco` or active-power rating;
+- AC terminal voltage/basis from CEC/SAM `Vac`;
+- phase from voltage magnitude;
+- Q capability from `Smax` alone;
+- inverter capability from grid/export limits;
+- equipment capability from model labels, groups, topology position, MPPT count or string count.
+
+Missing Q authority and explicit zero Q capability are different states.
+
+The next P/Q/S stage must classify requested operating state without silently dispatching or curtailing P or Q. Capability evaluation and control remain separate layers.
 
 ## Consequences
 
 Positive consequences:
 
-- Changes remain traceable.
-- Regressions can be isolated to a layer.
-- Losses become physically explainable.
-- Production migration can proceed safely and incrementally.
+- changes remain traceable;
+- regressions can be isolated to a layer;
+- losses and limits become physically explainable;
+- unsupported topology/capability remains visible rather than silently approximated;
+- production migration can proceed safely and incrementally;
+- accounting can preserve exact closure across reference planes.
 
 Trade-offs:
 
-- Legacy and physical models temporarily coexist.
-- More explicit interfaces and tests are required.
-- Migration spans several focused pull requests.
+- legacy and physical models temporarily coexist;
+- more explicit interfaces, provenance, and tests are required;
+- migration spans many focused pull requests;
+- some sites remain unresolved at higher-fidelity layers until authoritative topology/equipment data is supplied.
+
+## Next decision-compatible work
+
+The immediate next electrical increment is **S9-4B inverter P/Q/S capability-state evaluation**.
+
+It should combine admitted S9-3B active power, S9-4A static authority, and an explicit requested Q, evaluate `S = sqrt(P² + Q²)` and applicable fixed-Q constraints, and report feasibility without changing P or Q.
+
+The stage must define the Q sign convention explicitly before downstream use and must not present apparent-power-circle headroom as complete manufacturer Q/PF capability when that authority is absent.
+
+Physical LV AC collection should follow only after voltage, phase configuration, and P/Q/S state are explicit.
 
 ## Rejected alternatives
 
-1. Rewrite the whole Stage 4 chain at once.
-2. Replace mismatch with another tuned percentage.
-3. Invent missing physical topology.
+1. Rewrite the whole electrical chain at once.
+2. Replace mismatch or wiring with another tuned percentage and call it physics.
+3. Invent missing physical topology or equipment capability.
 4. Fit unexplained correction factors purely to match PVsyst or SCADA.
+5. Average independent MPPT voltages to simplify inverter conversion.
+6. Duplicate shared feeder resistance or inverter limits across child branches.
+7. Treat available AC, dispatched AC, and meter AC as the same reference plane.
+8. Treat `Paco`, CEC `Vac`, grid limits, or nominal kW as sufficient AC capability authority.
+9. Silently curtail P or Q inside a capability-classification stage.
