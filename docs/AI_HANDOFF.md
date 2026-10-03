@@ -1,169 +1,472 @@
 # Heliotelligence AI / Developer Handoff
 
-This is a recovery and architectural checkpoint document. It does not replace
-the repository, automated tests, Git history, or direct inspection of current
-code.
+This is the current recovery and architectural checkpoint for Heliotelligence, an enterprise-grade, physics-first solar digital twin and benchmarking platform.
+
+It does not replace live source, tests, Git history, CI evidence, or direct inspection of current code.
 
 ## Recovery rule
 
 When beginning from a new conversation or development session:
 
-1. Query Git for the current `main`, then fetch it.
+1. Query GitHub for the current `main` and fetch it.
 2. Read this file.
 3. Read `docs/architecture/physics-architecture.md`.
 4. Read `docs/development/physics-roadmap.md`.
-5. Inspect open pull requests.
-6. Read the relevant implementation and tests.
-7. Treat current source, tests, and Git history as authoritative when
-   documentation or remembered conversation context disagrees.
+5. Read `docs/decisions/ADR-001-physics-first-electrical-migration.md`.
+6. Read `docs/validation/physics-validation-strategy.md`.
+7. Inspect open pull requests and recent merge commits.
+8. Read the relevant implementation and tests.
+9. Verify exact GitHub Actions CI for any PR being considered for merge.
 
-Do not trust a SHA written in documentation as "current main" indefinitely.
-Always query Git first.
+Do not trust a SHA written in documentation as forever-current `HEAD`. Always verify live GitHub state first.
 
-## Last architectural checkpoint
+## Source-of-truth order
 
-- PR #1 — Environment / CI foundation — merged.
-- PR #2 — Electrical topology foundation — merged.
-- PR #3 — Stage 4 module operating-point refactor — merged.
-- PR #4 — Topology-aware string and MPPT aggregation — merged.
-- PR #5 — Project handoff / architecture documentation foundation — merged.
-- PR #6 — Scheduler execution gate — merged.
-- PR #7 — Application logging visibility — merged.
+When information disagrees, use this authority order:
 
-PR #4 merge commit / architectural checkpoint:
-`b8eecb349121c917fd141a0c01b5c2aa562af349`.
+1. current live source code;
+2. current automated tests;
+3. exact Git history / commit ancestry;
+4. exact GitHub Actions CI;
+5. repository architecture documentation;
+6. implementation reports;
+7. conversation summaries.
 
-Current operational checkpoint merge commit:
-`e3186f288fb8a0da723809648c306e2527acb926`.
+Never authorize a merge from an implementation report alone.
 
-These SHAs are historical checkpoints, not forever-current `HEAD` values.
-Always query Git for the current `main`.
 
-## Current Stage 4 capability
+## Current canonical repository checkpoint
 
-Stage 4 currently provides:
+As of 2026-10-03, live `main` is:
 
-- tiered module parameter resolution;
-- De Soto and single-diode electrical modelling;
-- a PVWatts fallback;
-- spectral correction when inputs are available;
-- module Pmp, Vmp, and Imp;
-- ideal module-to-string series scaling;
-- explicit `Site → Inverter → MPPT → String` topology contracts;
-- per-string operating states; and
-- an independent-string MPPT counterfactual:
+`a39026379df00e5756ac2690977e005b169f920e`
 
-  `P_independent = Σ Pmp,string`
+This is the merge commit of PR #73:
 
-This is **not** yet actual common-MPPT power.
+`S9-4B: add inverter P/Q/S capability-state evaluation`
 
-## Current temporary behaviour
+Merge facts:
 
-`calculate_dc_power()` retains the compatibility loss cascade:
+- PR base: `28f4ada0b3ac9a29762cbbbb094de967d2ca0902`;
+- reviewed head: `e3fabe740d4b1239192be8af159978ed53e3dbf2`;
+- merge commit: `a39026379df00e5756ac2690977e005b169f920e`;
+- merged at: `2026-10-03T12:03:34Z`.
 
-`soiling → LID → static mismatch → DC wiring`
+Final reviewed pre-merge CI evidence for PR #73:
 
-- `mismatch_loss_pct` remains active.
-- `wiring_loss_dc_pct` remains active.
-- `soiling_loss_pct` and `lid_loss_pct` remain active.
-- This is deliberate while physical replacements are validated.
-- These percentages do not represent the final target physical models.
+- workflow: CI;
+- run #189;
+- run ID `37118718668`;
+- synthetic merge `88e80f751be3ffff10265fe6d8d4a7d27a5a8154`;
+- Python 3.13.15;
+- `pvlib==0.15.2`;
+- backend: `2663 passed in 122.38s`;
+- frontend: success.
 
-## Next physics step
+The preceding S9-4A merge was PR #70. PR #71 was operations-only and changed production Cloud Run `--min-instances=0`; neither fact changes the S9-4B physics contract.
 
-The next electrical work is voltage-dependent module/string I-V capability.
-That capability is required before implementing:
+No separate post-merge workflow run was associated with `a390263...` at the time of this handoff update. Verify live `main` before relying on this checkpoint in a later session.
 
-`I_MPPT(V) = Σ I_string(V)`
+## Product / engineering position
 
-`P_actual = max_V [V × I_MPPT(V)]`
+Heliotelligence is beyond MVP. The target is an enterprise-grade, physics-first, component-resolved, provenance-aware, defensively validated, measurement-boundary-aware solar digital twin and benchmarking platform.
 
-`P_mismatch = P_independent - P_actual`
+Do not replace physical mechanisms with arbitrary percentages when sufficient physical inputs exist. Do not invent unavailable topology or equipment data. Prefer explicit `unresolved`, `unknown`, or `not_applicable` states over guessed values.
 
-These equations describe planned work; they are not currently implemented.
+New physical capability should normally be introduced as narrow, independently validated contracts and remain dormant from production until lower-level physics and handoff invariants are proven.
+
+
+## Current validated physics chain
+
+The validated backend now reaches inverter P/Q/S capability-state evaluation:
+
+```text
+weather / QC
+    ↓
+solar geometry / irradiance decomposition
+    ↓
+front POA irradiance
+    ↓
+far-horizon + near-shading authority
+    ↓
+selected direct geometry + diffuse visibility
+    ↓
+IAM / front optical response
+    ↓
+rear irradiance / rear optical response
+    ↓
+bifacial electrical-equivalent irradiance
+    ↓
+spectral response
+    ↓
+canonical module electrical irradiance
+    ↓
+module electrical physics
+    ↓
+S8-1 physical string I-V
+    ↓
+S8-2 source-plane common-voltage MPPT / physical mismatch
+    ↓
+S8-3A explicit direct-branch resistance authority
+    ↓
+S8-3B resistive branch I-V transform
+    ↓
+S8-3C MPPT-input common-voltage operating point
+    ↓
+S9-0 explicit inverter CEC/SAM authority
+    ↓
+S9-1 inverter DC operating-envelope classification
+    ↓
+S9-2 one-physical-inverter Sandia AC conversion
+    ↓
+S9-3A Sandia pre-Paco AC potential
+    ↓
+S9-3B conversion / clipping / tare power accounting
+    +
+S9-4A explicit static inverter AC capability authority
+    +
+explicit timestamped Q request
+    ↓
+S9-4B P/Q/S capability-state evaluation
+```
+
+## S8 electrical contracts
+
+### S8-1 — physical string I-V
+
+Validated homogeneous physical-string scaling from module I-V.
+
+- source/reference plane: physical `string_terminal`;
+- voltage and power scale with module count;
+- current does not scale in series;
+- unresolved upstream state is preserved;
+- explicit zero-string state is distinct from missing authority.
+
+### S8-2 — common-voltage MPPT and physical mismatch
+
+Strings connected to the same MPPT are solved at a common voltage over their shared valid voltage domain.
+
+```text
+I_MPPT(V) = Σ I_string(V)
+P_MPPT(V) = V × I_MPPT(V)
+P_common = max_V P_MPPT(V)
+```
+
+Physical mismatch is the difference between the independent-string maximum counterfactual and the common-voltage result.
+
+Mixed active / zero strings remain unresolved without an explicit blocking / dark-string model.
+
+### S8-3A — direct branch resistance authority
+
+Explicit per-string direct branch series-loop resistance authority.
+
+Rules:
+
+- explicit zero resistance is a valid ideal path;
+- absent resistance authority is unresolved;
+- configured resistance is already total loop resistance and must not be automatically doubled;
+- do not infer resistance from geometry, cable-plan labels, string IDs, zone IDs, aggregate loss percentages, or unrelated fields.
+
+### S8-3B — resistive branch I-V transform
+
+```text
+V_mppt_input(I) = V_string_terminal(I) - I × R_branch
+```
+
+Current is unchanged. Negative-voltage curve portions are not silently clamped; the validated non-negative voltage domain is preserved.
+
+### S8-3C — MPPT-input common-voltage operating point
+
+Runs common-voltage MPPT aggregation on already transformed MPPT-input string curves. This establishes the defensible inverter DC input state for the currently supported direct-branch topology.
+
+## Electrical reference planes
+
+Keep these physical planes distinct:
+
+1. module terminals;
+2. physical string source terminals;
+3. branch/string cable output;
+4. parallel collection junction;
+5. shared homerun / feeder output;
+6. inverter MPPT input terminals;
+7. inverter AC conversion/output boundary;
+8. future controller-dispatched AC output;
+9. downstream LV / transformer / MV / HV nodes;
+10. revenue-meter boundary.
+
+Do not collapse them into a generic site DC/AC value when intermediate state is available.
+
+Static equipment capability such as `Smax` is authority, not a conductor reference plane. Sandia pre-Paco potential is a model quantity, not a physical terminal measurement.
+
+## Deferred shared DC collection
+
+The current S8-3 path supports explicit **direct per-string branch resistance** to the parent MPPT input. It does **not** claim arbitrary DC collection-network coverage.
+
+For a shared post-parallel conductor, current is the sum of parallel branch currents and the loss is based on that shared current. A shared resistance must not be duplicated into every branch.
+
+Future generalized DC collection should model explicit nodes and edges, for example:
+
+```text
+String A -- Ra --\
+                  +-- collection node -- Rh -- MPPT
+String B -- Rb --/
+```
+
+Return to this extension:
+
+1. before claiming arbitrary DC-network support; or
+2. before benchmarking / activating a real site whose as-built topology has shared post-parallel conductors that materially affect inverter-terminal state.
+
+## S9 inverter contracts
+
+### S9-0 — inverter authority
+
+Resolves explicit `inverter_id → CEC/SAM model` authority.
+
+- exact model names only;
+- missing authority remains unresolved;
+- no inference from geometry, capacity, labels, or site heuristics;
+- no conversion physics in this layer.
+
+### S9-1 — DC operating envelope
+
+Evaluates admitted MPPT-input DC state against explicit inverter voltage/current limits.
+
+- MPPT voltages remain independent;
+- inverter-level `Idcmax` is not copied to every tracker;
+- explicit tracker-current authority wins;
+- a single populated MPPT may use inverter-level CEC `Idcmax`;
+- multi-MPPT current capability remains unresolved without tracker-specific authority;
+- this stage classifies; it does not clamp or re-solve the operating point.
+
+### S9-2 — Sandia inverter conversion
+
+Produces one physical inverter AC-available state.
+
+- single populated MPPT uses the validated scalar Sandia primitive;
+- multi-MPPT conversion retains independent tracker voltages and aggregates power only;
+- tracker voltages are never averaged;
+- tracker currents are never summed into a synthetic inverter input;
+- `Paco` limiting and `Pnt` night tare are applied once per physical inverter.
+
+### S9-3A — pre-Paco Sandia AC potential
+
+Calculates the published Sandia pre-limit AC potential without applying a second `Paco`, `Pnt`, or startup rule.
+
+Below startup (`Pdc < Pso`), pre-limit conversion potential is resolved as not-applicable rather than fabricated.
+
+### S9-3B — conversion / clipping / tare power accounting
+
+S9-3B performs accounting algebra only. It does not modify the physical operating point or rerun Sandia.
+
+For applicable rows:
+
+```text
+conversion_delta = Pdc - Praw
+conversion_loss = max(conversion_delta, 0)
+conversion_gain = max(-conversion_delta, 0)
+clipping_loss = Praw - Pac
+net_delta = Pdc - Pac
+```
+
+Central closure:
+
+```text
+Pdc + conversion_gain - conversion_loss - clipping_loss = Pac
+```
+
+Important semantics:
+
+- `Praw > Paco` means clipping is active;
+- `Praw == Paco` is the nameplate boundary with zero clipping loss;
+- empirical `Praw > Pdc` is preserved as an explicit model gain term and is not claimed to represent physical energy creation;
+- negative `Praw` above startup remains conversion accounting, not night tare;
+- below startup, tare is accounted separately as `Pnt`;
+- there is intentionally no generic `total_inverter_loss_w` field.
+
+### S9-4A — explicit inverter AC capability authority
+
+Contract:
+
+- `topology_inverter_ac_capability_authority_v1`;
+- model `explicit_ac_nameplate_and_fixed_q_limit_authority_v1`;
+- scope `static_inverter_ac_capability_authority_before_pqs_state_evaluation`;
+- coverage `explicit_per_inverter_voltage_phase_smax_with_optional_fixed_q_limits`.
+
+S9-4A is static equipment authority only. It does not consume timestamps or operating-state power.
+
+Each resolved inverter carries explicit:
+
+- nominal AC voltage;
+- AC voltage basis: `line_to_line`, `line_to_neutral`, or `single_phase_terminal`;
+- phase configuration: `single_phase` or `three_phase`;
+- rated apparent power `Smax`;
+- optional fixed `Qmin/Qmax`;
+- parameter source;
+- confidence.
+
+Critical rules:
+
+- missing inverter mapping remains `unresolved_no_explicit_ac_capability_authority`;
+- no authority is inferred from `Paco`, `pnom_kwac`, grid limits, CEC/SAM `Vac`, `model_ref`, inverter groups, MPPT/string counts, topology position, or legacy AC wiring loss;
+- `three_phase + single_phase_terminal` is invalid;
+- fixed Q limits must be supplied as a pair and each magnitude must not exceed `Smax`;
+- missing Q authority is different from explicit zero Q capability (`Qmin = Qmax = 0`);
+- S9-4A does not define operating P/Q/S, AC current, PF compliance, thermal derating, dispatch, cable loss, or transformer state.
+
+
+### S9-4B — inverter P/Q/S capability-state evaluation
+
+Contract:
+
+- `admitted_inverter_ac_and_capability_to_pqs_evaluation_v1`;
+- model `explicit_q_request_apparent_power_circle_and_fixed_q_limits_v1`;
+- scope `inverter_ac_pqs_capability_evaluation_before_dispatch_and_ac_network`;
+- coverage `active_sandia_ac_with_explicit_smax_q_request_and_optional_fixed_q_limits`.
+
+S9-4B strongly replays S9-3B and S9-4A before evaluating a timestamped request.
+
+Operating convention:
+
+- `Q > 0`: injection into the AC network;
+- `Q < 0`: absorption from the AC network;
+- `Q = 0`: explicit zero-reactive request;
+- missing request is not zero.
+
+For an applicable row:
+
+```text
+P = admitted p_ac_available_w
+Q = explicit request
+S = hypot(P, Q)
+```
+
+Rules:
+
+- evaluate `S <= Smax`;
+- evaluate `Qmin <= Q <= Qmax` only where fixed-Q authority exists;
+- a passing S-circle with missing fixed-Q authority remains partial / overall satisfaction unknown;
+- any known S-circle or fixed-Q violation is definitive;
+- `|P| > Smax` remains a known violation when Q is missing;
+- full static capability authority is inherited from S9-4A and does not depend on request presence;
+- night-tare / non-producing rows are resolved not-applicable;
+- unresolved S9-3B state propagates without fabricating P/Q/S;
+- no P reduction, Q clipping, dispatch, AC current, PF compliance, thermal derating, cable, transformer, or production integration occurs here.
+
+## Legacy production compatibility path
+
+The validated S8/S9 chain is not automatically equivalent to the production runtime path.
+
+The legacy `calculate_dc_power()` compatibility path still retains aggregate percentage effects including soiling, LID, static mismatch, and DC wiring. Legacy AC wiring / grid-cap behaviour also remains separate from the dormant component-resolved migration until explicitly replaced.
+
+Do not silently apply validated physical losses and legacy percentages together. Production integration must be a separately reviewed migration with no double counting.
+
+## Optical / surface status
+
+The canonical fixed-table optical chain substantially covers solar geometry and irradiance decomposition, direct-geometry shading authority, diffuse visibility, IAM / optical response, fixed-row rear irradiance / rear optical response, bifacial electrical-equivalent irradiance, and spectral response.
+
+Current limitations remain explicit:
+
+- rear optics are validated for supported regular fixed-row / infinite-sheds coverage, not arbitrary 3D rear obstruction;
+- dynamic physical soiling is not yet canonical;
+- snow is not yet implemented as a physical state model;
+- bypass-diode / substring electrical behaviour and multiple local maxima remain future electrical work.
+
+
+## Next build
+
+The next inverter increment should be:
+
+### S9-4C — explicit inverter thermal-derating authority
+
+Start with authority only. Do not apply derating yet.
+
+The authority should be explicit about:
+
+- which inverter temperature quantity the rule uses;
+- manufacturer-supported temperature domain and breakpoints / curve;
+- active-power and/or apparent-power capability dependence;
+- reactive-capability dependence only if explicitly documented;
+- interpolation and boundary semantics;
+- source and confidence.
+
+Do not derive inverter derating from module temperature, ambient temperature alone, `Paco`, `Smax`, model labels, or arbitrary percentages.
+
+After S9-4C authority is independently validated, a separate narrow operating-state increment can combine that authority with an admitted inverter-temperature state and S9-4B capability state. If retained as a separate stage, call it **S9-4D temperature-dependent inverter capability evaluation**.
+
+Then proceed to:
+
+- **S10:** plant-controller / dispatch boundary;
+- **S11:** physical LV AC collection;
+- **S12:** transformer model;
+- **S13:** MV/HV collection and revenue-meter boundary;
+- **S14:** benchmarking and causal loss attribution.
+
+AC cabling remains downstream of explicit voltage/phase/P/Q/S state and any thermal capability adjustment.
 
 ## Non-negotiable project rules
 
 - Use physics-first modelling where a mechanism can reasonably be calculated.
-- Do not replace one arbitrary loss percentage with another disguised
-  approximation.
+- Preserve physical reference planes.
+- Do not replace one arbitrary percentage with another disguised approximation.
 - Preserve legacy behaviour until its replacement is independently validated.
-- Prefer focused PRs with equivalence and physics tests.
-- Do not invent unavailable physical topology.
-- Bracon Ash MPPT/string mapping is unknown and must not be invented.
-- Never generalize Bracon Ash-specific values—such as modules per string,
-  module or inverter model, inverter count, grid limit, or legacy loss
-  percentages—to another site unless that site's configuration establishes
-  them.
-- Sites without sufficient topology must retain a safe compatibility path.
-- Do not integrate new physical layers into production before validating their
-  lower-level contracts.
+- Prefer focused PRs with exact admission, limiting-case, closure, provenance, and equivalence tests.
+- Do not invent unavailable physical topology or equipment authority.
+- Missing authority and explicit zero are different states.
+- Do not average independent MPPT voltages.
+- Do not duplicate inverter limits per tracker.
+- Do not apply shared feeder resistance as if it were independent branch resistance.
+- Do not infer inverter apparent/reactive capability from active-power or CEC fields.
+- Do not integrate new physical layers into production before validating their contracts and double-counting boundaries.
 
 ## Reference site: Bracon Ash
 
-Bracon Ash is the current reference site used during development. It is one
-onboarded site, not a template whose equipment, topology, grid, or loss values
-should be assumed for future sites.
+Bracon Ash is a reference/onboarded site, not a template for other sites.
 
-See [`docs/sites/bracon-ash.md`](sites/bracon-ash.md) for established site facts,
-known data gaps, and an unresolved capacity arithmetic discrepancy. In
-particular, no physical MPPT-to-string map is currently known.
+Critical unresolved facts remain:
 
-## Known operational issue: in-process scheduler
+- no physical MPPT-to-string map is currently known;
+- no string-to-inverter assignment should be inferred from aggregate counts;
+- no physical cable layout is established by current configuration;
+- no authoritative S9-4A AC capability authority has been established for the installed inverters, so generic S9-4B cannot resolve Bracon Ash capability without additional equipment evidence and explicit Q requests;
+- no transformer or MV/HV collection topology is established by current configuration.
 
-`RUN_SCHEDULER` now explicitly controls whether a FastAPI process configures
-and starts APScheduler. Its default is `true` for backwards compatibility.
-The request-serving staging API is now validated with in-process scheduling
-disabled through `RUN_SCHEDULER=false`.
+Do not infer any of these from group IDs, counts, positions, capacities, `Paco`, CEC `Vac`, or labels. See `docs/sites/bracon-ash.md`.
 
-Production and other runtimes that do not explicitly set the gate retain the
-previous in-process scheduler behaviour. Docker still starts Uvicorn with two
-workers, Cloud Run may run multiple service instances, and duplicate scheduled
-job execution therefore remains a risk wherever the gate is enabled. The
-staging work did not change production.
+## Dependency lock
 
-The long-term scheduler architecture is **not** solved. Periodic workloads
-still require a dedicated execution model. A likely direction is Cloud
-Scheduler plus a Cloud Run Job or worker, or another mechanism that guarantees
-one intended execution of each workload, but the exact architecture has not
-been selected and no dedicated executor currently exists.
+The validated physics environment is pinned to:
 
-Address this operational issue separately from the Stage 4 physics migration.
+`pvlib==0.15.2`
 
-## Application logging checkpoint
+Do not upgrade pvlib as part of an unrelated physics increment. The pin exists because version changes have already altered exact optical expectations.
 
-PR #7 added application-specific logging for the `heliotelligence` namespace.
-`settings.log_level` is now consumed, application INFO lifecycle records are
-observable, and Uvicorn/root logging is not globally replaced. This enabled
-runtime verification of the scheduler gate.
+## Validation expectation for future PRs
 
-## Staging checkpoint
+At minimum, independently verify:
 
-- Project: `heliotelligence-staging`.
-- Validated Git SHA: `e3186f288fb8a0da723809648c306e2527acb926`.
-- Validated Cloud Build: `c5a8788c-62cb-499c-b2e5-7902ee4fe0d6`.
-- Validated image: `api:e3186f2` at digest
-  `sha256:1c101683cc35310a89b60e2d521ea138fc00fc62e2216625f9931dea5dc42a2d`.
-- Validated Cloud Run revision: `heliotelligence-api-staging-00004-4bn`,
-  receiving 100% of traffic.
-- Runtime configuration: `RUN_SCHEDULER=false` and `APP_ENV=staging`.
-- Health validation: HTTP 200, application status `ok`, and database status
-  `ok`.
+- exact base and head SHAs;
+- changed-file scope;
+- exact replay / tamper resistance where upstream result objects are admitted;
+- focused new-stage tests;
+- adjacent S8/S9 regressions;
+- broader electrical regressions;
+- optical/rear regressions when dependencies may interact;
+- full backend unit suite;
+- frontend build;
+- dependency version;
+- Ruff / strict mypy on changed files where applicable;
+- syntax compilation and `git diff --check`;
+- fresh CI on the exact synthetic merge or exact merged `main`.
 
-Runtime logs showed:
+Never merge solely because a local implementation report says tests passed.
 
-- `Starting Heliotelligence API (environment=staging)`;
-- `Synced 2 site(s) to database`;
-- `In-process APScheduler disabled by RUN_SCHEDULER`;
-- no `APScheduler started`; and
-- no `APScheduler stopped`.
+## Operational note
 
-Each lifecycle message appeared twice because the container runs two Uvicorn
-workers. These duplicate startup messages are not duplicate scheduler
-execution. The request-serving staging API is validated with in-process
-scheduling disabled.
+Production `cloudbuild.yaml` currently deploys Cloud Run with `--min-instances=0` and `--max-instances=10`.
 
-Staging exists separately from production. Always target the staging project
-explicitly for staging commands; do not rely on local CLI defaults.
+`RUN_SCHEDULER` controls in-process APScheduler startup. Staging has been validated with `RUN_SCHEDULER=false`, but the long-term dedicated scheduler / worker architecture remains separate operational work.
+
+Do not mix scheduler migration with the physics roadmap unless there is a clear runtime dependency.
 
 Never put secrets, credentials, or secret values in repository documentation.
