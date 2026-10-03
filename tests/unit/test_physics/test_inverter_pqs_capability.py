@@ -149,6 +149,9 @@ def test_explicit_q_request_is_preserved_and_direction_is_locked(q: float, direc
     assert row["reactive_power_request_direction"] == direction
     assert row["p_ac_available_w"] == accounting.accounting.iloc[0]["p_ac_available_w"]
     assert row["pqs_capability_state"] == "resolved_pqs_within_explicit_capability"
+    assert row["fixed_reactive_power_limits_resolved"]
+    assert row["full_capability_authority_resolved"]
+    assert row["fixed_q_limit_evaluated"]
 
 
 def test_apparent_power_and_power_factor_close() -> None:
@@ -262,6 +265,8 @@ def test_partial_authority_pass_is_unknown_and_violation_is_definite() -> None:
         topology, upstream, accounting, partial, {_key(accounting): _request(10000.0)}
     ).capability.iloc[0]
     assert passing["pqs_capability_state"] == "resolved_pqs_partial_no_fixed_q_authority"
+    assert not passing["fixed_reactive_power_limits_resolved"]
+    assert not passing["full_capability_authority_resolved"]
     assert pd.isna(passing["fixed_q_limit_satisfied"])
     assert pd.isna(passing["pqs_capability_satisfied"])
     assert failing["pqs_capability_state"] == "resolved_pqs_known_capability_violation"
@@ -289,6 +294,8 @@ def test_missing_request_is_not_zero_but_p_alone_violation_is_known() -> None:
     assert missing["pqs_capability_state"] == "unresolved_no_explicit_reactive_power_request"
     assert not missing["reactive_power_request_present"]
     assert pd.isna(missing["q_requested_var"])
+    assert missing["full_capability_authority_resolved"]
+    assert not missing["fixed_q_limit_evaluated"]
     assert violation["pqs_capability_state"] == "resolved_pqs_known_capability_violation"
     assert violation["active_power_alone_exceeds_smax"]
     assert not violation["pqs_capability_satisfied"]
@@ -302,6 +309,8 @@ def test_night_tare_is_resolved_not_applicable_without_request() -> None:
     assert row["pqs_capability_state"] == "resolved_pqs_not_applicable_inactive_ac_state"
     assert row["pqs_evaluation_resolved"]
     assert not row["pqs_evaluation_applicable"]
+    assert row["full_capability_authority_resolved"]
+    assert not row["fixed_q_limit_evaluated"]
     assert pd.isna(row["s_requested_va"])
     assert pd.isna(row["pqs_capability_satisfied"])
 
@@ -317,6 +326,8 @@ def test_canonical_upstream_unresolved_with_nan_power_propagates() -> None:
     assert not row["pqs_evaluation_applicable"]
     assert row["pqs_capability_state"] == "unresolved_upstream_sandia_power_accounting"
     assert pd.isna(row["p_ac_available_w"])
+    assert row["full_capability_authority_resolved"]
+    assert not row["fixed_q_limit_evaluated"]
 
 
 def test_missing_ac_capability_authority_is_unresolved() -> None:
@@ -327,6 +338,8 @@ def test_missing_ac_capability_authority_is_unresolved() -> None:
     ).capability.iloc[0]
     assert row["pqs_capability_state"] == "unresolved_no_explicit_ac_capability_authority"
     assert not row["pqs_evaluation_resolved"]
+    assert not row["full_capability_authority_resolved"]
+    assert not row["fixed_q_limit_evaluated"]
 
 
 @pytest.mark.parametrize("value", [True, False, float("nan"), float("inf"), -float("inf"), "1"])

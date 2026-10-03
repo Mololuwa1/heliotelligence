@@ -371,7 +371,9 @@ def _base_record(
         "apparent_power_limit_satisfied": pd.NA,
         "fixed_q_limit_evaluated": False,
         "fixed_q_limit_satisfied": pd.NA,
-        "full_capability_authority_resolved": False,
+        "full_capability_authority_resolved": bool(
+            authority["fixed_reactive_power_limits_resolved"]
+        ),
         "capability_violation_detected": pd.NA,
         "pqs_capability_satisfied": pd.NA,
         "pqs_evaluation_applicable": False,
@@ -462,7 +464,6 @@ def _classify(
         apparent_power_limit_satisfied=apparent_ok,
         fixed_q_limit_evaluated=fixed,
         fixed_q_limit_satisfied=fixed_ok,
-        full_capability_authority_resolved=fixed,
         capability_violation_detected=violation,
         pqs_capability_satisfied=satisfied,
         pqs_evaluation_applicable=True,
@@ -734,6 +735,12 @@ def _validate_state_semantics(
     state = str(row["pqs_capability_state"])
     resolved = bool(row["pqs_evaluation_resolved"])
     applicable = bool(row["pqs_evaluation_applicable"])
+    fixed_authority = bool(authority["fixed_reactive_power_limits_resolved"])
+    if bool(row["full_capability_authority_resolved"]) != fixed_authority:
+        raise RuntimeError("S9-4B full capability authority flag is inconsistent")
+    fixed_evaluation_expected = bool(applicable and request is not None and fixed_authority)
+    if bool(row["fixed_q_limit_evaluated"]) != fixed_evaluation_expected:
+        raise RuntimeError("S9-4B fixed-Q evaluation flag is inconsistent")
     if state == "resolved_pqs_not_applicable_inactive_ac_state":
         if not resolved or applicable or pd.notna(row["pqs_capability_satisfied"]):
             raise RuntimeError("S9-4B inactive state is contradictory")
@@ -772,12 +779,7 @@ def _validate_state_semantics(
                 raise RuntimeError("S9-4B P-only violation fabricated a complete P/Q point")
         return
     apparent_ok = bool(row["apparent_power_limit_satisfied"])
-    fixed = bool(authority["fixed_reactive_power_limits_resolved"])
-    if (
-        bool(row["fixed_q_limit_evaluated"]) != fixed
-        or bool(row["full_capability_authority_resolved"]) != fixed
-    ):
-        raise RuntimeError("S9-4B fixed-Q authority state is inconsistent")
+    fixed = fixed_authority
     if fixed:
         q = request.reactive_power_request_var
         fixed_ok = (
