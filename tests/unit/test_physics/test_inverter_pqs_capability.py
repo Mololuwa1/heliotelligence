@@ -69,8 +69,11 @@ def _chain(
     *,
     current: float = 5.0,
     zero: bool = False,
+    limits: Any = None,
 ) -> tuple[tuple[Any, ...], Any]:
-    values, ac, potential = accounting_support._inputs(topology, current=current, zero=zero)
+    values, ac, potential = accounting_support._inputs(
+        topology, current=current, zero=zero, limits=limits
+    )
     accounting = accounting_support._call(topology, values, ac, potential)
     return (*values, ac, potential), accounting
 
@@ -303,6 +306,19 @@ def test_night_tare_is_resolved_not_applicable_without_request() -> None:
     assert pd.isna(row["pqs_capability_satisfied"])
 
 
+def test_canonical_upstream_unresolved_with_nan_power_propagates() -> None:
+    topology = s91_support._topology(("mppt-1", "mppt-2"))
+    upstream, accounting = _chain(topology, limits={})
+    upstream_row = accounting.accounting.iloc[0]
+    assert not upstream_row["accounting_resolved"]
+    assert pd.isna(upstream_row["p_ac_available_w"])
+    row = _run(topology, upstream, accounting, {"inverter-1": _authority()}, {}).capability.iloc[0]
+    assert not row["pqs_evaluation_resolved"]
+    assert not row["pqs_evaluation_applicable"]
+    assert row["pqs_capability_state"] == "unresolved_upstream_sandia_power_accounting"
+    assert pd.isna(row["p_ac_available_w"])
+
+
 def test_missing_ac_capability_authority_is_unresolved() -> None:
     topology = s91_support._topology()
     upstream, accounting = _chain(topology)
@@ -468,6 +484,36 @@ def test_diagnostics_provenance_ownership_and_ordering() -> None:
     mutated.iloc[0, mutated.columns.get_loc("q_requested_var")] = 123.0
     assert accounting.accounting.iloc[0]["p_ac_available_w"] == row["p_ac_available_w"]
     assert requests[_key(accounting)].reactive_power_request_var == 0.0
+
+
+def test_multiple_request_and_authority_mapping_order_is_irrelevant() -> None:
+    first_topology = s91_support._topology(inverter_id="inverter-1")
+    second_topology = s91_support._topology(inverter_id="inverter-2")
+    topology = ElectricalTopologyConfig(
+        inverters=[first_topology.inverters[0], second_topology.inverters[0]]
+    )
+    upstream, accounting = _chain(topology)
+    keys = [
+        (pd.Timestamp(timestamp), str(inverter_id))
+        for timestamp, inverter_id in accounting.accounting.index
+    ]
+    capabilities = {
+        "inverter-1": _authority(5000.0, -4000.0, 4000.0),
+        "inverter-2": _authority(4500.0, -3000.0, 3000.0),
+    }
+    requests = {keys[0]: _request(100.0), keys[1]: _request(-200.0)}
+    first = _run(topology, upstream, accounting, capabilities, requests)
+    second = _run(
+        topology,
+        upstream,
+        accounting,
+        dict(reversed(list(capabilities.items()))),
+        dict(reversed(list(requests.items()))),
+    )
+    assert len(requests) == 2
+    pd.testing.assert_frame_equal(first.capability, second.capability, check_exact=True)
+    assert first.diagnostics == second.diagnostics
+    assert first.capability.index.equals(accounting.accounting.index)
 
 
 def test_module_has_no_control_current_thermal_network_or_pvlib_logic() -> None:

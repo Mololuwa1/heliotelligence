@@ -579,17 +579,58 @@ def _validate_result(
         + diagnostics.negative_q_absorption_request_count
     ):
         raise RuntimeError("S9-4B request direction counts do not close")
+    if diagnostics.model != TOPOLOGY_INVERTER_PQS_CAPABILITY_MODEL_ID:
+        raise RuntimeError("S9-4B diagnostics model is invalid")
     for key, row in output.iterrows():
         upstream = accounting.loc[key]
         authority = capability.loc[key[1]]
         request = requests.get((pd.Timestamp(key[0]), str(key[1])))
-        if row["p_ac_available_w"] != upstream["p_ac_available_w"]:
-            raise RuntimeError("S9-4B altered admitted active power")
+        upstream_pairs = (
+            "p_ac_available_w",
+            "inverter_conversion_state",
+            "accounting_resolved",
+            "accounting_state",
+            "available_reference_plane",
+            "topology_sandia_inverter_accounting_contract",
+            "topology_sandia_inverter_accounting_model",
+            "topology_sandia_inverter_accounting_scope",
+            "topology_sandia_inverter_accounting_coverage_scope",
+        )
+        if any(not _exactly_equal(row[column], upstream[column]) for column in upstream_pairs):
+            raise RuntimeError("S9-4B altered canonical S9-3B state")
         if request is None:
-            if bool(row["reactive_power_request_present"]) or pd.notna(row["q_requested_var"]):
+            missing_request = (
+                False,
+                np.nan,
+                "",
+                "unknown",
+                "not_evaluated",
+            )
+            actual_request = (
+                row["reactive_power_request_present"],
+                row["q_requested_var"],
+                row["reactive_power_request_source"],
+                row["reactive_power_request_confidence"],
+                row["reactive_power_request_direction"],
+            )
+            if any(
+                not _exactly_equal(actual, expected)
+                for actual, expected in zip(actual_request, missing_request, strict=True)
+            ):
                 raise RuntimeError("S9-4B fabricated a reactive-power request")
-        elif row["q_requested_var"] != request.reactive_power_request_var:
-            raise RuntimeError("S9-4B altered the reactive-power request")
+        else:
+            q = request.reactive_power_request_var
+            direction = "injection" if q > 0.0 else "absorption" if q < 0.0 else "zero"
+            actual_request = (
+                row["reactive_power_request_present"],
+                row["q_requested_var"],
+                row["reactive_power_request_source"],
+                row["reactive_power_request_confidence"],
+                row["reactive_power_request_direction"],
+            )
+            expected_request = (True, q, request.parameter_source, request.confidence, direction)
+            if actual_request != expected_request:
+                raise RuntimeError("S9-4B altered the reactive-power request")
         if row["rated_apparent_power_va"] != authority["rated_apparent_power_va"] and not (
             pd.isna(row["rated_apparent_power_va"])
             and pd.isna(authority["rated_apparent_power_va"])
@@ -601,20 +642,28 @@ def _validate_result(
             "phase_configuration": "phase_configuration",
             "reactive_power_min_var": "reactive_power_min_var",
             "reactive_power_max_var": "reactive_power_max_var",
-            "fixed_reactive_power_limits_resolved": (
-                "fixed_reactive_power_limits_resolved"
-            ),
+            "fixed_reactive_power_limits_resolved": ("fixed_reactive_power_limits_resolved"),
             "ac_capability_authority_resolved": "ac_capability_authority_resolved",
             "ac_capability_authority_state": "ac_capability_authority_state",
             "ac_capability_parameter_source": "parameter_source",
             "ac_capability_confidence": "confidence",
+            "topology_inverter_ac_capability_authority_contract": (
+                "topology_inverter_ac_capability_authority_contract"
+            ),
+            "topology_inverter_ac_capability_authority_model": (
+                "topology_inverter_ac_capability_authority_model"
+            ),
+            "topology_inverter_ac_capability_authority_scope": (
+                "topology_inverter_ac_capability_authority_scope"
+            ),
+            "topology_inverter_ac_capability_authority_coverage_scope": (
+                "topology_inverter_ac_capability_authority_coverage_scope"
+            ),
         }
         for result_column, authority_column in authority_pairs.items():
             actual = row[result_column]
             expected_authority = authority[authority_column]
-            if actual != expected_authority and not (
-                pd.isna(actual) and pd.isna(expected_authority)
-            ):
+            if not _exactly_equal(actual, expected_authority):
                 raise RuntimeError("S9-4B altered AC capability authority")
         for column, expected in {
             "topology_inverter_pqs_capability_contract": (
@@ -628,15 +677,137 @@ def _validate_result(
         }.items():
             if row[column] != expected:
                 raise RuntimeError(f"S9-4B {column} is invalid")
+        _validate_state_semantics(row, authority, request)
         if bool(row["pqs_evaluation_applicable"]) and pd.notna(row["q_requested_var"]):
             p = float(row["p_ac_available_w"])
             q = float(row["q_requested_var"])
+            smax = float(row["rated_apparent_power_va"])
             apparent = math.hypot(p, q)
-            if not math.isclose(float(row["s_requested_va"]), apparent, abs_tol=_ABS_TOL):
+            if not math.isclose(
+                float(row["s_requested_va"]), apparent, rel_tol=0.0, abs_tol=_ABS_TOL
+            ):
                 raise RuntimeError("S9-4B apparent power does not close")
             if not math.isclose(
                 float(row["apparent_power_margin_va"]),
-                float(row["rated_apparent_power_va"]) - apparent,
+                smax - apparent,
+                rel_tol=0.0,
                 abs_tol=_ABS_TOL,
             ):
                 raise RuntimeError("S9-4B apparent-power margin does not close")
+            if not math.isclose(
+                float(row["power_factor_magnitude"]),
+                p / apparent,
+                rel_tol=0.0,
+                abs_tol=_ABS_TOL,
+            ):
+                raise RuntimeError("S9-4B operating power factor does not close")
+            apparent_ok = apparent <= smax + _ABS_TOL
+            if bool(row["apparent_power_limit_satisfied"]) != apparent_ok:
+                raise RuntimeError("S9-4B apparent-power result is inconsistent")
+            expected_circle = (
+                smax * math.sqrt(max(1.0 - (abs(p) / smax) ** 2, 0.0)) if abs(p) <= smax else 0.0
+            )
+            if not math.isclose(
+                float(row["q_apparent_power_circle_limit_var"]),
+                expected_circle,
+                rel_tol=0.0,
+                abs_tol=_ABS_TOL,
+            ):
+                raise RuntimeError("S9-4B apparent-power circle does not close")
+
+
+def _exactly_equal(actual: object, expected: object) -> bool:
+    """Return exact scalar equality while treating paired missing values equally."""
+
+    if pd.isna(expected):
+        return bool(pd.isna(actual))
+    if pd.isna(actual):
+        return False
+    return bool(actual == expected)
+
+
+def _validate_state_semantics(
+    row: pd.Series,
+    authority: pd.Series,
+    request: InverterReactivePowerRequest | None,
+) -> None:
+    state = str(row["pqs_capability_state"])
+    resolved = bool(row["pqs_evaluation_resolved"])
+    applicable = bool(row["pqs_evaluation_applicable"])
+    if state == "resolved_pqs_not_applicable_inactive_ac_state":
+        if not resolved or applicable or pd.notna(row["pqs_capability_satisfied"]):
+            raise RuntimeError("S9-4B inactive state is contradictory")
+        for column in (
+            "s_requested_va",
+            "power_factor_magnitude",
+            "q_apparent_power_circle_limit_var",
+            "apparent_power_margin_va",
+        ):
+            if pd.notna(row[column]):
+                raise RuntimeError("S9-4B inactive state contains evaluated P/Q/S values")
+        return
+    if state in {
+        "unresolved_upstream_sandia_power_accounting",
+        "unresolved_no_explicit_ac_capability_authority",
+        "unresolved_no_explicit_reactive_power_request",
+    }:
+        if resolved or applicable or pd.notna(row["pqs_capability_satisfied"]):
+            raise RuntimeError("S9-4B unresolved state is contradictory")
+        return
+    if not resolved or not applicable:
+        raise RuntimeError("S9-4B resolved active state is contradictory")
+    if request is None:
+        p = abs(float(row["p_ac_available_w"]))
+        smax = float(row["rated_apparent_power_va"])
+        if state != "resolved_pqs_known_capability_violation" or not (
+            p > smax + _ABS_TOL
+            and bool(row["active_power_alone_exceeds_smax"])
+            and not bool(row["apparent_power_limit_satisfied"])
+            and bool(row["capability_violation_detected"])
+            and not bool(row["pqs_capability_satisfied"])
+        ):
+            raise RuntimeError("S9-4B P-only violation state is contradictory")
+        for column in ("q_requested_var", "s_requested_va", "power_factor_magnitude"):
+            if pd.notna(row[column]):
+                raise RuntimeError("S9-4B P-only violation fabricated a complete P/Q point")
+        return
+    apparent_ok = bool(row["apparent_power_limit_satisfied"])
+    fixed = bool(authority["fixed_reactive_power_limits_resolved"])
+    if (
+        bool(row["fixed_q_limit_evaluated"]) != fixed
+        or bool(row["full_capability_authority_resolved"]) != fixed
+    ):
+        raise RuntimeError("S9-4B fixed-Q authority state is inconsistent")
+    if fixed:
+        q = request.reactive_power_request_var
+        fixed_ok = (
+            float(authority["reactive_power_min_var"]) - _ABS_TOL
+            <= q
+            <= float(authority["reactive_power_max_var"]) + _ABS_TOL
+        )
+        if bool(row["fixed_q_limit_satisfied"]) != fixed_ok:
+            raise RuntimeError("S9-4B fixed-Q result is inconsistent")
+    else:
+        fixed_ok = True
+        if pd.notna(row["fixed_q_limit_satisfied"]):
+            raise RuntimeError("S9-4B fabricated a fixed-Q result")
+    violation = not apparent_ok or (fixed and not fixed_ok)
+    if bool(row["capability_violation_detected"]) != violation:
+        raise RuntimeError("S9-4B violation result is inconsistent")
+    expected_state = (
+        "resolved_pqs_known_capability_violation"
+        if violation
+        else "resolved_pqs_within_explicit_capability"
+        if fixed
+        else "resolved_pqs_partial_no_fixed_q_authority"
+    )
+    if state != expected_state:
+        raise RuntimeError("S9-4B primary state is inconsistent")
+    if violation:
+        if bool(row["pqs_capability_satisfied"]):
+            raise RuntimeError("S9-4B known violation is marked satisfied")
+    elif fixed:
+        if not bool(row["pqs_capability_satisfied"]):
+            raise RuntimeError("S9-4B full passing authority is not satisfied")
+    elif pd.notna(row["pqs_capability_satisfied"]):
+        raise RuntimeError("S9-4B partial passing authority fabricated satisfaction")
