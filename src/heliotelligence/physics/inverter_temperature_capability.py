@@ -235,7 +235,15 @@ def calculate_topology_inverter_temperature_capability(
     output = pd.DataFrame(records, index=pqs.index.copy(), columns=_COLUMNS)
     _apply_dtypes(output)
     diagnostics = _diagnostics(topology, output)
-    _validate_result(pqs, thermal, temperatures, output, diagnostics)
+    _validate_result(
+        topology,
+        pqs,
+        thermal,
+        thermal_derating_by_inverter_id,
+        temperatures,
+        output,
+        diagnostics,
+    )
     return TopologyInverterTemperatureCapabilityResult(output.copy(deep=True), diagnostics)
 
 
@@ -652,7 +660,10 @@ def _diagnostics(
 
 
 def _validate_result(
-    pqs: pd.DataFrame, thermal: pd.DataFrame,
+    topology: ElectricalTopologyConfig,
+    pqs: pd.DataFrame,
+    thermal: pd.DataFrame,
+    thermal_mapping: Mapping[str, InverterThermalDeratingAuthority],
     temperatures: Mapping[tuple[pd.Timestamp, str], InverterTemperatureState],
     output: pd.DataFrame, diagnostics: TopologyInverterTemperatureCapabilityDiagnostics,
 ) -> None:
@@ -660,32 +671,175 @@ def _validate_result(
         raise RuntimeError("temperature capability schema or index is invalid")
     if output.index.has_duplicates or not output.index.equals(pqs.index):
         raise RuntimeError("temperature capability ordering is invalid")
+    expected_dtypes = {
+        **{column: "float64" for column in _NUMERIC},
+        **{column: "bool" for column in _BOOL},
+        **{column: "boolean" for column in _NULLABLE},
+    }
+    for column in _COLUMNS:
+        if str(output[column].dtype) != expected_dtypes.get(column, "object"):
+            raise RuntimeError(f"temperature capability dtype is invalid for {column}")
+
+    expected_records: list[dict[str, object]] = []
+    for key, upstream in pqs.iterrows():
+        inverter_id = str(key[1])
+        authority_row = thermal.loc[inverter_id]
+        authority = thermal_mapping.get(inverter_id)
+        temperature = temperatures.get((pd.Timestamp(key[0]), inverter_id))
+        expected_record = _base_record(upstream, authority_row, temperature)
+        _classify(expected_record, upstream, authority_row, authority, temperature)
+        expected_records.append(expected_record)
+    expected_output = pd.DataFrame(
+        expected_records, index=pqs.index.copy(), columns=_COLUMNS
+    )
+    _apply_dtypes(expected_output)
+    try:
+        pd.testing.assert_frame_equal(output, expected_output, check_exact=True)
+    except AssertionError as exc:
+        raise RuntimeError(
+            "temperature capability result does not match deterministic contract replay"
+        ) from exc
+
+    expected_diagnostics = _diagnostics(topology, output)
+    if diagnostics != expected_diagnostics:
+        raise RuntimeError("temperature capability diagnostics are inconsistent")
     if diagnostics.row_count != len(output) or (
-        diagnostics.resolved_count + diagnostics.unresolved_count != len(output)
+        diagnostics.resolved_count + diagnostics.unresolved_count != diagnostics.row_count
     ):
-        raise RuntimeError("temperature capability diagnostics do not close")
+        raise RuntimeError("temperature capability resolution counts do not close")
+    primary_count = sum(
+        int((output["temperature_capability_state"] == state).sum())
+        for state in (
+            "resolved_temperature_capability_not_applicable_inactive_ac_state",
+            "resolved_temperature_dependent_known_capability_violation",
+            "resolved_temperature_dependent_within_full_capability",
+            "resolved_temperature_dependent_partial_capability_authority",
+            "unresolved_upstream_pqs_capability",
+            "unresolved_no_explicit_inverter_thermal_derating_authority",
+            "unresolved_no_explicit_inverter_temperature_state",
+            "unresolved_inverter_temperature_quantity_mismatch",
+            "unresolved_inverter_temperature_outside_authority_domain",
+        )
+    )
+    if primary_count != diagnostics.row_count:
+        raise RuntimeError("temperature capability primary states do not close")
     if diagnostics.model != TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_MODEL_ID:
         raise RuntimeError("temperature capability diagnostics model is invalid")
     for key, row in output.iterrows():
         upstream = pqs.loc[key]
         for name in (
-            "p_ac_available_w", "q_requested_var", "s_requested_va", "pqs_capability_state",
-            "available_reference_plane", "pqs_evaluation_resolved",
-            "pqs_evaluation_applicable", "full_capability_authority_resolved",
+            "p_ac_available_w", "q_requested_var", "s_requested_va",
+            "rated_apparent_power_va", "reactive_power_min_var",
+            "reactive_power_max_var", "fixed_reactive_power_limits_resolved",
+            "capability_violation_detected", "pqs_capability_satisfied",
+            "full_capability_authority_resolved", "pqs_evaluation_applicable",
+            "pqs_evaluation_resolved", "pqs_capability_state",
+            "available_reference_plane", "topology_inverter_pqs_capability_contract",
+            "topology_inverter_pqs_capability_model",
+            "topology_inverter_pqs_capability_scope",
+            "topology_inverter_pqs_capability_coverage_scope",
         ):
             expected, actual = upstream[name], row[name]
-            if pd.isna(expected):
-                if not pd.isna(actual):
-                    raise RuntimeError(f"S9-4B replay field {name} is invalid")
-            elif actual != expected:
+            if not _missing_aware_equal(actual, expected):
                 raise RuntimeError(f"S9-4B replay field {name} is invalid")
         authority = thermal.loc[str(key[1])]
-        if row["thermal_derating_authority_state"] != authority["thermal_derating_authority_state"]:
-            raise RuntimeError("S9-4C replay state is invalid")
-        temperature = temperatures.get((pd.Timestamp(key[0]), str(key[1])))
-        if bool(row["inverter_temperature_state_present"]) != (temperature is not None):
-            raise RuntimeError("temperature-state presence is invalid")
-        if row["topology_inverter_temperature_capability_contract"] != (
-            TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_CONTRACT_ID
+        thermal_replay = {
+            "thermal_authority_temperature_quantity": "temperature_quantity",
+            "thermal_derating_mode": "derating_mode",
+            "thermal_temperature_min_c": "temperature_min_c",
+            "thermal_temperature_max_c": "temperature_max_c",
+            "active_power_thermal_limit_resolved": "active_power_thermal_limit_resolved",
+            "apparent_power_thermal_limit_resolved": "apparent_power_thermal_limit_resolved",
+            "reactive_power_thermal_limits_resolved": (
+                "reactive_power_thermal_limits_resolved"
+            ),
+            "thermal_authority_parameter_source": "parameter_source",
+            "thermal_authority_confidence": "confidence",
+            "thermal_derating_authority_state": "thermal_derating_authority_state",
+            "topology_inverter_thermal_derating_authority_contract": (
+                "topology_inverter_thermal_derating_authority_contract"
+            ),
+            "topology_inverter_thermal_derating_authority_model": (
+                "topology_inverter_thermal_derating_authority_model"
+            ),
+            "topology_inverter_thermal_derating_authority_scope": (
+                "topology_inverter_thermal_derating_authority_scope"
+            ),
+            "topology_inverter_thermal_derating_authority_coverage_scope": (
+                "topology_inverter_thermal_derating_authority_coverage_scope"
+            ),
+        }
+        for output_name, authority_name in thermal_replay.items():
+            if not _missing_aware_equal(row[output_name], authority[authority_name]):
+                raise RuntimeError(f"S9-4C replay field {output_name} is invalid")
+        if bool(row["full_thermal_capability_authority_resolved"]) != _full_thermal(
+            authority
         ):
+            raise RuntimeError("full thermal authority closure is invalid")
+        temperature = temperatures.get((pd.Timestamp(key[0]), str(key[1])))
+        expected_temperature = (
+            False, np.nan, "", "", "unknown"
+        ) if temperature is None else (
+            True, temperature.temperature_c, temperature.temperature_quantity,
+            temperature.parameter_source, temperature.confidence,
+        )
+        actual_temperature = (
+            row["inverter_temperature_state_present"], row["inverter_temperature_c"],
+            row["inverter_temperature_quantity"],
+            row["inverter_temperature_parameter_source"],
+            row["inverter_temperature_confidence"],
+        )
+        if not all(
+            _missing_aware_equal(actual, expected)
+            for actual, expected in zip(actual_temperature, expected_temperature, strict=True)
+        ):
+            raise RuntimeError("temperature-state replay is invalid")
+        provenance = {
+            "topology_inverter_temperature_capability_contract": (
+                TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_CONTRACT_ID
+            ),
+            "topology_inverter_temperature_capability_model": (
+                TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_MODEL_ID
+            ),
+            "topology_inverter_temperature_capability_scope": (
+                TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_SCOPE
+            ),
+            "topology_inverter_temperature_capability_coverage_scope": (
+                TOPOLOGY_INVERTER_TEMPERATURE_CAPABILITY_COVERAGE_SCOPE
+            ),
+        }
+        if any(row[name] != value for name, value in provenance.items()):
             raise RuntimeError("temperature capability provenance is invalid")
+        _validate_state_semantics(row)
+
+
+def _missing_aware_equal(left: object, right: object) -> bool:
+    left_missing = bool(pd.isna(left))
+    right_missing = bool(pd.isna(right))
+    if left_missing or right_missing:
+        return left_missing and right_missing
+    return bool(left == right)
+
+
+def _validate_state_semantics(row: pd.Series) -> None:
+    state = row["temperature_capability_state"]
+    resolved = bool(row["temperature_capability_evaluation_resolved"])
+    applicable = bool(row["temperature_capability_evaluation_applicable"])
+    violation = row["temperature_dependent_capability_violation_detected"]
+    satisfied = row["temperature_dependent_capability_satisfied"]
+    if state == "resolved_temperature_capability_not_applicable_inactive_ac_state":
+        valid = resolved and not applicable and pd.isna(violation) and pd.isna(satisfied)
+    elif state == "resolved_temperature_dependent_known_capability_violation":
+        valid = resolved and applicable and _is_true(violation) and _is_false(satisfied)
+    elif state == "resolved_temperature_dependent_within_full_capability":
+        valid = resolved and applicable and _is_false(violation) and _is_true(satisfied)
+    elif state == "resolved_temperature_dependent_partial_capability_authority":
+        valid = resolved and applicable and _is_false(violation) and pd.isna(satisfied)
+    else:
+        valid = not resolved and not applicable and pd.isna(violation) and pd.isna(satisfied)
+    if not valid:
+        raise RuntimeError(f"temperature capability state semantics are invalid for {state}")
+
+
+def _is_false(value: object) -> bool:
+    return not pd.isna(value) and not bool(value)

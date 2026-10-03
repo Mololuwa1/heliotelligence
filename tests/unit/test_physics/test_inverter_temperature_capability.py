@@ -77,7 +77,7 @@ def _thermal(
 
 def _context(
     *, zero: bool = False, static_full: bool = True, q: float = 0.0,
-    smax: float = 20000.0,
+    smax: float = 20000.0, topology: ElectricalTopologyConfig | None = None,
 ) -> tuple[
     ElectricalTopologyConfig,
     tuple[Any, ...],
@@ -86,14 +86,18 @@ def _context(
     dict[Any, Any],
     Any,
 ]:
-    topology = s91_support._topology()
+    topology = topology or s91_support._topology()
     upstream, accounting = pqs_support._chain(topology, zero=zero)
     capabilities = {
-        "inverter-1": pqs_support._authority(
+        inverter.id: pqs_support._authority(
             smax, -smax if static_full else None, smax if static_full else None
         )
+        for inverter in topology.inverters
     }
-    requests = {} if zero else {pqs_support._key(accounting): pqs_support._request(q)}
+    requests = {} if zero else {
+        (pd.Timestamp(timestamp), str(inverter_id)): pqs_support._request(q)
+        for timestamp, inverter_id in accounting.accounting.index
+    }
     pqs = pqs_support._run(topology, upstream, accounting, capabilities, requests)
     return topology, upstream, accounting, capabilities, requests, pqs
 
@@ -334,6 +338,97 @@ def test_s9_4b_and_s9_4c_tampering_is_rejected() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "column",
+    [
+        "q_requested_var",
+        "s_requested_va",
+        "pqs_capability_state",
+        "pqs_capability_satisfied",
+        "topology_inverter_pqs_capability_model",
+    ],
+)
+def test_additional_s9_4b_field_tampering_is_rejected(column: str) -> None:
+    context = _context(q=100.0)
+    pqs = context[5]
+    frame = pqs.capability.copy(deep=True)
+    location = frame.columns.get_loc(column)
+    current = frame.iloc[0, location]
+    if column == "pqs_capability_satisfied":
+        frame.iloc[0, location] = not bool(current)
+    elif column in {"q_requested_var", "s_requested_va"}:
+        frame.iloc[0, location] = float(current) + 1.0
+    else:
+        frame.iloc[0, location] = "tampered"
+    with pytest.raises(ValueError, match="S9-4B"):
+        _run(
+            context,
+            {"inverter-1": _thermal()},
+            {_key(context): _temperature(50.0)},
+            supplied_pqs=replace(pqs, capability=frame),
+        )
+
+
+def test_parent_diagnostics_and_thermal_mapping_tampering_are_rejected() -> None:
+    context = _context()
+    topology, _, _, _, _, pqs = context
+    thermal_mapping = {"inverter-1": _thermal()}
+    with pytest.raises(ValueError, match="S9-4B diagnostics"):
+        _run(
+            context,
+            thermal_mapping,
+            {_key(context): _temperature(50.0)},
+            supplied_pqs=replace(
+                pqs, diagnostics=replace(pqs.diagnostics, row_count=999)
+            ),
+        )
+    thermal = resolve_topology_inverter_thermal_derating_authority(topology, thermal_mapping)
+    with pytest.raises(ValueError, match="S9-4C authority metadata"):
+        _run(
+            context,
+            thermal_mapping,
+            {_key(context): _temperature(50.0)},
+            supplied_thermal=replace(
+                thermal,
+                diagnostics=replace(thermal.diagnostics, inverter_count=999),
+            ),
+        )
+    changed_mapping = {"inverter-1": _thermal(points=(30.0, 50.0, 60.0))}
+    with pytest.raises(ValueError, match="S9-4C"):
+        _run(
+            context,
+            changed_mapping,
+            {_key(context): _temperature(50.0)},
+            supplied_thermal=thermal,
+        )
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "temperature_quantity",
+        "derating_mode",
+        "parameter_source",
+        "confidence",
+        "topology_inverter_thermal_derating_authority_contract",
+    ],
+)
+def test_additional_s9_4c_field_tampering_is_rejected(column: str) -> None:
+    context = _context()
+    topology = context[0]
+    mapping = {"inverter-1": _thermal()}
+    thermal = resolve_topology_inverter_thermal_derating_authority(topology, mapping)
+    frame = thermal.states.copy(deep=True)
+    frame.loc["inverter-1", column] = "tampered"
+    with pytest.raises(ValueError, match="S9-4C"):
+        _run(
+            context,
+            mapping,
+            {_key(context): _temperature(50.0)},
+            supplied_thermal=replace(thermal, states=frame),
+        )
+
+
 def test_provenance_dtypes_diagnostics_and_empty_result() -> None:
     context = _context()
     result = _run(
@@ -388,3 +483,31 @@ def test_output_ownership_and_mapping_order_independence() -> None:
     assert first.diagnostics == second.diagnostics
     first.capability.iloc[0, first.capability.columns.get_loc("inverter_temperature_c")] = -999.0
     assert second.capability.iloc[0]["inverter_temperature_c"] == 50.0
+
+
+def test_real_two_inverter_mapping_order_independence() -> None:
+    first_inverter = s91_support._topology(inverter_id="inverter-a").inverters[0]
+    second_inverter = s91_support._topology(inverter_id="inverter-b").inverters[0]
+    topology = ElectricalTopologyConfig(inverters=[first_inverter, second_inverter])
+    context = _context(topology=topology)
+    thermal_mapping = {
+        "inverter-b": _thermal(points=(30.0, 50.0, 70.0)),
+        "inverter-a": _thermal(),
+    }
+    keys = [(pd.Timestamp(t), str(i)) for t, i in context[2].accounting.index]
+    temperatures = {
+        keys[1]: InverterTemperatureState(55.0, "heatsink", "sensor:b", "medium"),
+        keys[0]: InverterTemperatureState(45.0, "heatsink", "sensor:a", "high"),
+    }
+    first = _run(context, thermal_mapping, temperatures)
+    second = _run(
+        context,
+        dict(reversed(list(thermal_mapping.items()))),
+        dict(reversed(list(temperatures.items()))),
+    )
+    assert first.capability.index.get_level_values("inverter_id").tolist() == [
+        "inverter-a",
+        "inverter-b",
+    ]
+    pd.testing.assert_frame_equal(first.capability, second.capability, check_exact=True)
+    assert first.diagnostics == second.diagnostics
