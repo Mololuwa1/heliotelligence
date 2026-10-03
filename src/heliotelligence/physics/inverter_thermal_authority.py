@@ -3,6 +3,11 @@
 S9-4C records static thermal derating authority only. It does not calculate
 inverter temperature, evaluate timestamped derated capability, dispatch, or
 modify power. Module/cell thermal state is a different physical quantity.
+
+Reactive thermal limits use the project inverter convention: positive Q is
+injection into the AC network and negative Q is absorption from the AC network.
+Source data using another convention must be transformed before authority
+construction; this module does not infer or reverse signs.
 """
 
 from __future__ import annotations
@@ -30,6 +35,9 @@ TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_SCOPE = (
 )
 TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_COVERAGE_SCOPE = (
     "explicit_per_inverter_temperature_domain_with_no_derating_or_piecewise_limits"
+)
+INVERTER_THERMAL_REACTIVE_POWER_SIGN_CONVENTION = (
+    "positive_injection_negative_absorption"
 )
 
 DeratingMode = Literal["explicit_no_derating", "piecewise_linear_limits"]
@@ -98,6 +106,8 @@ def _optional_curve(
 
 @dataclass(frozen=True)
 class InverterThermalDeratingAuthority:
+    """Explicit thermal limits using positive-injection, negative-absorption Q."""
+
     temperature_quantity: str
     derating_mode: DeratingMode
     temperature_points_c: tuple[float, ...]

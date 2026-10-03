@@ -17,6 +17,7 @@ from heliotelligence.config.site import (
     StringConfig,
 )
 from heliotelligence.physics.inverter_thermal_authority import (
+    INVERTER_THERMAL_REACTIVE_POWER_SIGN_CONVENTION,
     TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_CONTRACT_ID,
     TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_COVERAGE_SCOPE,
     TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_MODEL_ID,
@@ -159,6 +160,26 @@ def test_multichannel_exact_replay_and_provenance() -> None:
     assert row["topology_inverter_thermal_derating_authority_coverage_scope"] == (
         TOPOLOGY_INVERTER_THERMAL_DERATING_AUTHORITY_COVERAGE_SCOPE
     )
+
+
+def test_reactive_power_sign_convention_and_asymmetric_limits_are_explicit() -> None:
+    assert INVERTER_THERMAL_REACTIVE_POWER_SIGN_CONVENTION == (
+        "positive_injection_negative_absorption"
+    )
+    authority = _authority(
+        temperature_points_c=(40.0, 50.0),
+        active_power_limit_w=None,
+        reactive_power_min_var=(-40000.0, -30000.0),
+        reactive_power_max_var=(20000.0, 10000.0),
+    )
+    # Negative Q is absorption capability; positive Q is injection capability.
+    assert authority.reactive_power_min_var == (-40000.0, -30000.0)
+    assert authority.reactive_power_max_var == (20000.0, 10000.0)
+    row = resolve_topology_inverter_thermal_derating_authority(
+        _topology("i"), {"i": authority}
+    ).states.iloc[0]
+    assert row["reactive_power_min_var_curve"] == (-40000.0, -30000.0)
+    assert row["reactive_power_max_var_curve"] == (20000.0, 10000.0)
 
 
 def test_zero_limits_asymmetric_q_flat_and_nonmonotonic_are_valid() -> None:
