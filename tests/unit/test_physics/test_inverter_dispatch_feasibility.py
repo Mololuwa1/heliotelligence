@@ -317,6 +317,10 @@ def test_thermal_unresolved_states(thermal: Any, temperature: Any, expected: str
 def test_exact_breakpoint_and_linear_interpolation(temperature: float, expected: float) -> None:
     row = _row(_setup(temperature=s94d._temperature(temperature), p=100.0))
     assert row["thermal_active_power_limit_w"] == expected
+    assert row["thermal_interpolation_state"] == (
+        "exact_authority_point" if temperature == 50.0 else "between_authority_points"
+    )
+    assert bool(row["thermal_interpolation_performed"]) is (temperature != 50.0)
 
 
 def test_inactive_is_resolved_not_applicable() -> None:
@@ -437,6 +441,114 @@ def test_provenance_diagnostics_and_output_ownership() -> None:
     first.feasibility.iloc[0, first.feasibility.columns.get_loc("p_requested_w")] = 1.0
     assert second.feasibility.iloc[0]["p_requested_w"] == 100.0
     assert second.diagnostics.row_count == 1
+
+
+def test_complete_parent_and_temperature_provenance_is_replayed() -> None:
+    row = _row(_setup())
+    for prefix in (
+        "topology_inverter_pqs_capability",
+        "topology_inverter_thermal_derating_authority",
+        "topology_inverter_temperature_capability",
+        "topology_inverter_active_power_dispatch_request_authority",
+        "topology_inverter_dispatch_feasibility",
+    ):
+        for suffix in ("contract", "model", "scope", "coverage_scope"):
+            assert isinstance(row[f"{prefix}_{suffix}"], str)
+            assert row[f"{prefix}_{suffix}"]
+    assert row["inverter_temperature_parameter_source"] == "sensor:test"
+    assert row["inverter_temperature_confidence"] == "high"
+    assert row["thermal_authority_parameter_source"] == "manufacturer:test"
+    assert row["thermal_authority_confidence"] == "high"
+    assert row["thermal_temperature_min_c"] == 40.0
+    assert row["thermal_temperature_max_c"] == 60.0
+    assert row["temperature_quantity_matches_authority"]
+    assert row["temperature_within_authority_domain"]
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "topology_inverter_temperature_capability_model",
+        "inverter_temperature_parameter_source",
+        "topology_inverter_thermal_derating_authority_scope",
+    ],
+)
+def test_additional_s94d_provenance_tamper_is_rejected(column: str) -> None:
+    setup = _setup()
+    parent = setup[1]
+    frame = parent.capability.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc(column)] = "tampered"
+    with pytest.raises(ValueError, match="canonical replay"):
+        _run(setup, supplied_parent=replace(parent, capability=frame))
+
+
+def test_s10a_provenance_tamper_is_rejected() -> None:
+    setup = _setup()
+    supplied = setup[5]
+    frame = supplied.states.copy(deep=True)
+    column = "topology_inverter_active_power_dispatch_request_authority_model"
+    frame.iloc[0, frame.columns.get_loc(column)] = "tampered"
+    with pytest.raises(ValueError, match="canonical replay"):
+        _run(setup, supplied_s10a=replace(supplied, states=frame))
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "topology_inverter_dispatch_feasibility_model",
+        "p_requested_w",
+        "q_requested_var",
+        "s_requested_va",
+        "active_power_availability_margin_w",
+        "thermal_active_power_limit_w",
+        "thermal_active_power_limit_satisfied",
+        "dispatch_feasibility_state",
+    ],
+)
+def test_strong_validator_rejects_s10b_public_field_tamper(column: str) -> None:
+    module = importlib.import_module("heliotelligence.physics.inverter_dispatch_feasibility")
+    setup = _setup()
+    result = _run(setup)
+    frame = result.feasibility.copy(deep=True)
+    value = frame.iloc[0][column]
+    if isinstance(value, str):
+        changed: object = "tampered"
+    elif column.endswith("satisfied"):
+        changed = not bool(value)
+    else:
+        changed = float(value) + 1.0
+    frame.iloc[0, frame.columns.get_loc(column)] = changed
+    context, parent, thermal, temperatures, _, request_authority = setup
+    with pytest.raises(RuntimeError):
+        module._validate_result(
+            context[0],
+            parent.capability,
+            request_authority.states,
+            context[4],
+            thermal,
+            temperatures,
+            frame,
+            result.diagnostics,
+        )
+
+
+def test_strong_validator_rejects_s10b_diagnostics_tamper() -> None:
+    module = importlib.import_module("heliotelligence.physics.inverter_dispatch_feasibility")
+    setup = _setup()
+    result = _run(setup)
+    context, parent, thermal, temperatures, _, request_authority = setup
+    diagnostics = replace(result.diagnostics, row_count=99)
+    with pytest.raises(RuntimeError, match="diagnostics"):
+        module._validate_result(
+            context[0],
+            parent.capability,
+            request_authority.states,
+            context[4],
+            thermal,
+            temperatures,
+            result.feasibility,
+            diagnostics,
+        )
 
 
 def test_no_selection_loss_network_or_duplicate_q_fields() -> None:

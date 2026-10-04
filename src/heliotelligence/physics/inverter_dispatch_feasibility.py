@@ -74,6 +74,8 @@ _NUMERIC = {
     "thermal_reactive_power_min_var",
     "thermal_reactive_power_max_var",
     "inverter_temperature_c",
+    "thermal_temperature_min_c",
+    "thermal_temperature_max_c",
 }
 _BOOL = {
     "active_power_dispatch_request_present",
@@ -88,6 +90,7 @@ _BOOL = {
     "thermal_apparent_power_limit_evaluated",
     "thermal_reactive_power_limit_evaluated",
     "full_thermal_capability_authority_resolved",
+    "thermal_interpolation_performed",
     "dispatch_feasibility_evaluation_applicable",
     "dispatch_feasibility_evaluation_resolved",
 }
@@ -101,6 +104,8 @@ _NULLABLE = {
     "thermal_reactive_power_limit_satisfied",
     "dispatch_feasibility_violation_detected",
     "dispatch_feasibility_satisfied",
+    "temperature_quantity_matches_authority",
+    "temperature_within_authority_domain",
 }
 _COLUMNS = (
     "p_ac_available_w",
@@ -133,8 +138,18 @@ _COLUMNS = (
     "static_fixed_q_limit_satisfied",
     "inverter_temperature_c",
     "inverter_temperature_quantity",
+    "inverter_temperature_parameter_source",
+    "inverter_temperature_confidence",
     "thermal_authority_temperature_quantity",
+    "thermal_authority_parameter_source",
+    "thermal_authority_confidence",
     "thermal_derating_mode",
+    "thermal_temperature_min_c",
+    "thermal_temperature_max_c",
+    "temperature_quantity_matches_authority",
+    "temperature_within_authority_domain",
+    "thermal_interpolation_state",
+    "thermal_interpolation_performed",
     "thermal_active_power_limit_w",
     "thermal_apparent_power_limit_va",
     "thermal_reactive_power_min_var",
@@ -152,6 +167,14 @@ _COLUMNS = (
     "dispatch_feasibility_evaluation_applicable",
     "dispatch_feasibility_evaluation_resolved",
     "dispatch_feasibility_state",
+    "topology_inverter_pqs_capability_contract",
+    "topology_inverter_pqs_capability_model",
+    "topology_inverter_pqs_capability_scope",
+    "topology_inverter_pqs_capability_coverage_scope",
+    "topology_inverter_thermal_derating_authority_contract",
+    "topology_inverter_thermal_derating_authority_model",
+    "topology_inverter_thermal_derating_authority_scope",
+    "topology_inverter_thermal_derating_authority_coverage_scope",
     "topology_inverter_temperature_capability_contract",
     "topology_inverter_temperature_capability_model",
     "topology_inverter_temperature_capability_scope",
@@ -188,6 +211,9 @@ class TopologyInverterDispatchFeasibilityDiagnostics:
     static_s_violation_count: int
     fixed_q_evaluated_count: int
     fixed_q_violation_count: int
+    thermal_p_evaluated_count: int
+    thermal_s_evaluated_count: int
+    thermal_q_evaluated_count: int
     thermal_p_violation_count: int
     thermal_s_violation_count: int
     thermal_q_violation_count: int
@@ -262,19 +288,16 @@ def calculate_topology_inverter_dispatch_feasibility(
         inverter_temperature_by_key,
     )
     diagnostics = _diagnostics(topology, output)
-    expected = _build(
+    _validate_result(
+        topology,
         thermal_states,
         request_states,
         reactive_power_request_by_key,
         thermal_derating_by_inverter_id,
         inverter_temperature_by_key,
+        output,
+        diagnostics,
     )
-    try:
-        pd.testing.assert_frame_equal(output, expected, check_exact=True)
-    except AssertionError as exc:
-        raise RuntimeError("S10B feasibility result failed exact closure") from exc
-    if diagnostics != _diagnostics(topology, expected):
-        raise RuntimeError("S10B diagnostics failed exact closure")
     return TopologyInverterDispatchFeasibilityResult(output.copy(deep=True), diagnostics)
 
 
@@ -398,6 +421,74 @@ def _build(
     return frame
 
 
+def _validate_result(
+    topology: ElectricalTopologyConfig,
+    canonical_temperature: pd.DataFrame,
+    canonical_requests: pd.DataFrame,
+    q_requests: Mapping[tuple[pd.Timestamp, str], InverterReactivePowerRequest],
+    thermal_mapping: Mapping[str, InverterThermalDeratingAuthority],
+    temperatures: Mapping[tuple[pd.Timestamp, str], InverterTemperatureState],
+    output: pd.DataFrame,
+    diagnostics: TopologyInverterDispatchFeasibilityDiagnostics,
+) -> None:
+    """Close every public field against admitted parents and explicit inputs."""
+    expected = _build(
+        canonical_temperature,
+        canonical_requests,
+        q_requests,
+        thermal_mapping,
+        temperatures,
+    )
+    if tuple(output.columns) != _COLUMNS:
+        raise RuntimeError("S10B output schema is invalid")
+    if not output.index.equals(canonical_temperature.index) or output.index.has_duplicates:
+        raise RuntimeError("S10B output index is not the duplicate-free canonical index")
+    if output.index.names != ["timestamp", "inverter_id"]:
+        raise RuntimeError("S10B output index names are invalid")
+    expected_dtypes = {
+        column: (
+            "float64"
+            if column in _NUMERIC
+            else "bool"
+            if column in _BOOL
+            else "boolean"
+            if column in _NULLABLE
+            else "object"
+        )
+        for column in _COLUMNS
+    }
+    if any(str(output[column].dtype) != dtype for column, dtype in expected_dtypes.items()):
+        raise RuntimeError("S10B output dtypes are invalid")
+    try:
+        pd.testing.assert_frame_equal(output, expected, check_exact=True)
+    except AssertionError as exc:
+        raise RuntimeError("S10B feasibility result failed exact canonical closure") from exc
+    canonical_diagnostics = _diagnostics(topology, expected)
+    if diagnostics != canonical_diagnostics:
+        raise RuntimeError("S10B diagnostics failed exact canonical closure")
+    if diagnostics.resolved_count + diagnostics.unresolved_count != diagnostics.row_count:
+        raise RuntimeError("S10B resolved/unresolved diagnostics do not close")
+    primary_total = sum(
+        int(expected["dispatch_feasibility_state"].eq(state).sum())
+        for state in (
+            "resolved_dispatch_feasibility_not_applicable_inactive_ac_state",
+            "resolved_requested_dispatch_known_infeasible",
+            "resolved_requested_dispatch_feasible_full_capability",
+            "resolved_requested_dispatch_partial_capability_authority",
+            "unresolved_no_explicit_active_power_dispatch_request",
+            "unresolved_no_explicit_reactive_power_request",
+            "unresolved_no_explicit_ac_capability_authority",
+            "unresolved_upstream_inverter_ac_availability",
+            "unresolved_no_explicit_inverter_thermal_derating_authority",
+            "unresolved_no_explicit_inverter_temperature_state",
+            "unresolved_inverter_temperature_quantity_mismatch",
+            "unresolved_inverter_temperature_outside_authority_domain",
+        )
+    )
+    if primary_total != diagnostics.row_count:
+        raise RuntimeError("S10B primary-state diagnostics do not close")
+
+
 def _row(
     upstream: pd.Series,
     p_state: pd.Series,
@@ -510,10 +601,18 @@ def _row(
         "static_fixed_q_limit_satisfied": fixed_q_ok,
         "inverter_temperature_c": temperature.temperature_c if temperature else math.nan,
         "inverter_temperature_quantity": temperature.temperature_quantity if temperature else "",
+        "inverter_temperature_parameter_source": temperature.parameter_source
+        if temperature
+        else "",
+        "inverter_temperature_confidence": temperature.confidence if temperature else "unknown",
         "thermal_authority_temperature_quantity": authority.temperature_quantity
         if authority
         else "",
+        "thermal_authority_parameter_source": authority.parameter_source if authority else "",
+        "thermal_authority_confidence": authority.confidence if authority else "unknown",
         "thermal_derating_mode": authority.derating_mode if authority else "",
+        "thermal_temperature_min_c": authority.temperature_points_c[0] if authority else math.nan,
+        "thermal_temperature_max_c": authority.temperature_points_c[-1] if authority else math.nan,
         **thermal,
         "dispatch_feasibility_violation_detected": violation_value,
         "dispatch_feasibility_satisfied": satisfied,
@@ -522,6 +621,12 @@ def _row(
         "dispatch_feasibility_state": state,
     }
     for name in ("contract", "model", "scope", "coverage_scope"):
+        record[f"topology_inverter_pqs_capability_{name}"] = upstream[
+            f"topology_inverter_pqs_capability_{name}"
+        ]
+        record[f"topology_inverter_thermal_derating_authority_{name}"] = upstream[
+            f"topology_inverter_thermal_derating_authority_{name}"
+        ]
         record[f"topology_inverter_temperature_capability_{name}"] = upstream[
             f"topology_inverter_temperature_capability_{name}"
         ]
@@ -556,6 +661,10 @@ def _thermal(
         "thermal_reactive_power_limit_satisfied": pd.NA,
         "full_thermal_capability_authority_resolved": False,
         "thermal_evaluation_state": "unresolved_no_explicit_inverter_thermal_derating_authority",
+        "temperature_quantity_matches_authority": pd.NA,
+        "temperature_within_authority_domain": pd.NA,
+        "thermal_interpolation_state": "not_evaluated",
+        "thermal_interpolation_performed": False,
     }
     if authority is None:
         return result
@@ -573,17 +682,27 @@ def _thermal(
         result["thermal_evaluation_state"] = "unresolved_no_explicit_inverter_temperature_state"
         return result
     if temperature.temperature_quantity != authority.temperature_quantity:
+        result["temperature_quantity_matches_authority"] = False
         result["thermal_evaluation_state"] = "unresolved_inverter_temperature_quantity_mismatch"
         return result
+    result["temperature_quantity_matches_authority"] = True
     t = temperature.temperature_c
     if t < authority.temperature_points_c[0] or t > authority.temperature_points_c[-1]:
+        result["temperature_within_authority_domain"] = False
         result["thermal_evaluation_state"] = (
             "unresolved_inverter_temperature_outside_authority_domain"
         )
         return result
+    result["temperature_within_authority_domain"] = True
     if authority.derating_mode == "explicit_no_derating":
         result["thermal_evaluation_state"] = "explicit_no_derating_domain"
+        result["thermal_interpolation_state"] = "explicit_no_derating_domain"
         return result
+    exact = t in authority.temperature_points_c
+    result["thermal_interpolation_state"] = (
+        "exact_authority_point" if exact else "between_authority_points"
+    )
+    result["thermal_interpolation_performed"] = not exact
     channels = (
         ("active", authority.active_power_limit_w),
         ("apparent", authority.apparent_power_limit_va),
@@ -680,6 +799,9 @@ def _diagnostics(
         static_s_violation_count=failed("static_apparent_power_limit_satisfied"),
         fixed_q_evaluated_count=int(frame["static_fixed_q_limit_evaluated"].sum()),
         fixed_q_violation_count=failed("static_fixed_q_limit_satisfied"),
+        thermal_p_evaluated_count=int(frame["thermal_active_power_limit_evaluated"].sum()),
+        thermal_s_evaluated_count=int(frame["thermal_apparent_power_limit_evaluated"].sum()),
+        thermal_q_evaluated_count=int(frame["thermal_reactive_power_limit_evaluated"].sum()),
         thermal_p_violation_count=failed("thermal_active_power_limit_satisfied"),
         thermal_s_violation_count=failed("thermal_apparent_power_limit_satisfied"),
         thermal_q_violation_count=failed("thermal_reactive_power_limit_satisfied"),
