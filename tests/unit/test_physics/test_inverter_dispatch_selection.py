@@ -334,6 +334,79 @@ def test_s10c_validator_rejects_diagnostics_tampering() -> None:
         _validate_result(setup[0][0], parent, result.dispatch, diagnostics)
 
 
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("dispatch_feasibility_satisfied", False),
+        ("dispatch_feasibility_violation_detected", True),
+        ("dispatch_feasibility_evaluation_resolved", False),
+        ("dispatch_feasibility_evaluation_applicable", False),
+    ],
+)
+def test_selected_row_requires_all_canonical_full_feasibility_flags(
+    column: str, value: bool
+) -> None:
+    setup = s10b._setup()
+    parent = s10b._run(setup).feasibility.copy(deep=True)
+    result = _run(setup)
+    output = result.dispatch.copy(deep=True)
+    parent.iloc[0, parent.columns.get_loc(column)] = value
+    output.iloc[0, output.columns.get_loc(column)] = value
+    with pytest.raises(RuntimeError, match="fully feasible canonical S10B proof"):
+        _validate_result(setup[0][0], parent, output, result.diagnostics)
+
+
+def test_validator_rejects_coherent_selection_state_mismatch() -> None:
+    setup = s10b._setup(p=None)
+    parent = s10b._run(setup).feasibility
+    result = _run(setup)
+    output = result.dispatch.copy(deep=True)
+    output.iloc[0, output.columns.get_loc("dispatch_selection_state")] = (
+        "resolved_no_selected_dispatch_known_infeasible_request"
+    )
+    with pytest.raises(RuntimeError):
+        _validate_result(setup[0][0], parent, output, result.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"selected_zero_active_power_count": 0, "selected_positive_active_power_count": 0},
+            "active-power diagnostics",
+        ),
+        (
+            {
+                "selected_q_injection_count": 0,
+                "selected_q_absorption_count": 0,
+                "selected_q_zero_count": 0,
+            },
+            "reactive-power diagnostics",
+        ),
+        (
+            {
+                "selected_dispatch_count": 0,
+                "selected_zero_active_power_count": 0,
+                "selected_positive_active_power_count": 0,
+                "selected_q_injection_count": 0,
+                "selected_q_absorption_count": 0,
+                "selected_q_zero_count": 0,
+            },
+            "selected-dispatch diagnostics",
+        ),
+    ],
+)
+def test_validator_rejects_selected_diagnostic_nonclosure(
+    changes: dict[str, int], message: str
+) -> None:
+    setup = s10b._setup(p=0.0, q=20.0)
+    parent = s10b._run(setup).feasibility
+    result = _run(setup)
+    diagnostics = replace(result.diagnostics, **changes)
+    with pytest.raises(RuntimeError, match=message):
+        _validate_result(setup[0][0], parent, result.dispatch, diagnostics)
+
+
 def test_output_ownership() -> None:
     setup = s10b._setup()
     first = _run(setup)

@@ -402,24 +402,81 @@ def _validate_result(
         pd.testing.assert_frame_equal(output, expected, check_exact=True)
     except AssertionError as exc:
         raise RuntimeError("S10C dispatch failed exact canonical closure") from exc
-    for _, row in output.loc[output["selected_dispatch_present"]].iterrows():
+    selected_rows = output.loc[output["selected_dispatch_present"]]
+    for key, row in selected_rows.iterrows():
+        upstream = parent.loc[key]
+        if not (
+            upstream["dispatch_feasibility_state"]
+            == "resolved_requested_dispatch_feasible_full_capability"
+            and bool(upstream["dispatch_feasibility_evaluation_resolved"])
+            and bool(upstream["dispatch_feasibility_evaluation_applicable"])
+            and upstream["dispatch_feasibility_violation_detected"] is not pd.NA
+            and not bool(upstream["dispatch_feasibility_violation_detected"])
+            and upstream["dispatch_feasibility_satisfied"] is not pd.NA
+            and bool(upstream["dispatch_feasibility_satisfied"])
+        ):
+            raise RuntimeError("S10C selected row lacks fully feasible canonical S10B proof")
         if not (
             row["p_selected_w"] == row["p_requested_w"]
             and row["q_selected_var"] == row["q_requested_var"]
             and row["s_selected_va"] == row["s_requested_va"]
             and row["s_selected_va"] == math.hypot(row["p_selected_w"], row["q_selected_var"])
+            and row["selected_dispatch_reference_plane"] == "inverter_ac_output"
+            and row["dispatch_selection_method"] == "exact_feasible_request_passthrough"
         ):
             raise RuntimeError("S10C exact selected P/Q/S passthrough is invalid")
+        if not (
+            math.isfinite(float(row["p_selected_w"]))
+            and math.isfinite(float(row["q_selected_var"]))
+            and math.isfinite(float(row["s_selected_va"]))
+            and float(row["p_selected_w"]) >= 0.0
+            and float(row["s_selected_va"]) >= 0.0
+        ):
+            raise RuntimeError("S10C selected P/Q/S value domain is invalid")
     not_selected = output.loc[~output["selected_dispatch_present"]]
     if not not_selected[["p_selected_w", "q_selected_var", "s_selected_va"]].isna().all().all():
         raise RuntimeError("S10C non-selected P/Q/S values must be NaN")
+    for key, row in not_selected.iterrows():
+        upstream_state = parent.loc[key, "dispatch_feasibility_state"]
+        expected_state = (
+            "resolved_no_selected_dispatch_known_infeasible_request"
+            if upstream_state == "resolved_requested_dispatch_known_infeasible"
+            else "resolved_dispatch_selection_not_applicable_inactive_ac_state"
+            if upstream_state == "resolved_dispatch_feasibility_not_applicable_inactive_ac_state"
+            else "unresolved_no_selected_dispatch_partial_capability_authority"
+            if upstream_state == "resolved_requested_dispatch_partial_capability_authority"
+            else "unresolved_upstream_dispatch_feasibility"
+        )
+        if not (
+            row["dispatch_selection_state"] == expected_state
+            and not bool(row["selected_dispatch_present"])
+            and not bool(row["selected_dispatch_state_resolved"])
+            and pd.isna(row["selected_active_power_is_zero"])
+            and row["selected_reactive_power_direction"] == "not_selected"
+            and row["selected_dispatch_reference_plane"] == ""
+            and row["dispatch_selection_method"] == ""
+        ):
+            raise RuntimeError("S10C non-selected state semantics are invalid")
     canonical_diagnostics = _diagnostics(topology, expected)
-    if diagnostics != canonical_diagnostics:
-        raise RuntimeError("S10C diagnostics failed exact closure")
     if diagnostics.evaluation_resolved_count + diagnostics.evaluation_unresolved_count != len(
         output
     ):
         raise RuntimeError("S10C evaluation diagnostics do not close")
+    if (
+        diagnostics.selected_zero_active_power_count
+        + diagnostics.selected_positive_active_power_count
+        != diagnostics.selected_dispatch_count
+    ):
+        raise RuntimeError("S10C selected active-power diagnostics do not close")
+    if (
+        diagnostics.selected_q_injection_count
+        + diagnostics.selected_q_absorption_count
+        + diagnostics.selected_q_zero_count
+        != diagnostics.selected_dispatch_count
+    ):
+        raise RuntimeError("S10C selected reactive-power diagnostics do not close")
+    if diagnostics.selected_dispatch_count != int(output["selected_dispatch_present"].sum()):
+        raise RuntimeError("S10C selected-dispatch diagnostics do not match selected rows")
     primary_total = sum(
         int(output["dispatch_selection_state"].eq(state).sum())
         for state in (
@@ -432,6 +489,8 @@ def _validate_result(
     )
     if primary_total != len(output):
         raise RuntimeError("S10C primary states do not close")
+    if diagnostics != canonical_diagnostics:
+        raise RuntimeError("S10C diagnostics failed exact closure")
 
 
 def _diagnostics(
