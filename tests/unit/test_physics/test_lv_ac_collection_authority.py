@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -22,6 +22,7 @@ from heliotelligence.physics.lv_ac_collection_authority import (
     LvAcCollectionSegmentAuthority,
     LvAcInverterTerminalBindingAuthority,
     TopologyLvAcCollectionAuthorityDiagnostics,
+    _validate_result,
     resolve_topology_lv_ac_collection_authority,
 )
 
@@ -538,6 +539,53 @@ def test_provenance_and_diagnostics_close_exactly() -> None:
     assert result.diagnostics.resolved_inverter_path_count == 1
     assert result.diagnostics.zero_impedance_segment_count == 1
     assert result.diagnostics.model == TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_MODEL_ID
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("path_segment_ids", ("tampered",)),
+        ("collection_exit_node_id", "other-exit"),
+        ("path_segment_count", 2),
+        ("path_to_collection_exit_resolved", False),
+        ("lv_ac_collection_authority_resolved", False),
+        (
+            "lv_ac_collection_authority_state",
+            "unresolved_inverter_terminal_path_to_collection_exit",
+        ),
+        ("terminal_node_id", "other-terminal"),
+    ],
+)
+def test_independent_validator_rejects_inverter_state_tampering(column: str, value: object) -> None:
+    topology, nodes, segments, bindings = _single()
+    result = _resolve(topology, nodes, segments, bindings)
+    states = result.inverter_states.copy(deep=True)
+    states.iloc[0, states.columns.get_loc(column)] = value
+    with pytest.raises(RuntimeError, match="LV AC collection"):
+        _validate_result(topology, replace(result, inverter_states=states))
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"resolved_inverter_path_count": 0, "unresolved_inverter_count": 1},
+        {"represented_inverter_count": 0},
+        {"zero_impedance_segment_count": 0, "nonzero_impedance_segment_count": 1},
+    ],
+)
+def test_independent_validator_rejects_diagnostics_tampering(changes: dict[str, int]) -> None:
+    topology, nodes, segments, bindings = _single(resistance=0.0, reactance=0.0)
+    result = _resolve(topology, nodes, segments, bindings)
+    diagnostics = replace(result.diagnostics, **changes)
+    with pytest.raises(RuntimeError, match="diagnostics"):
+        _validate_result(topology, replace(result, diagnostics=diagnostics))
+
+
+def test_validator_does_not_use_production_row_or_diagnostics_builders_as_oracles() -> None:
+    validator_source = inspect.getsource(_validate_result)
+    assert "_inverter_record(" not in validator_source
+    assert "_trace_path(" not in validator_source
+    assert "_diagnostics(" not in validator_source
 
 
 def test_no_operating_or_inference_fields_exist() -> None:

@@ -523,26 +523,103 @@ def _validate_result(
         result.segments_by_id,
         result.inverter_terminal_binding_by_inverter_id,
     )
-    outgoing = _outgoing(result.segments_by_id)
+    validator_outgoing = {
+        segment.from_node_id: segment for segment in result.segments_by_id.values()
+    }
+    independently_resolved_path_count = 0
     for inverter_id, row in states.iterrows():
-        expected = _inverter_record(
-            inverter_id,
-            result.network_basis,
-            result.nodes_by_id,
-            outgoing,
-            result.inverter_terminal_binding_by_inverter_id,
+        basis_resolved = result.network_basis is not None
+        binding = result.inverter_terminal_binding_by_inverter_id.get(inverter_id)
+        binding_resolved = binding is not None
+        terminal_node_id = binding.node_id if binding is not None else ""
+        reached_exit = False
+        exit_node_id = ""
+        traversed_segment_ids: list[str] = []
+        if binding is not None:
+            current_node_id = binding.node_id
+            while True:
+                current_node = result.nodes_by_id[current_node_id]
+                if current_node.node_kind == "collection_exit":
+                    reached_exit = True
+                    exit_node_id = current_node_id
+                    break
+                next_segment = validator_outgoing.get(current_node_id)
+                if next_segment is None:
+                    break
+                traversed_segment_ids.append(next_segment.segment_id)
+                current_node_id = next_segment.to_node_id
+        path_segment_ids = tuple(traversed_segment_ids) if reached_exit else ()
+        if reached_exit:
+            independently_resolved_path_count += 1
+        authority_resolved = basis_resolved and binding_resolved and reached_exit
+        expected_state = (
+            "unresolved_no_lv_ac_network_basis_authority"
+            if not basis_resolved
+            else "unresolved_no_inverter_terminal_binding"
+            if not binding_resolved
+            else "unresolved_inverter_terminal_path_to_collection_exit"
+            if not reached_exit
+            else "resolved_lv_ac_collection_path_authority"
         )
-        for column in _COLUMNS:
-            actual = row[column]
-            wanted = expected[column]
-            if wanted is pd.NA:
-                if not pd.isna(actual):
-                    raise RuntimeError("LV AC collection unresolved path count is invalid")
-            elif actual != wanted:
+        expected_values: dict[str, object] = {
+            "network_basis_resolved": basis_resolved,
+            "inverter_terminal_binding_resolved": binding_resolved,
+            "path_to_collection_exit_resolved": reached_exit,
+            "lv_ac_collection_authority_resolved": authority_resolved,
+            "terminal_node_id": terminal_node_id,
+            "collection_exit_node_id": exit_node_id,
+            "path_segment_ids": path_segment_ids,
+            "lv_ac_collection_authority_state": expected_state,
+            "topology_lv_ac_collection_authority_contract": (
+                TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_CONTRACT_ID
+            ),
+            "topology_lv_ac_collection_authority_model": (
+                TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_MODEL_ID
+            ),
+            "topology_lv_ac_collection_authority_scope": (
+                TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_SCOPE
+            ),
+            "topology_lv_ac_collection_authority_coverage_scope": (
+                TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_COVERAGE_SCOPE
+            ),
+        }
+        for column, wanted in expected_values.items():
+            if row[column] != wanted:
                 raise RuntimeError(f"LV AC collection state does not close for {column}")
+        if reached_exit:
+            if row["path_segment_count"] != len(path_segment_ids):
+                raise RuntimeError("LV AC collection resolved path count is invalid")
+        elif not pd.isna(row["path_segment_count"]):
+            raise RuntimeError("LV AC collection unresolved path count is invalid")
 
     diagnostics = result.diagnostics
-    expected_diagnostics = _diagnostics(topology, result.nodes_by_id, result.segments_by_id, states)
+    terminal_count = sum(
+        node.node_kind == "inverter_terminal" for node in result.nodes_by_id.values()
+    )
+    junction_count = sum(node.node_kind == "junction" for node in result.nodes_by_id.values())
+    exit_count = sum(node.node_kind == "collection_exit" for node in result.nodes_by_id.values())
+    zero_impedance_count = sum(
+        segment.series_resistance_ohm_per_phase == 0.0
+        and segment.series_reactance_ohm_per_phase == 0.0
+        for segment in result.segments_by_id.values()
+    )
+    expected_diagnostics = TopologyLvAcCollectionAuthorityDiagnostics(
+        inverter_count=len(inverter_ids),
+        represented_inverter_count=sum(
+            inverter_id in result.inverter_terminal_binding_by_inverter_id
+            for inverter_id in inverter_ids
+        ),
+        node_count=len(result.nodes_by_id),
+        segment_count=len(result.segments_by_id),
+        inverter_terminal_node_count=terminal_count,
+        junction_node_count=junction_count,
+        collection_exit_node_count=exit_count,
+        resolved_inverter_path_count=independently_resolved_path_count,
+        unresolved_inverter_count=len(inverter_ids) - independently_resolved_path_count,
+        zero_impedance_segment_count=zero_impedance_count,
+        nonzero_impedance_segment_count=len(result.segments_by_id) - zero_impedance_count,
+        model=TOPOLOGY_LV_AC_COLLECTION_AUTHORITY_MODEL_ID,
+    )
     if diagnostics != expected_diagnostics:
         raise RuntimeError("LV AC collection diagnostics failed exact closure")
     if (
