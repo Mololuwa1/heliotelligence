@@ -356,6 +356,15 @@ def _replay_dispatch(supplied: object, canonical: TopologyInverterDispatchSelect
 def _replay_network(supplied: object, canonical: TopologyLvAcCollectionAuthorityResult) -> None:
     if type(supplied) is not TopologyLvAcCollectionAuthorityResult:
         raise RuntimeError("supplied S11A result type is invalid")
+    if any(
+        type(mapping).__name__ != "mappingproxy"
+        for mapping in (
+            supplied.nodes_by_id,
+            supplied.segments_by_id,
+            supplied.inverter_terminal_binding_by_inverter_id,
+        )
+    ):
+        raise RuntimeError("supplied S11A mappings must be immutable")
     if (
         supplied.network_basis != canonical.network_basis
         or dict(supplied.nodes_by_id) != dict(canonical.nodes_by_id)
@@ -379,6 +388,8 @@ def _replay_voltage(
 ) -> None:
     if type(supplied) is not TopologyLvAcCollectionExitVoltageAuthorityResult:
         raise RuntimeError("supplied S11B result type is invalid")
+    if type(supplied.voltage_states_by_key).__name__ != "mappingproxy":
+        raise RuntimeError("supplied S11B voltage mapping must be immutable")
     if dict(supplied.voltage_states_by_key) != dict(canonical.voltage_states_by_key):
         raise RuntimeError("supplied S11B voltage mapping failed exact replay")
     try:
@@ -422,6 +433,33 @@ def _tree_membership(
         segment_id: node_exit[segment.from_node_id] for segment_id, segment in segments.items()
     }
     return node_exit, segment_exit
+
+
+def _validator_tree_membership(
+    nodes: Mapping[str, LvAcCollectionNodeAuthority],
+    segments: Mapping[str, LvAcCollectionSegmentAuthority],
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Independently reconstruct validator-only node and segment tree membership."""
+
+    validator_outgoing = {segment.from_node_id: segment.to_node_id for segment in segments.values()}
+    validator_node_exit: dict[str, str | None] = {}
+    for start_node_id in nodes:
+        current_node_id = start_node_id
+        while True:
+            current_node = nodes[current_node_id]
+            if current_node.node_kind == "collection_exit":
+                validator_node_exit[start_node_id] = current_node_id
+                break
+            next_node_id = validator_outgoing.get(current_node_id)
+            if next_node_id is None:
+                validator_node_exit[start_node_id] = None
+                break
+            current_node_id = next_node_id
+    validator_segment_exit = {
+        segment_id: validator_node_exit[segment.from_node_id]
+        for segment_id, segment in segments.items()
+    }
+    return validator_node_exit, validator_segment_exit
 
 
 def _sweep_currents(
@@ -983,7 +1021,9 @@ def _validate_result(
             for segment_id in network.segments_by_id
         ),
     )
-    node_exit, segment_exit = _tree_membership(network.nodes_by_id, network.segments_by_id)
+    node_exit, segment_exit = _validator_tree_membership(
+        network.nodes_by_id, network.segments_by_id
+    )
     for (_timestamp, node_id), row in result.node_states.iterrows():
         exit_id = node_exit[node_id]
         if row["node_kind"] != network.nodes_by_id[node_id].node_kind or row[
@@ -1122,13 +1162,59 @@ def _validate_result(
                 if not pd.isna(row[column]):
                     raise RuntimeError("S11C unresolved segment physical values must be NaN")
     _validate_tree_equations(topology, dispatch, network, voltage, result, node_exit, segment_exit)
-    expected_diagnostics = _operating_diagnostics(
-        topology,
-        timestamps,
-        len(exit_ids),
-        result.collection_exit_states,
-        result.node_states,
-        result.segment_states,
+    validator_tree_states = result.collection_exit_states["lv_ac_collection_operating_state"]
+    validator_solved_tree_count = int(
+        result.collection_exit_states["lv_ac_operating_solution_resolved"].sum()
+    )
+    validator_resolved_node_count = int(
+        result.node_states["lv_ac_operating_solution_resolved"].sum()
+    )
+    validator_resolved_segment_count = int(
+        result.segment_states["lv_ac_operating_solution_resolved"].sum()
+    )
+    expected_diagnostics = TopologyLvAcCollectionOperatingSolutionDiagnostics(
+        inverter_count=topology.inverter_count,
+        timestamp_count=len(timestamps),
+        collection_exit_count=len(exit_ids),
+        tree_row_count=len(result.collection_exit_states),
+        solved_tree_count=validator_solved_tree_count,
+        unresolved_tree_count=(len(result.collection_exit_states) - validator_solved_tree_count),
+        missing_network_basis_tree_count=int(
+            (validator_tree_states == "unresolved_no_lv_ac_network_basis_authority").sum()
+        ),
+        incomplete_topology_tree_count=int(
+            (
+                validator_tree_states == "unresolved_incomplete_lv_ac_inverter_topology_authority"
+            ).sum()
+        ),
+        missing_selected_dispatch_tree_count=int(
+            (
+                validator_tree_states == "unresolved_missing_selected_dispatch_for_collection_tree"
+            ).sum()
+        ),
+        missing_exit_voltage_tree_count=int(
+            (validator_tree_states == "unresolved_missing_collection_exit_voltage_authority").sum()
+        ),
+        zero_voltage_nonzero_power_tree_count=int(
+            (
+                validator_tree_states == "unresolved_zero_exit_voltage_with_nonzero_selected_power"
+            ).sum()
+        ),
+        nonfinite_numerical_tree_count=int(
+            (validator_tree_states == "unresolved_nonfinite_numerical_state").sum()
+        ),
+        nonconverged_tree_count=int(
+            (validator_tree_states == "unresolved_network_solver_nonconvergence").sum()
+        ),
+        node_row_count=len(result.node_states),
+        resolved_node_row_count=validator_resolved_node_count,
+        unresolved_node_row_count=(len(result.node_states) - validator_resolved_node_count),
+        segment_row_count=len(result.segment_states),
+        resolved_segment_row_count=validator_resolved_segment_count,
+        unresolved_segment_row_count=(
+            len(result.segment_states) - validator_resolved_segment_count
+        ),
+        model=TOPOLOGY_LV_AC_COLLECTION_OPERATING_SOLUTION_MODEL_ID,
     )
     if result.diagnostics != expected_diagnostics:
         raise RuntimeError("S11C diagnostics failed exact closure")
@@ -1136,16 +1222,19 @@ def _validate_result(
     if (
         diagnostics.solved_tree_count + diagnostics.unresolved_tree_count
         != diagnostics.tree_row_count
+        or diagnostics.tree_row_count != len(timestamps) * len(exit_ids)
     ):
         raise RuntimeError("S11C tree diagnostics do not close")
     if (
         diagnostics.resolved_node_row_count + diagnostics.unresolved_node_row_count
         != diagnostics.node_row_count
+        or diagnostics.node_row_count != len(timestamps) * len(network.nodes_by_id)
     ):
         raise RuntimeError("S11C node diagnostics do not close")
     if (
         diagnostics.resolved_segment_row_count + diagnostics.unresolved_segment_row_count
         != diagnostics.segment_row_count
+        or diagnostics.segment_row_count != len(timestamps) * len(network.segments_by_id)
     ):
         raise RuntimeError("S11C segment diagnostics do not close")
     mutually_exclusive_states = (
@@ -1201,6 +1290,56 @@ def _validate_provenance(row: pd.Series) -> None:
         != TOPOLOGY_LV_AC_COLLECTION_OPERATING_SOLUTION_MODEL_ID
     ):
         raise RuntimeError("S11C provenance failed exact closure")
+
+
+def _validate_solver_diagnostics(row: pd.Series, state: str, resolved: bool) -> None:
+    attempted = bool(row["network_solve_attempted"])
+    converged = bool(row["network_solve_converged"])
+    iterations = int(row["solver_iteration_count"])
+    delta = float(row["solver_max_voltage_delta_v"])
+    if bool(row["lv_ac_operating_solution_resolved"]) != resolved:
+        raise RuntimeError("S11C solution-resolution flag failed closure")
+    no_attempt_states = {
+        "unresolved_no_lv_ac_network_basis_authority",
+        "unresolved_incomplete_lv_ac_inverter_topology_authority",
+        "unresolved_missing_selected_dispatch_for_collection_tree",
+        "unresolved_missing_collection_exit_voltage_authority",
+        "unresolved_zero_exit_voltage_with_nonzero_selected_power",
+    }
+    if state in no_attempt_states:
+        if attempted or converged or resolved or iterations != 0 or not math.isnan(delta):
+            raise RuntimeError("S11C unattempted solver diagnostics failed closure")
+    elif state == "unresolved_network_solver_nonconvergence":
+        if (
+            not attempted
+            or converged
+            or resolved
+            or iterations != _MAX_ITERATIONS
+            or not math.isfinite(delta)
+            or delta < 0.0
+        ):
+            raise RuntimeError("S11C nonconvergence diagnostics failed closure")
+    elif state == "unresolved_nonfinite_numerical_state":
+        if not attempted or converged or resolved or iterations < 1:
+            raise RuntimeError("S11C nonfinite solver diagnostics failed closure")
+        if not math.isnan(delta) and (not math.isfinite(delta) or delta < 0.0):
+            raise RuntimeError("S11C nonfinite solver delta is invalid")
+    elif state == "resolved_zero_voltage_zero_dispatch_solution":
+        if attempted or not converged or not resolved or iterations != 0 or delta != 0.0:
+            raise RuntimeError("S11C resolved zero solver diagnostics failed closure")
+    elif state == "resolved_balanced_radial_lv_ac_operating_solution":
+        if (
+            not attempted
+            or not converged
+            or not resolved
+            or iterations < 1
+            or iterations > _MAX_ITERATIONS
+            or not math.isfinite(delta)
+            or delta < 0.0
+        ):
+            raise RuntimeError("S11C converged solver diagnostics failed closure")
+    else:
+        raise RuntimeError("S11C solver diagnostics use an unsupported primary state")
 
 
 def _validate_tree_equations(
@@ -1308,18 +1447,13 @@ def _validate_tree_equations(
                 raise RuntimeError("S11C resolved tree state/flags failed closure")
         elif bool(tree_row["network_solve_converged"]):
             raise RuntimeError("S11C unresolved tree cannot be converged")
-        expected_attempted = state in {
-            "resolved_balanced_radial_lv_ac_operating_solution",
-            "unresolved_nonfinite_numerical_state",
-            "unresolved_network_solver_nonconvergence",
-        }
-        if bool(tree_row["network_solve_attempted"]) != expected_attempted:
-            raise RuntimeError("S11C solver-attempt flag failed closure")
+        _validate_solver_diagnostics(tree_row, state, resolved)
         physical = _EXIT_FLOAT - {
             "exit_voltage_line_to_line_rms_v",
             "selected_p_total_w",
             "selected_q_total_var",
             "selected_apparent_power_vector_magnitude_va",
+            "solver_max_voltage_delta_v",
         }
         if not resolved:
             for column in physical:

@@ -25,6 +25,7 @@ from heliotelligence.physics.lv_ac_collection_authority import (
     resolve_topology_lv_ac_collection_authority,
 )
 from heliotelligence.physics.lv_ac_collection_operating import (
+    _MAX_ITERATIONS,
     TOPOLOGY_LV_AC_COLLECTION_OPERATING_SOLUTION_CONTRACT_ID,
     TOPOLOGY_LV_AC_COLLECTION_OPERATING_SOLUTION_MODEL_ID,
     _solve_balanced_radial_tree,
@@ -227,6 +228,16 @@ def test_zero_exit_voltage_zero_dispatch_is_resolved_zero() -> None:
     assert solved.converged
     assert set(solved.node_voltages_phase_v.values()) == {0j}
     assert set(solved.segment_currents_phase_a.values()) == {0j}
+
+
+def test_pure_extreme_valid_resistance_returns_nonconvergence() -> None:
+    nodes, segments = _single_tree(1_000_000.0, 0.0)
+    solved = _solve_balanced_radial_tree("exit", 400.0, nodes, segments, {"terminal": 100 + 0j})
+    assert not solved.converged
+    assert solved.failure == "nonconvergence"
+    assert solved.iteration_count == _MAX_ITERATIONS
+    assert math.isfinite(solved.max_voltage_delta_v)
+    assert solved.max_voltage_delta_v >= 0.0
 
 
 @pytest.mark.parametrize("power", [1000 + 0j, 0 + 1000j])
@@ -444,6 +455,59 @@ def test_public_zero_voltage_nonzero_dispatch_is_unresolved(value: float) -> Non
     )
 
 
+def _public_nonconverged() -> tuple[tuple[Any, ...], Any, Any, Any, Any]:
+    arguments, dispatch, _, _ = _public_setup(p=100.0, q=0.0, voltage_value=400.0)
+    timestamp = pd.Timestamp(dispatch.dispatch.index[0][0])
+    nodes, segments = _single_tree(1_000_000.0, 0.0)
+    inverter_id = arguments[0].inverters[0].id
+    bindings = {inverter_id: _binding(inverter_id, "terminal")}
+    changed, network, voltage = _replace_network_inputs(
+        arguments,
+        nodes,
+        segments,
+        bindings,
+        {(timestamp, "exit"): _voltage(400.0)},
+    )
+    return changed, dispatch, network, voltage, _public(changed)
+
+
+def test_public_nonconvergence_is_returned_with_only_solver_diagnostics() -> None:
+    _, _, _, _, result = _public_nonconverged()
+    tree = result.collection_exit_states.iloc[0]
+    assert tree["lv_ac_collection_operating_state"] == ("unresolved_network_solver_nonconvergence")
+    assert tree["network_solve_attempted"]
+    assert not tree["network_solve_converged"]
+    assert not tree["lv_ac_operating_solution_resolved"]
+    assert tree["solver_iteration_count"] == _MAX_ITERATIONS
+    assert math.isfinite(tree["solver_max_voltage_delta_v"])
+    assert tree["solver_max_voltage_delta_v"] >= 0.0
+    for column in (
+        "p_delivered_at_collection_exit_w",
+        "q_delivered_at_collection_exit_var",
+        "total_active_series_loss_w",
+        "total_reactive_series_consumption_var",
+    ):
+        assert pd.isna(tree[column])
+    assert result.node_states.filter(regex=r"^voltage_").isna().all().all()
+    solution_segment_columns = [
+        column
+        for column in result.segment_states.columns
+        if column.startswith("current_")
+        or column.startswith("phase_voltage_")
+        or column
+        in {
+            "line_to_line_voltage_magnitude_delta_from_to_v",
+            "p_from_w",
+            "q_from_var",
+            "p_to_w",
+            "q_to_var",
+            "active_series_loss_w",
+            "reactive_series_consumption_var",
+        }
+    ]
+    assert result.segment_states[solution_segment_columns].isna().all().all()
+
+
 @pytest.mark.parametrize("parent_index", [23, 28, 30])
 def test_public_strong_parent_replay_rejects_tampering(parent_index: int) -> None:
     arguments, _, _, _ = _public_setup()
@@ -463,6 +527,24 @@ def test_public_strong_parent_replay_rejects_tampering(parent_index: int) -> Non
             diagnostics=replace(parent.diagnostics, voltage_state_present_count=0),
         )
     with pytest.raises(RuntimeError, match="S10C|S11A|S11B"):
+        _public(tuple(values))
+
+
+@pytest.mark.parametrize(
+    ("parent_index", "field"),
+    [
+        (28, "nodes_by_id"),
+        (28, "segments_by_id"),
+        (28, "inverter_terminal_binding_by_inverter_id"),
+        (30, "voltage_states_by_key"),
+    ],
+)
+def test_public_replay_rejects_mutable_equal_parent_mapping(parent_index: int, field: str) -> None:
+    arguments, _, _, _ = _public_setup()
+    values = list(arguments)
+    parent = values[parent_index]
+    values[parent_index] = replace(parent, **{field: dict(getattr(parent, field))})
+    with pytest.raises(RuntimeError, match="immutable"):
         _public(tuple(values))
 
 
@@ -516,3 +598,63 @@ def test_private_validator_rejects_diagnostic_tampering(field: str) -> None:
         _validate_result(
             arguments[0], dispatch, network, voltage, replace(result, diagnostics=diagnostics)
         )
+
+
+def test_private_validator_rejects_missing_authority_finite_solver_delta() -> None:
+    arguments, dispatch, network, voltage = _public_setup(voltage_value=None)
+    result = _public(arguments)
+    frame = result.collection_exit_states.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("solver_max_voltage_delta_v")] = 1.0
+    with pytest.raises(RuntimeError, match="solver diagnostics"):
+        _validate_result(
+            arguments[0], dispatch, network, voltage, replace(result, collection_exit_states=frame)
+        )
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("solver_max_voltage_delta_v", math.nan),
+        ("solver_iteration_count", _MAX_ITERATIONS - 1),
+        ("network_solve_attempted", False),
+    ],
+)
+def test_private_validator_rejects_invalid_nonconvergence_diagnostics(
+    column: str, value: object
+) -> None:
+    arguments, dispatch, network, voltage, result = _public_nonconverged()
+    frame = result.collection_exit_states.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc(column)] = value
+    with pytest.raises(RuntimeError, match="nonconvergence diagnostics"):
+        _validate_result(
+            arguments[0], dispatch, network, voltage, replace(result, collection_exit_states=frame)
+        )
+
+
+def test_private_validator_rejects_coherent_diagnostic_state_mutation() -> None:
+    arguments, dispatch, network, voltage, result = _public_nonconverged()
+    diagnostics = replace(
+        result.diagnostics,
+        nonconverged_tree_count=0,
+        missing_exit_voltage_tree_count=1,
+    )
+    with pytest.raises(RuntimeError, match="diagnostics"):
+        _validate_result(
+            arguments[0], dispatch, network, voltage, replace(result, diagnostics=diagnostics)
+        )
+
+
+def test_private_validator_rejects_coherent_node_segment_membership_mutation() -> None:
+    arguments, dispatch, network, voltage = _public_setup()
+    result = _public(arguments)
+    nodes = result.node_states.copy(deep=True)
+    segments = result.segment_states.copy(deep=True)
+    nodes["collection_exit_node_id"] = ""
+    nodes["node_connected_to_collection_exit"] = False
+    segments["collection_exit_node_id"] = ""
+    segments["segment_connected_to_collection_exit"] = False
+    nodes["collection_exit_node_id"] = nodes["collection_exit_node_id"].astype("object")
+    segments["collection_exit_node_id"] = segments["collection_exit_node_id"].astype("object")
+    tampered = replace(result, node_states=nodes, segment_states=segments)
+    with pytest.raises(RuntimeError, match="structural replay|membership"):
+        _validate_result(arguments[0], dispatch, network, voltage, tampered)
