@@ -10,11 +10,11 @@ Heliotelligence is being built as a **physics-first, component-resolved, provena
 
 ## Current checkpoint
 
-As of 2026-10-04, the canonical merged backend checkpoint is:
+As of 2026-10-06, the canonical merged backend checkpoint is:
 
-`a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`
+`6f6dbb34027f9e648fe8623aab37b14341f193c7`
 
-This is the merge commit of PR #82, **S10C selected inverter AC dispatch state**, and marks the completed S10 controller milestone.
+This is the merge commit of PR #86, **S11C balanced radial LV AC collection solve**, and marks the completed S11 v1 milestone.
 
 Controller milestone merges:
 
@@ -22,21 +22,18 @@ Controller milestone merges:
 - S10B PR #81: `2f4a4050c48203018fbf914c3853675f996bda97`;
 - S10C PR #82: `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
 
-S10C merge facts:
+LV collection milestone merges:
 
-- previous canonical main: `2f4a4050c48203018fbf914c3853675f996bda97`;
-- reviewed head: `90e0ba6cc219a1b288bfda0f215ad787141dd68f`;
-- merge commit: `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`;
-- merged at: `2026-10-04T21:47:50Z`.
+- S11A PR #84: `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
+- S11B PR #85: `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
+- S11C PR #86: `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
 
-Final reviewed pre-merge CI evidence for S10C was CI #207 (run ID `37236331555`) on synthetic merge `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`:
+Final reviewed S11C head was `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`. CI #217 (run ID `37544412809`) validated synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`:
 
-- backend: **2877 passed in 509.72s**;
+- backend: **3040 passed in 527.89s**;
 - Python: **3.13.15**;
 - `pvlib==0.15.2`;
 - frontend: success.
-
-No separate post-merge workflow was attached directly to the merge commit when this documentation was prepared. Verify live `main` before treating this SHA as current.
 
 ## Engineering philosophy
 
@@ -54,7 +51,7 @@ No separate post-merge workflow was attached directly to the merge commit when t
 
 ## Validated physics chain
 
-The validated high-fidelity electrical/control chain now reaches a selected inverter AC dispatch state:
+The validated high-fidelity electrical/control chain now reaches the modeled LV collection-exit boundary:
 
 ```text
 module electrical state
@@ -92,11 +89,19 @@ S10A explicit active-power dispatch request
 S10B requested P/Q/S feasibility
     ↓
 S10C selected inverter AC P/Q/S
+    ↓
+S11A static radial LV topology + direct per-phase R+jX authority
+    ↓
+S11B timestamped collection-exit V_LL,RMS authority
+    ↓
+S11C balanced radial constant-PQ operating solve
+    ↓
+modeled collection-exit P/Q after physical LV series losses
 ```
 
 S10 preserves strict separation between request, feasibility and selection. S10C selects only an exact request that S10B has fully proved feasible. It never clamps P, clips Q, projects onto the apparent-power circle, substitutes available power, or fabricates a selected point under partial or unresolved authority.
 
-The S10C boundary is a selected controller/model target at `inverter_ac_output`; it is not measured inverter output and it does not yet include AC current or downstream network physics.
+S10C remains a selected controller/model target at `inverter_ac_output`, not measured inverter output. S11C computes a modeled electrical operating state from that target plus explicit S11A topology/impedance and S11B boundary-voltage authority. Neither state is automatically telemetry.
 
 ## Electrical reference planes
 
@@ -109,9 +114,11 @@ The architecture distinguishes:
 5. shared homerun / feeder output;
 6. inverter MPPT input terminals;
 7. inverter AC output / conversion boundary;
-8. future controller-dispatched AC boundary;
-9. LV / transformer / MV / HV network nodes;
-10. revenue-meter boundary.
+8. S10C selected target / S11A inverter-terminal binding at `inverter_ac_output`;
+9. S11C-solved internal LV nodes;
+10. `lv_ac_collection_exit`, the end of S11;
+11. future transformer / MV / HV nodes;
+12. revenue-meter boundary.
 
 Static equipment authority such as `Smax` is not a physical conductor plane. Sandia pre-Paco potential is a model counterfactual, not a terminal measurement.
 
@@ -203,31 +210,28 @@ Key semantics:
 
 
 
-## What is next
+## Completed S11 and what is next
 
-The next physics milestone is **S11 — physical LV AC collection**.
+S11 v1 is complete through three dormant contracts:
 
-S11 starts from authoritative S10C selected inverter AC P/Q/S at the exact `inverter_ac_output` reference plane. It must introduce explicit LV electrical topology and conductor/voltage authority before calculating current, voltage drop or `I²R` loss.
+- **S11A:** explicit balanced-three-phase radial topology, inverter-terminal bindings, collection exits, and direct per-phase `R+jX`; missing authority remains unresolved and explicit zero impedance remains valid;
+- **S11B:** exact timestamped `line_to_line_rms` voltage magnitude at `lv_ac_collection_exit`; zero volts is explicit evidence, while missing evidence is not zero and is never filled or interpolated;
+- **S11C:** deterministic balanced radial constant-PQ backward/forward sweep with segment current, voltage, instantaneous `3R|I|²` active loss, `3X|I|²` reactive consumption, and whole-tree P/Q conservation.
 
-Key boundaries:
+S11 supports shared segments once, multiple independent trees, and unresolved numerical/nonconvergence states without fabricated physical output. It does not model imbalance, neutral conductors, shunts, loads, transformer physics, voltage compliance, controller feedback, energy integration, or measured actual state.
 
-- do not infer AC conductor topology from inverter labels, positions, capacities or aggregate AC-wiring percentages;
-- do not infer nominal voltage basis, phase arrangement or power factor when authority is missing;
-- do not convert a missing S10C selected point into zero power;
-- do not treat selected dispatch as measured telemetry;
-- do not double count physical LV losses with legacy aggregate AC-wiring percentages;
-- preserve segment-level reference planes so transformer and revenue-meter stages can follow later.
+The next physics milestone is **S12 — transformer**, beginning authority-first with explicit equipment/topology and reference-plane evidence. `lv_ac_collection_exit` must not be silently equated with a transformer winding.
 
 The intended downstream sequence is:
 
 ```text
 S10C selected inverter AC P/Q/S
     ↓
-S11 physical LV AC collection
+S11A topology/R+jX → S11B exit voltage → S11C LV operating solve
     ↓
-S12 transformer
+S12 transformer authority first [next]
     ↓
-S13 MV/HV collection and revenue-meter boundary
+S13 MV/HV collection + explicit revenue-meter boundary
     ↓
 S14 benchmarking / causal attribution
 ```
@@ -254,6 +258,7 @@ Known unresolved site facts include:
 - string-to-inverter assignment from as-built evidence;
 - physical DC cable / shared collection topology;
 - authoritative S9-4A AC capability authority for the installed inverters;
+- physical LV terminal/junction/exit topology, direct per-phase segment R/X, and exact collection-exit voltage authority;
 - transformer and MV/HV collection topology.
 
 Do not infer these relationships from inverter groups, counts, positions, capacities, CEC fields, or labels. See `docs/sites/bracon-ash.md`.

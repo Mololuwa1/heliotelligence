@@ -118,13 +118,16 @@ temperature-dependent inverter capability evaluation
 explicit inverter active-power dispatch-request authority
 requested inverter P/Q/S feasibility evaluation
 selected inverter AC P/Q/S state
+static LV collection topology and direct per-phase R+jX authority
+timestamped collection-exit line-to-line RMS voltage authority
+balanced radial constant-PQ LV operating solution
 ```
 
 Current merged checkpoint:
 
-`a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`
+`6f6dbb34027f9e648fe8623aab37b14341f193c7`
 
-Final reviewed pre-merge CI for PR #82 ran `2877` backend unit tests successfully in `509.72s` on Python 3.13.15 with `pvlib==0.15.2`; the frontend build also passed. The exact synthetic merge was `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`.
+Final reviewed CI for PR #86 ran `3040` backend unit tests successfully in `527.89s` on Python 3.13.15 with `pvlib==0.15.2`; the frontend build also passed. Run #217 / ID `37544412809` validated exact synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e` from reviewed head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`.
 
 Always verify the live repository before treating those numbers as current.
 
@@ -316,30 +319,42 @@ Required invariants include:
 - selected target is not measured output;
 - no AC current/network physics or curtailment accounting.
 
-## Next validation target: S11 physical LV AC collection
+## Validated S11 progression
 
-S11 should be validated in authority-first increments.
+S11 followed the authority-first sequence and is complete through S11C.
 
-The first increment should validate explicit LV topology/equipment authority without yet solving network power flow. Minimum expectations:
+### S11A static LV collection authority
 
-- exact inverter-to-segment/bus connectivity authority;
-- explicit conductor/segment identity and electrical properties;
-- explicit voltage basis and phase arrangement;
-- missing authority remains unresolved rather than inferred;
-- no topology inference from geometry, labels, capacities or aggregate AC-wiring losses;
-- canonical S10C selected P/Q/S admission at `inverter_ac_output`;
-- stable provenance, dtypes, ordering and diagnostics.
+Validation covers exact balanced-three-phase/line-to-line/per-phase-series basis, node and segment identity, direct non-negative R/X including explicit zero, inverter-terminal binding, acyclic radial/outdegree rules, ordered terminal-to-exit paths, shared segments, multiple trees, malformed-versus-partial authority, immutable ownership, and independent path/diagnostic closure. No topology or impedance is inferred.
 
-Only after authority is validated should later S11 work derive current and test voltage-drop / `I²R` identities.
+### S11B collection-exit voltage authority
+
+Validation covers strong S11A replay, exact `(pd.Timestamp, collection_exit_node_id)` keys, collection-exit-only reference plane, finite non-negative line-to-line RMS voltage, explicit zero versus missing, explicit-timestamp × canonical-exit closure, no temporal/cross-exit inference, immutable ownership, provenance, and independent diagnostics.
+
+### S11C balanced radial operating solve
+
+Validation covers:
+
+- strong S10C, S11A, and S11B replay, including rejection of mutable-but-equal S11A/S11B result mappings;
+- pure numerical-kernel tests separated from expensive parent admission;
+- analytical single-resistive-feeder current/voltage regression;
+- positive Q and reactive absorption;
+- shared-feeder complex-current aggregation and shared `3R|I|²` loss exactly once;
+- multilevel and independent trees;
+- exact zero dispatch and zero-exit-voltage cases;
+- missing authority/dispatch/boundary handling;
+- deterministic nonconvergence and nonfinite handling with unresolved physical values;
+- independent validator tree-membership and diagnostics reconstruction;
+- output tamper rejection;
+- terminal constant-PQ, junction KCL, segment `V=ZI`, segment complex-power/loss, exit delivery, and whole-tree P/Q conservation closure.
+
+S11C solved state remains modeled, not measured, and does not validate voltage compliance, transformer behavior, controller feedback, or energy integration.
+
+## Next validation target: S12 transformer authority
+
+Validate explicit transformer equipment/topology and reference planes before operating transformer physics. Do not infer winding identity, voltage bases, rating, ratio, impedance, losses, loading, or tap state from S11 exit voltage, names, capacity, CEC fields, geometry, or site configuration.
 
 ## Future validation targets
-
-### LV AC collection
-
-- current must be derived from explicit voltage / phase / P/Q/S state;
-- `I²R` and voltage-drop identities must close;
-- segment topology and conductor authority must be explicit;
-- no hidden unity-PF or nominal-voltage assumption.
 
 ### Transformer
 
@@ -357,19 +372,16 @@ Only after authority is validated should later S11 work derive current and test 
 
 ## Regression matrix for each new physics PR
 
-Run, as applicable:
+Use a non-redundant cadence, as applicable:
 
 - focused new-stage tests;
 - immediately upstream-stage tests;
-- complete recent S8/S9 inverter/electrical regressions;
-- optical / rear regressions when shared dependencies may interact;
-- full backend unit suite;
+- Ruff, strict mypy, syntax compilation, and `git diff --check`;
+- one full backend unit suite before PR review;
 - frontend build;
-- Ruff on changed files;
-- strict mypy on primary new/changed files;
-- syntax compilation;
-- `git diff --check`;
-- fresh CI on the exact synthetic merge or merged `main`.
+- one fresh CI on the exact synthetic merge.
+
+Run additional historical subsets or optical/rear regressions only when shared dependencies changed or when diagnosing a failure; do not repeat nested suites already subsumed by the full backend.
 
 Record exact base SHA, head SHA, synthetic merge SHA, Python version, dependency version, and pass counts.
 

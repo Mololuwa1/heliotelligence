@@ -75,13 +75,17 @@ TEMPERATURE-DEPENDENT INVERTER CAPABILITY EVALUATION [validated]
 ↓
 EXPLICIT INVERTER ACTIVE-POWER DISPATCH REQUEST [validated]
 ↓
-REQUESTED DISPATCH FEASIBILITY [next]
+REQUESTED DISPATCH FEASIBILITY [validated]
 ↓
-PLANT CONTROLLER / DISPATCH
+SELECTED INVERTER AC DISPATCH [validated]
 ↓
-LV AC COLLECTION
+LV AC STATIC RADIAL TOPOLOGY + R+jX AUTHORITY [validated]
 ↓
-TRANSFORMER
+COLLECTION-EXIT V_LL,RMS AUTHORITY [validated]
+↓
+BALANCED RADIAL CONSTANT-PQ LV OPERATING SOLVE [validated]
+↓
+TRANSFORMER [next: authority first]
 ↓
 MV / HV NETWORK
 ↓
@@ -96,7 +100,7 @@ BENCHMARKING / CAUSAL LOSS ATTRIBUTION
 
 ## Current validated electrical implementation
 
-As of the PR #82 merge checkpoint, the validated electrical/control chain includes:
+As of the PR #86 merge checkpoint, the validated electrical/control chain includes:
 
 ```text
 S8-1  physical string I-V
@@ -116,13 +120,16 @@ S9-4D temperature-dependent inverter capability evaluation
 S10A explicit inverter active-power dispatch-request authority
 S10B requested dispatch-feasibility evaluation
 S10C selected inverter AC P/Q/S state
+S11A explicit LV collection topology and series-impedance authority
+S11B explicit timestamped collection-exit operating-voltage authority
+S11C balanced radial LV AC operating-network solve
 ```
 
 Canonical merged checkpoint:
 
-`a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`
+`6f6dbb34027f9e648fe8623aab37b14341f193c7`
 
-Final reviewed S10C CI evidence was CI #207 / run ID `37236331555` on synthetic merge `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`: backend 2877 passed in 509.72s on Python 3.13.15 with `pvlib==0.15.2`; frontend succeeded.
+Final reviewed S11C CI evidence was CI #217 / run ID `37544412809` on synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`: backend 3040 passed in 527.89s on Python 3.13.15 with `pvlib==0.15.2`; frontend succeeded.
 
 ## Electrical reference planes
 
@@ -135,9 +142,11 @@ The architecture distinguishes these physical locations:
 5. shared homerun / feeder output;
 6. inverter MPPT input terminals;
 7. inverter conversion boundary / AC output;
-8. future controller-dispatched inverter AC output;
-9. downstream LV / transformer / MV / HV nodes;
-10. revenue-meter boundary.
+8. S10C selected target and S11A terminal binding at `inverter_ac_output`;
+9. S11C-solved LV internal nodes;
+10. `lv_ac_collection_exit`, the end of S11;
+11. future transformer / MV / HV nodes;
+12. revenue-meter boundary.
 
 An accounting or counterfactual quantity such as Sandia pre-Paco potential is not automatically a physical conductor plane. Static equipment authority such as `Smax`, phase or nominal voltage is also not a physical operating-state plane.
 
@@ -174,9 +183,13 @@ An accounting or counterfactual quantity such as Sandia pre-Paco potential is no
 | Inverter thermal derating authority | implemented | S9-4C explicit no-derating or piecewise P/S/Q limits over an explicit temperature domain | Immutable manufacturer authority for later temperature-dependent evaluation |
 | Temperature-dependent inverter capability | implemented | S9-4D exact timestamped temperature-state admission and explicit thermal P/S/Q evaluation | Evaluates available capability without dispatch, extrapolation or power modification |
 | Inverter active-power dispatch request | implemented | S10A exact timestamped per-inverter absolute P-setpoint authority at inverter_ac_output | Preserve as controller evidence before feasibility/selection |
-| Requested dispatch feasibility | next | No canonical S10B evaluator yet | Evaluate requested P/Q/S against S9-4D capability without selection or clamping |
-| LV AC cables | legacy approximation | Static compatibility AC wiring percentage | Physical segment network after P/Q/S state exists |
-| Transformer | planned | Not separately canonical | Core + load loss model from equipment authority |
+| Inverter requested dispatch feasibility | implemented | S10B exact requested P/Q/S evaluation against availability and static/thermal capability | Preserve evaluation separately from selection |
+| Inverter selected dispatch | implemented | S10C exact fully-feasible-request passthrough at `inverter_ac_output` | Remains a modeled target, not telemetry |
+| LV AC static network authority | implemented, dormant | S11A balanced radial topology, explicit nodes/bindings/exits and direct per-phase R+jX | Site authority remains explicit and may be unresolved |
+| LV collection-exit voltage authority | implemented, dormant | S11B exact timestamped `line_to_line_rms` magnitude at `lv_ac_collection_exit` | No persistence, interpolation or inferred nominal voltage |
+| LV AC operating solution | implemented, dormant | S11C balanced radial constant-PQ backward/forward sweep with physical series losses | Production migration must prevent legacy-loss double counting |
+| Legacy AC wiring loss | compatibility only | Static aggregate `wiring_loss_ac_pct` | Never combine with physical S11C loss on the same path without migration proof |
+| Transformer | next / planned | Not separately canonical | Begin with explicit equipment/topology authority before operating physics |
 | MV/HV network | planned | Not canonical | Topology-aware network elements |
 | Revenue meter | partial | Actual data exists for comparison | Explicit end-of-chain expected boundary |
 | Benchmarking | partial / legacy | Existing reporting and residual concepts | Physics-telescoping causal attribution |
@@ -356,7 +369,7 @@ S10C establishes selected P/Q/S only when the exact request is fully proven feas
 
 Known-infeasible, partial-authority and unresolved requests do not produce a selected point. Inactive rows do not fabricate zero. S10C contains no clamping, Q clipping, S-circle projection, thermal clipping, fallback policy, curtailment accounting or measured-output inference.
 
-## Plant controller and AC network boundary
+## Controller and LV AC network boundary
 
 S10 is now complete as a narrow per-inverter controller boundary:
 
@@ -372,7 +385,40 @@ exact feasible-request selection
 
 S10 does **not** solve plant-level export allocation or infer controller policy for infeasible requests. Those require separate explicit authority if introduced later.
 
-The next physical boundary is S11 LV AC collection. S11 must begin with explicit AC topology and conductor/voltage authority and only then derive current, voltage drop and `I²R` losses. Selected S10C dispatch remains distinct from measured telemetry.
+S11 v1 is complete through S11C while remaining dormant from production.
+
+### S11A — static LV collection authority
+
+S11A admits an explicit `balanced_three_phase`, `line_to_line_rms`, `per_phase_series` network basis; `inverter_terminal`, `junction`, and `collection_exit` nodes; directed radial segments toward each exit; direct per-phase `R+jX`; and one-to-one inverter bindings at `inverter_ac_output`. It validates cycles, outgoing degree, binding uniqueness, ordered terminal-to-exit paths, shared segments, and multiple independent trees. Explicit zero R/X is valid; missing basis, binding, or path stays unresolved. It performs no operating calculation.
+
+### S11B — collection-exit voltage authority
+
+S11B strongly replays S11A and admits exact `(pd.Timestamp, collection_exit_node_id)` operating voltage magnitude at `lv_ac_collection_exit`. The only basis is `line_to_line_rms`; values are finite and non-negative with explicit zero distinct from missing. Its row universe is explicit timestamps × canonical exits. It never fills, interpolates, persists, copies between exits, or infers voltage from CEC/nameplate/transformer data. It does not consume S10C.
+
+### S11C — balanced radial operating solution
+
+S11C strongly replays S10C, S11A, and S11B. It treats selected S10C P/Q as balanced constant-PQ injection targets, converts the exact exit boundary as `V_phase = V_LL/sqrt(3)`, and uses:
+
+```text
+I_inverter = conj(S_3ph / (3 V_phase))
+V_from = V_to + (R + jX) I_segment
+P_loss = 3 R |I|²
+Q_series = 3 X |I|²
+```
+
+A deterministic backward sweep aggregates complex current once on shared segments; a forward sweep reconstructs node voltages. The fixed-point solver uses at most 200 iterations, `1e-7 V` absolute and `1e-10` relative voltage tolerances, and a fresh-current final closure. Exit angle zero is a mathematical coordinate reference, not telemetry.
+
+S11C outputs modeled `collection_exit_states`, `node_states`, and `segment_states` indexed respectively by `(timestamp, collection_exit_node_id)`, `(timestamp, node_id)`, and `(timestamp, segment_id)`. It validates terminal constant-PQ identity, junction KCL, segment `V=ZI`, segment complex-power/loss identity, exit delivery, and whole-tree P/Q conservation.
+
+Every canonical inverter must first have closed S11A tree membership. Once that global membership is known, independent trees may solve independently at each timestamp. Each tree requires selected dispatch for every member and exact S11B voltage for that timestamp/exit. Missing selection is never zero. Explicit zero P/Q is a real injection state.
+
+At zero exit voltage, all-zero dispatch resolves to zero voltage/current/loss; any nonzero P or Q is singular and becomes `unresolved_zero_exit_voltage_with_nonzero_selected_power`. Nonfinite or nonconvergent solves remain unresolved with physical outputs NaN. A genuine nonconvergence may retain its finite final delta and 200-iteration diagnostic.
+
+The physical S11C instantaneous losses replace no production quantity automatically. Legacy `wiring_loss_ac_pct` remains compatibility logic and must not be applied to the same path as `3R|I|²` without an explicit migration proving no double counting.
+
+S11C is balanced equivalent-phase physics only: no unbalanced phases, neutral, loads, shunts, cable charging, transformer, voltage-compliance logic, inverter voltage feedback, energy integration, or measured-output claim.
+
+The next physical milestone is S12 transformer authority. `lv_ac_collection_exit` is not silently a transformer LV winding; future explicit topology must establish that boundary.
 
 ## Partial shading target
 
@@ -388,7 +434,7 @@ Validated physical layers are not automatically production-active. The legacy co
 
 ## Reference site discipline
 
-Bracon Ash remains a reference site, not a reusable topology template. Its physical MPPT-to-string map, cable network, S9-4A AC capability authority, transformer network, and MV/HV connectivity must not be invented from counts, groups, labels, capacities, `Paco`, or CEC `Vac`.
+Bracon Ash remains a reference site, not a reusable topology template. Its physical MPPT-to-string map, DC/LV cable networks, S9-4A AC capability authority, S11 terminal/junction/exit topology, direct R/X, collection-exit voltage, transformer network, and MV/HV connectivity must not be invented from counts, groups, labels, capacities, geometry, `Paco`, CEC `Vac`, or legacy losses.
 
 ## Dependency lock
 

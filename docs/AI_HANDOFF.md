@@ -40,13 +40,13 @@ Never authorize a merge from an implementation report alone.
 
 ## Current canonical repository checkpoint
 
-As of 2026-10-04, live `main` is:
+As of 2026-10-06, live `main` is:
 
-`a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`
+`6f6dbb34027f9e648fe8623aab37b14341f193c7`
 
-This is the merge commit of PR #82:
+This is the merge commit of PR #86:
 
-`S10C: add selected inverter AC dispatch state`
+`S11C: add balanced radial LV AC collection solve`
 
 S10 controller milestone:
 
@@ -54,24 +54,35 @@ S10 controller milestone:
 - S10B PR #81 merged as `2f4a4050c48203018fbf914c3853675f996bda97`;
 - S10C PR #82 merged as `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
 
-S10C merge facts:
+S11 milestone:
 
-- previous base: `2f4a4050c48203018fbf914c3853675f996bda97`;
-- reviewed head: `90e0ba6cc219a1b288bfda0f215ad787141dd68f`;
-- merged at: `2026-10-04T21:47:50Z`.
+- S11A PR #84, reviewed head `07cb048dec18ca42b3b668a3b7407e9e27b784ce`, merged as `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
+- S11B PR #85, reviewed head `c4e8ba2e3545bbf64037759730cdc6746bd45f79`, merged as `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
+- S11C PR #86, reviewed hardened head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`, merged as `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+
+GitHub reports the S11C merge signature as verified. Its parents are canonical S11B main `3fb4c3181c283ecf62622865b88622ac7b24ae22` and reviewed S11C head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`.
 
 Final reviewed pre-merge CI evidence:
 
 - workflow: CI;
-- run #207;
-- run ID `37236331555`;
-- synthetic merge `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`;
+- run #217;
+- run ID `37544412809`;
+- base `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
+- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
 - Python 3.13.15;
 - `pvlib==0.15.2`;
-- backend: `2877 passed in 509.72s`;
+- backend: `3040 passed in 527.89s`;
 - frontend: success.
 
-No separate workflow was attached directly to the merge commit at the time of this handoff update. Verify live `main` before relying on this checkpoint in a later session.
+Reviewed S11 CI history:
+
+| Stage | CI | Run ID | Synthetic merge | Backend | Frontend |
+|---|---:|---:|---|---|---|
+| S11A | #212 | `37246123578` | `b11c0ccf463eabe7a7797c4027f9f672852e2ea0` | 2939 passed in 627.40s | success |
+| S11B | #214 | `37384225311` | `014ff7db4218cc4668604cbcb1e7031c25daac63` | 2989 passed in 518.15s | success |
+| S11C hardened | #217 | `37544412809` | `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e` | 3040 passed in 527.89s | success |
+
+All three used Python 3.13.15 and `pvlib==0.15.2`. Verify live `main` before relying on this checkpoint in a later session.
 
 ## Product / engineering position
 
@@ -105,6 +116,9 @@ S9-4D temperature-dependent inverter capability
 S10A  explicit timestamped active-power dispatch request
 S10B  requested P/Q/S feasibility evaluation
 S10C  selected inverter AC P/Q/S state
+S11A  explicit static LV topology and direct per-phase R+jX authority
+S11B  timestamped collection-exit V_LL,RMS authority
+S11C  balanced radial constant-PQ LV operating solution
 ```
 
 The S10 chain is deliberately split:
@@ -114,6 +128,8 @@ The S10 chain is deliberately split:
 - **selection:** S10C establishes a selected point only for an exact request that is fully proved feasible.
 
 No S10 stage infers plant-level allocation, command persistence, measured output, AC current or network loss.
+
+S11 preserves the next separation: S11A is static network authority, S11B is exact operating boundary-voltage authority, and S11C is the physical operating solve. S10C and S11C remain modeled target/state, not measured telemetry.
 
 ## S8 electrical contracts
 
@@ -447,11 +463,56 @@ S10C strongly replays canonical S10B. Its v1 policy is deliberately narrow:
 
 S10C never performs `P=min(request,available)`, Q clipping, apparent-power projection, thermal clipping or fallback dispatch. Selected P/Q/S is a controller/model target, not measured telemetry.
 
+## S11 LV AC collection contracts
+
+### S11A — static topology and series-impedance authority
+
+Contract `explicit_lv_ac_collection_topology_and_series_impedance_authority_v1`, model `radial_balanced_three_phase_direct_series_impedance_authority_v1`.
+
+Scope `static_lv_ac_collection_authority_before_operating_voltage_current_and_network_solve`; coverage `explicit_inverter_terminal_junction_collection_exit_and_segment_series_impedance_authority`.
+
+S11A admits only explicit `balanced_three_phase`, `line_to_line_rms`, `per_phase_series` basis; `inverter_terminal`, `junction`, and `collection_exit` nodes; direct per-phase R/X segments oriented toward exits; and inverter bindings at `inverter_ac_output`. It supports shared segments and multiple trees, rejects malformed radial graphs, preserves valid partial authority, and treats explicit R=X=0 as resolved evidence. It has no timestamp, voltage magnitude, P/Q/S, current, loss, or transformer solve.
+
+### S11B — timestamped collection-exit voltage authority
+
+Contract `admitted_lv_ac_collection_authority_to_timestamped_collection_exit_voltage_state_v1`, model `explicit_balanced_three_phase_collection_exit_line_to_line_rms_voltage_state_v1`.
+
+Scope `timestamped_lv_ac_collection_exit_voltage_boundary_authority_before_network_solve`; coverage `explicit_collection_exit_line_to_line_rms_voltage_states_for_admitted_lv_ac_collection_topology`.
+
+S11B strongly replays S11A and admits exact `(pd.Timestamp, collection_exit_node_id)` values at reference plane `lv_ac_collection_exit`. Voltage is finite, non-Boolean, non-negative `line_to_line_rms`; explicit 0 V is evidence and missing is not zero. Its timestamp universe comes only from supplied evidence, with timestamp × canonical-exit closure. There is no fill, interpolation, persistence, cross-exit copying, nameplate/CEC/transformer inference, S10C dependency, phase conversion, current, or network solve.
+
+### S11C — balanced radial operating solution
+
+Contract `admitted_selected_dispatch_lv_topology_and_exit_voltage_to_balanced_radial_operating_solution_v1`, model `balanced_three_phase_radial_constant_pq_backward_forward_sweep_v1`.
+
+Scope `lv_ac_collection_operating_solve_from_inverter_ac_output_to_collection_exit_before_transformer`; coverage `complete_radial_lv_collection_trees_with_selected_inverter_pq_and_explicit_collection_exit_voltage`.
+
+S11C strongly replays S10C, S11A, and S11B. S10C selected P/Q is assumed realised as balanced constant-PQ injection at `inverter_ac_output`; it remains a modeled controller target. For each fully admitted tree:
+
+```text
+V_exit,phase = V_exit,LL,RMS / sqrt(3) at mathematical angle 0
+I_inverter = conj((P_selected + jQ_selected) / (3 V_terminal,phase))
+V_from = V_to + (R + jX) I_segment
+P_loss = 3 R |I|²
+Q_series = 3 X |I|²
+S_from - S_to = 3 (R + jX) |I|²
+```
+
+Backward sweep aggregates complex current once through shared segments; forward sweep reconstructs voltages. The fixed-point model uses 200 maximum iterations, `1e-7 V` absolute and `1e-10` relative voltage tolerances, and fresh-current final closure. Collection-exit angle zero is a coordinate convention, not measured phase-angle authority.
+
+Global S11A membership must close for every canonical inverter before any tree solves. Once closed, independent trees may resolve independently. Each timestamp/tree requires selected dispatch for every member and exact S11B voltage. Missing dispatch is never zero; explicit P=Q=0 is real zero injection.
+
+Zero exit voltage plus all-zero dispatch resolves to zero voltage/current/loss. Zero exit voltage plus any nonzero P or Q is singular: `unresolved_zero_exit_voltage_with_nonzero_selected_power`. Nonfinite and nonconvergent results remain unresolved with physical outputs NaN. Nonconvergence may preserve a finite final voltage delta and iteration count 200 as solver diagnostics.
+
+Outputs are modeled `collection_exit_states`, `node_states`, and `segment_states`. Validation independently closes parent replay, immutable mappings, membership, diagnostics, terminal power, junction KCL, segment `V=ZI`, segment complex power/loss, exit delivery, and whole-tree P/Q conservation.
+
+S11C has no unbalanced phases, neutral, shunt, loads, transformer, voltage compliance, inverter feedback, redispatch, energy integration, or production activation.
+
 ## Legacy production compatibility path
 
-The validated S8/S9 chain is not automatically equivalent to the production runtime path.
+The validated S8/S9/S10/S11 chain is not automatically equivalent to the production runtime path.
 
-The legacy `calculate_dc_power()` compatibility path still retains aggregate percentage effects including soiling, LID, static mismatch, and DC wiring. Legacy AC wiring / grid-cap behaviour also remains separate from the dormant component-resolved migration until explicitly replaced.
+The legacy `calculate_dc_power()` compatibility path still retains aggregate percentage effects including soiling, LID, static mismatch, and DC wiring. Legacy `wiring_loss_ac_pct` / grid-cap behavior remains separate from dormant S11. Physical S11C loss is instantaneous `3R|I|²` on explicit segments, not an energy quantity or percentage.
 
 Do not silently apply validated physical losses and legacy percentages together. Production integration must be a separately reviewed migration with no double counting.
 
@@ -472,15 +533,13 @@ Current limitations remain explicit:
 
 ## Next build
 
-### S11 — physical LV AC collection
+### S12 — transformer authority first
 
-Start from canonical S10C selected P/Q/S at `inverter_ac_output`.
+S11 v1 is complete; no S11D physics increment is currently required. Proceed from the exact `lv_ac_collection_exit` boundary to explicit transformer equipment/topology authority before any operating transformer solve.
 
-The first S11 increment should establish explicit LV topology/equipment authority before solving current or losses. Do not infer cable routes, conductor properties, phase arrangement, nominal-voltage basis, shared buses or feeder structure from geometry, labels, capacities or legacy aggregate AC-wiring losses.
+Potential later transformer physics may require explicit terminal/reference planes, winding voltage bases, rated power, turns/voltage ratio, series impedance/copper loss, no-load/core loss, loading, and tap/control state. Do not lock these into an operating model or infer them from S11 exit voltage, CEC `Vac`, nominal site voltage, capacities, labels, geometry, or current site YAML.
 
-Once authority exists, later S11 increments may derive AC current and solve voltage drop / `I²R` losses on explicit segments.
-
-S11 must remain separate from measured-output reconciliation and from transformer/MV/HV physics.
+`lv_ac_collection_exit` is not automatically the transformer LV winding. Measurement reconciliation, energy integration, reporting/accounting aggregation, and production activation remain separate future work.
 
 ## Non-negotiable project rules
 
@@ -506,10 +565,12 @@ Critical unresolved facts remain:
 - no physical MPPT-to-string map is currently known;
 - no string-to-inverter assignment should be inferred from aggregate counts;
 - no physical cable layout is established by current configuration;
+- no authoritative S11A terminal/junction/exit topology, inverter bindings, or direct per-phase R/X exists;
+- no exact timestamped S11B `lv_ac_collection_exit` voltage evidence exists;
 - no authoritative S9-4A AC capability authority has been established for the installed inverters, so generic S9-4B cannot resolve Bracon Ash capability without additional equipment evidence and explicit Q requests;
 - no transformer or MV/HV collection topology is established by current configuration.
 
-Do not infer any of these from group IDs, counts, positions, capacities, `Paco`, CEC `Vac`, or labels. See `docs/sites/bracon-ash.md`.
+Generic S11A/B/C therefore does not make Bracon Ash an authoritative high-fidelity LV model. Its legacy `wiring_loss_ac_pct` is not segment R/X authority. Do not infer any missing evidence from group IDs, counts, positions, capacities, geometry, `Paco`, CEC `Vac`, nominal voltage, transformer ratings, measured inverter output, or labels. See `docs/sites/bracon-ash.md`.
 
 ## Dependency lock
 

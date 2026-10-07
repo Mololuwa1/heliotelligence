@@ -73,27 +73,27 @@ CI currently validates:
 1. backend unit tests;
 2. frontend dependency installation and production build.
 
-The validated dormant component-physics/control chain now extends through **S10C selected inverter AC dispatch state**.
+The validated dormant component-physics/control chain now extends through **S11C balanced radial LV AC collection operating solution**.
 
-Final reviewed pre-merge CI for PR #82 was:
+Final reviewed CI for PR #86 was:
 
-- workflow run #207;
-- run ID `37236331555`;
-- base `2f4a4050c48203018fbf914c3853675f996bda97`;
-- head `90e0ba6cc219a1b288bfda0f215ad787141dd68f`;
-- synthetic merge `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`;
+- workflow run #217;
+- run ID `37544412809`;
+- base `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
+- head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`;
+- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
 - Python 3.13.15;
 - `pvlib==0.15.2`;
-- backend `2877 passed in 509.72s`;
+- backend `3040 passed in 527.89s`;
 - frontend success.
 
-PR #82 then merged as `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`. No separate post-merge workflow was attached directly to that merge commit when this documentation was prepared.
+PR #86 then merged as `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
 
 Treat this as historical validation evidence and re-check current CI before release decisions.
 
-Validated S8/S9/S10 contracts remain dormant from production. Production activation requires a separately reviewed integration proving safe fallbacks, reference-plane alignment and no double counting.
+Validated S8/S9/S10/S11 contracts remain dormant from production. Production activation requires a separately reviewed integration proving authoritative inputs, safe unresolved behavior, reference-plane alignment, telemetry compatibility, operational safety, and no double counting with legacy loss factors.
 
-Deployment configuration is not controller authority. Legacy `grid_limit_kwac`, Cloud Run settings, environment variables or service configuration must not be promoted into timestamped per-inverter dispatch requests, feasibility evidence or selected-dispatch state.
+Deployment configuration is not controller or LV-network authority. Legacy `grid_limit_kwac`, `wiring_loss_ac_pct`, Cloud Run settings, environment variables, and service configuration must not be promoted into dispatch requests, LV topology/R/X, operating voltage, or solved state.
 
 ## Configuration rules
 
