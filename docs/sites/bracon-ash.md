@@ -28,6 +28,8 @@ Current legacy loss assumptions:
 - No physical MPPT-to-string map is currently known.
 - No string-to-inverter assignment should be inferred from aggregate counts.
 - No physical cable layout is established by the current site configuration.
+- No physical LV inverter-terminal, junction, collection-exit, or directed segment topology is established.
+- No direct per-phase LV segment R/X or collection-exit operating-voltage authority is established.
 - No transformer or MV/HV collection topology is established by the current site configuration.
 - No authoritative shared post-parallel DC collection network is established.
 - No explicit S9-4A per-inverter AC capability authority has yet been established for Bracon Ash.
@@ -42,9 +44,9 @@ The current repository values `320 kWac`, grid export limit, inverter model name
 
 Do not invent these relationships or use group membership, equipment count, capacity, labels, positions, `Paco`, CEC/SAM `Vac`, or cable-plan assumptions as substitutes for electrical/equipment authority.
 
-## Applicability of the validated S8/S9/S10 chain
+## Applicability of the validated S8/S9/S10/S11 chain
 
-Heliotelligence now contains independently validated generic electrical/control contracts through S10C selected inverter AC dispatch state. Their existence does **not** mean Bracon Ash can be run through every high-fidelity stage from current site configuration.
+Heliotelligence now contains independently validated generic electrical/control contracts through the S11C balanced radial LV AC operating solution. Their existence does **not** mean Bracon Ash can be run through every high-fidelity stage from current site configuration.
 
 The current generic chain includes:
 
@@ -63,6 +65,9 @@ physical string I-V
 → explicit active-power dispatch request
 → requested P/Q/S feasibility
 → exact feasible-request selected P/Q/S
+→ explicit static radial LV topology + direct per-phase R+jX
+→ explicit timestamped collection-exit V_LL,RMS
+→ modeled balanced radial LV operating solution
 ```
 
 For Bracon Ash specifically, topology-dependent stages must remain unresolved where required MPPT/string/cable authority is absent. S9-4A requires explicit per-inverter AC capability evidence; S9-4B additionally requires explicit timestamped Q requests; S9-4C requires authoritative inverter thermal-derating evidence; S9-4D additionally requires explicit matching inverter-temperature state; S10A requires explicit timestamped per-inverter active-power request; S10B requires the preceding capability/request evidence; and S10C can establish a selected point only where S10B fully proves the exact request feasible.
@@ -148,9 +153,29 @@ It must not infer saturation behaviour for an infeasible request. In particular,
 
 The S10C selected state is a controller/model target, not proof of actual inverter output. Bracon Ash telemetry reconciliation remains a separate future boundary.
 
+## S11 applicability
+
+S11A, S11B, and S11C are implemented generically, but Bracon Ash is not S11-ready from current configuration.
+
+Bracon Ash S11A requires explicit evidence, as applicable, for:
+
+- physical `inverter_terminal`, `junction`, and `collection_exit` nodes;
+- exact inverter-to-terminal bindings at `inverter_ac_output`;
+- directed radial connectivity toward each collection exit;
+- direct segment resistance and reactance per phase;
+- balanced-three-phase, line-to-line RMS, and per-phase series-impedance bases.
+
+Bracon Ash S11B additionally requires exact timestamped `V_LL,RMS` evidence at each physical `lv_ac_collection_exit`. Do not infer it from inverter CEC `Vac`, nameplate or nominal voltage, transformer ratings, site labels, capacity, geometry, or measured inverter output. A voltage at some other physical plane is not collection-exit authority.
+
+S11C can solve a tree only where canonical S10C selected P/Q exists for every member inverter, global S11A inverter membership is closed, and the exact timestamp/exit S11B boundary is resolved. Missing selected dispatch is not zero; explicit selected P=Q=0 is zero injection. The resulting voltage, current, delivered P/Q, and loss quantities are modeled states, not measurements.
+
+The legacy `wiring_loss_ac_pct` does not establish nodes, connectivity, R/X, or voltage and is not consumed by S11. Physical `3R|I|²` loss and legacy aggregate AC wiring loss must not both be applied to the same path without an explicit production migration.
+
+Missing Bracon Ash S11 authority remains unresolved. Existing MPPT/string mapping, S9 AC capability/controller evidence, and transformer/MV/HV topology gaps also remain unresolved; no site values are populated by the generic implementation.
+
 ## Legacy compatibility note
 
-The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. They must not be combined with newly activated physical/controller replacements without an explicit production migration demonstrating no double counting.
+The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. S11A/B/C remain dormant and do not consume `wiring_loss_ac_pct`. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
 
 ## Capacity arithmetic discrepancy
 

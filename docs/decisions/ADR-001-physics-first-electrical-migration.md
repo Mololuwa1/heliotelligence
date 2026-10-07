@@ -28,15 +28,18 @@ Missing authority must remain explicit. An unresolved result is preferable to a 
 
 ## Current implementation consequence
 
-The physics-first migration now has validated dormant electrical/control contracts through S10C:
+The physics-first migration now has validated dormant electrical/control contracts through S11C:
 
 - S8 resolves physical string, MPPT mismatch and explicit direct-branch electrical behaviour;
 - S9 resolves inverter authority, conversion/accounting, static P/Q/S capability and explicit thermal capability;
 - S10A admits explicit active-power request authority;
 - S10B evaluates the exact requested P/Q/S point;
 - S10C selects only an exact request that is fully proven feasible.
+- S11A admits explicit balanced radial LV topology, terminal bindings and direct per-phase R+jX;
+- S11B admits exact timestamped collection-exit line-to-line RMS voltage;
+- S11C solves the balanced constant-PQ radial operating state and intrinsic instantaneous series losses.
 
-Canonical checkpoint: `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
+Canonical checkpoint: `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
 
 These contracts do not automatically replace legacy production calculations. Activation still requires explicit migration evidence showing reference-plane consistency and no double counting.
 
@@ -46,7 +49,7 @@ The compatibility production path still contains aggregate effects including sta
 
 Physical mismatch and direct-branch resistance now exist as validated independent contracts, but they must not be layered on top of the legacy percentages in production without an explicit migration decision.
 
-The same rule applies to future AC current/cabling, transformer, controller, and network physics.
+Physical S11C AC current/cabling now exists as dormant generic physics, but legacy `wiring_loss_ac_pct` remains compatibility logic. Production must never apply both to the same path without an explicit migration proving no double counting. The same rule applies to future transformer and network physics.
 
 ## Physical reference-plane rule
 
@@ -58,8 +61,10 @@ Electrical quantities must retain their physical location. In particular:
 - shared feeder output;
 - inverter MPPT input;
 - inverter AC output;
-- future controller-dispatched output;
-- downstream AC network / meter boundaries
+- selected/controller target and S11A terminal at `inverter_ac_output`;
+- S11C-solved LV internal nodes;
+- `lv_ac_collection_exit` at the end of S11;
+- future transformer / MV / HV / meter boundaries
 
 must not be collapsed into a single generic power state when the distinction matters to the mechanism being modelled.
 
@@ -118,18 +123,11 @@ Trade-offs:
 
 ## Next decision-compatible work
 
-Proceed to S11 physical LV AC collection from the S10C `inverter_ac_output` selected P/Q/S boundary.
+Proceed to S12 transformer authority from the explicit `lv_ac_collection_exit` boundary. Begin with equipment/topology and reference-plane authority; add operating transformer physics only after the necessary winding bases, ratings, ratio, impedance/loss, loading, and any tap/control evidence are explicit.
 
-Decision-compatible S11 work must:
+Do not equate `lv_ac_collection_exit` with a transformer LV winding unless future topology authority proves that physical identity. Do not infer transformer evidence from exit voltage, CEC `Vac`, nominal voltage, capacities, labels, geometry, or current site configuration.
 
-- admit explicit LV topology, conductor and voltage/phase authority before solving;
-- preserve exact physical reference planes;
-- keep missing topology/equipment authority unresolved;
-- avoid deriving AC network structure from geometry, identifiers, capacities or aggregate losses;
-- avoid double counting with legacy AC-wiring percentages;
-- keep transformer, MV/HV and revenue-meter boundaries separate for later stages.
-
-Do not add curtailment accounting, measured-output inference or plant-export allocation merely because S10C now provides a selected controller target.
+S11 demonstrates the decision pattern: S11A established static authority, S11B established an operating boundary, and only S11C performed the solve. S11 remains dormant from production and distinct from measured telemetry, energy integration, curtailment accounting, and plant-export allocation.
 
 ## Rejected alternatives
 

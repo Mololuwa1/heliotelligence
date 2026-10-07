@@ -19,11 +19,11 @@ The project is beyond MVP. New physics should remain narrow, provenance-aware, e
 
 ## Current canonical checkpoint
 
-As of 2026-10-04, live `main` is:
+As of 2026-10-06, live `main` is:
 
-`a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`
+`6f6dbb34027f9e648fe8623aab37b14341f193c7`
 
-This is the merge commit of PR #82, S10C selected inverter AC dispatch state.
+This is the merge commit of PR #86, S11C balanced radial LV AC collection solve.
 
 Controller milestone merges:
 
@@ -31,17 +31,21 @@ Controller milestone merges:
 - S10B PR #81 → `2f4a4050c48203018fbf914c3853675f996bda97`;
 - S10C PR #82 → `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
 
-Final reviewed S10C pre-merge CI:
+S11 milestone merges:
 
-- run #207;
-- run ID `37236331555`;
-- synthetic merge `663a5a0e157296bbd74d8c3cf60c6d58a2dafdec`;
+- S11A PR #84 → `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
+- S11B PR #85 → `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
+- S11C PR #86 → `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+
+Final reviewed S11C CI used head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`:
+
+- run #217;
+- run ID `37544412809`;
+- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
 - Python 3.13.15;
 - `pvlib==0.15.2`;
-- backend `2877 passed in 509.72s`;
+- backend `3040 passed in 527.89s`;
 - frontend success.
-
-No separate post-merge workflow was attached directly to the merge commit when this roadmap was updated.
 
 ## Current validated electrical chain
 
@@ -81,6 +85,12 @@ S10A explicit active-power dispatch request
 S10B requested P/Q/S feasibility
     ↓
 S10C selected inverter AC P/Q/S
+    ↓
+S11A static radial topology + direct per-phase R+jX
+    ↓
+S11B timestamped collection-exit V_LL,RMS
+    ↓
+S11C balanced radial constant-PQ LV operating solution
 ```
 
 - **S10A — merged:** direct timestamped per-inverter absolute P request at `inverter_ac_output`; missing ≠ zero; no persistence; no duplicate Q authority.
@@ -89,21 +99,7 @@ S10C selected inverter AC P/Q/S
 
 ## Immediate next build
 
-The next priority is **S11 — physical LV AC collection**.
-
-Start from S10C selected P/Q/S at the exact `inverter_ac_output` reference plane.
-
-The first S11 increment should establish explicit LV network authority before solving:
-
-- inverter-to-bus connectivity;
-- conductor/segment identity;
-- conductor electrical properties;
-- voltage basis and phase arrangement;
-- shared collection structure.
-
-Missing authority must remain unresolved. Do not derive topology from geometry, names, inverter capacity or aggregate AC-wiring percentages.
-
-Only after explicit authority exists should S11 derive current and solve segment voltage drop / `I²R` loss.
+S11 v1 is complete. The next priority is **S12 — transformer**, beginning with explicit transformer equipment/topology and reference-plane authority. Do not infer a transformer, winding boundary, voltage ratio, rating, impedance, loss, or tap state from S11 exit voltage, CEC `Vac`, labels, capacities, geometry, or current site YAML.
 
 ## Next system stages after inverter capability
 
@@ -126,32 +122,27 @@ Causal curtailment/lost-energy accounting remains downstream work and must not b
 
 ### S11 — physical LV AC collection
 
-Build topology-aware LV collection only after AC voltage and P/Q/S state are explicit.
+**Status: complete through S11C; dormant from production.**
 
-Target physics:
+- **S11A — merged/complete:** explicit balanced-three-phase radial nodes, direct per-phase segment R+jX, inverter-terminal bindings, collection exits, shared paths, and multiple trees.
+- **S11B — merged/complete:** explicit timestamped line-to-line RMS voltage magnitude at exact collection exits; zero differs from missing; no temporal inference.
+- **S11C — merged/complete:** balanced constant-PQ backward/forward sweep with modeled node voltage, segment current/P/Q, instantaneous series loss/consumption, and whole-tree conservation.
 
-- segment graph / from-node / to-node connectivity;
-- conductor resistance using authoritative length / conductor data;
-- current derived from admitted AC electrical state;
-- `I²R` loss;
-- voltage drop;
-- downstream P/Q state;
-- explicit unresolved handling when topology or conductor authority is missing.
-
-Do not retain a static AC wiring percentage where physical network inputs are available.
+S11C assumes the S10C selected target is realised; it is not measured output. Physical loss is `3R|I|²`, not energy and not a percentage. `wiring_loss_ac_pct` remains a separate legacy compatibility input and must not be double counted. No S11D physics increment is currently required; future energy integration, reporting aggregation, telemetry reconciliation, or production activation are separate concerns.
 
 ### S12 — transformer model
 
-Preferred first transformer increment:
+The authority-first transformer sequence should begin with explicit equipment/topology evidence, potentially covering only when authorised:
 
-- explicit transformer equipment authority;
-- no-load / core loss;
-- load loss from factory-test or manufacturer data;
-- loading based on admitted P/Q/S;
-- independent energised / de-energised state;
-- exact input/output power accounting.
+- terminal/reference-plane definition and winding voltage bases;
+- rated power and turns/voltage ratio;
+- series impedance and copper-loss authority;
+- no-load/core-loss authority;
+- loading and tap/control evidence only when explicit.
 
-### S13 — MV/HV collection and revenue-meter boundary
+Operating transformer physics follows only after the required authority exists. `lv_ac_collection_exit` is not automatically a transformer winding.
+
+### S13 — MV/HV collection + explicit revenue-meter boundary
 
 Extend the same network-element pattern through MV feeders, collection transformers where applicable, main transformer, HV/export assets, and the explicit revenue-meter boundary.
 
@@ -259,7 +250,10 @@ Architectural milestones:
 - S8 physical DC/string/MPPT chain — merged;
 - S9 inverter conversion/capability/thermal chain — merged;
 - S10 request/feasibility/selection controller chain — merged;
-- S11 LV AC collection — next;
-- S12 transformer — planned;
-- S13 MV/HV and revenue-meter boundary — planned;
+- S11A static LV collection authority — merged / complete;
+- S11B collection-exit voltage authority — merged / complete;
+- S11C balanced radial LV operating solve — merged / complete;
+- S11 v1 — complete;
+- S12 transformer authority — next;
+- S13 MV/HV collection + explicit revenue-meter boundary — planned;
 - S14 benchmarking and causal attribution — planned.
