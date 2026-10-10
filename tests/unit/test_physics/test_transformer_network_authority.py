@@ -98,13 +98,16 @@ def _impedance(
     transformer_id: str = "tx-1",
     magnitude: float = 0.06,
     reference: str = "fixed_non_tapped_transformer_ratio",
+    reference_side: str = "collection_side",
 ) -> TransformerShortCircuitImpedanceAuthority:
     return TransformerShortCircuitImpedanceAuthority(
         transformer_id,
         "positive_sequence",
         "total_two_winding_series_short_circuit_impedance_magnitude",
-        "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases",
+        "per_unit_on_s12a_rated_apparent_power_and_explicit_reference_side_"
+        "rated_line_to_line_voltage",
         reference,  # type: ignore[arg-type]
+        reference_side,  # type: ignore[arg-type]
         magnitude,
         "rated_current",
         75.0,
@@ -222,6 +225,35 @@ def test_explicit_ratio_need_not_equal_s12a_rated_base_ratio(ratio: float) -> No
     assert row["transformer_positive_sequence_network_authority_resolved"]
 
 
+@pytest.mark.parametrize("reference_side", ["collection_side", "network_side"])
+@pytest.mark.parametrize("ratio", [27.5, 28.25])
+def test_explicit_impedance_reference_side_resolves_without_ratio_inference(
+    reference_side: str, ratio: float
+) -> None:
+    result = _resolve(
+        {"tx-1": _transfer(ratio=ratio)},
+        {"tx-1": _impedance(reference_side=reference_side)},
+    )
+    row = result.transformer_states.loc["tx-1"]
+    assert row["network_to_collection_voltage_ratio"] == ratio
+    assert row["short_circuit_impedance_reference_side"] == reference_side
+    assert row["transformer_positive_sequence_network_authority_resolved"]
+
+
+@pytest.mark.parametrize(
+    "reference_side",
+    [None, "", " ", "primary_side", True],
+)
+def test_impedance_reference_side_rejects_missing_or_unsupported_values(
+    reference_side: object,
+) -> None:
+    with pytest.raises(ValueError, match="impedance_reference_side"):
+        replace(
+            _impedance(),
+            impedance_reference_side=cast(Any, reference_side),
+        )
+
+
 @pytest.mark.parametrize(
     "reference",
     ["fixed_non_tapped_transformer_ratio", "principal_tapping"],
@@ -263,9 +295,10 @@ def test_reference_condition_is_explicit_and_never_inferred_from_rated_ratio() -
             phase_sequence="positive_sequence",
             impedance_semantics="total_two_winding_series_short_circuit_impedance_magnitude",
             impedance_basis=(
-                "per_unit_on_s12a_rated_apparent_power_and_"
-                "corresponding_rated_terminal_voltage_bases"
+                "per_unit_on_s12a_rated_apparent_power_and_explicit_reference_side_"
+                "rated_line_to_line_voltage"
             ),
+            ratio_reference_condition="fixed_non_tapped_transformer_ratio",
             short_circuit_impedance_magnitude_pu=0.06,
             test_current_condition="rated_current",
             reference_temperature_c=75.0,
@@ -426,6 +459,7 @@ def test_impedance_numeric_domains_reject_invalid(field: str, value: object) -> 
         ("phase_sequence", "zero_sequence"),
         ("impedance_semantics", "leakage"),
         ("impedance_basis", "ohms"),
+        ("impedance_reference_side", "primary_side"),
         ("ratio_reference_condition", "unspecified"),
         ("test_current_condition", "half_current"),
         ("parameter_source", " report "),
@@ -492,6 +526,7 @@ def test_strong_static_replay_rejects_mutable_equal_mapping(field: str) -> None:
         ("network_side_phase_displacement_deg", 1.0),
         ("short_circuit_impedance_magnitude_pu", 0.1),
         ("short_circuit_impedance_ratio_reference_condition", "principal_tapping"),
+        ("short_circuit_impedance_reference_side", "network_side"),
         ("short_circuit_reference_temperature_c", 20.0),
         ("short_circuit_test_frequency_hz", 60.0),
         ("voltage_transfer_parameter_source", "tampered"),

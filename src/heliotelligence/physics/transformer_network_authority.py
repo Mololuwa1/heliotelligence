@@ -39,7 +39,7 @@ TRANSFORMER_NETWORK_AUTHORITY_CONTRACT_ID = (
 )
 TRANSFORMER_NETWORK_AUTHORITY_MODEL_ID = (
     "explicit_reference_condition_positive_sequence_voltage_transfer_and_"
-    "factory_short_circuit_impedance_authority_v1"
+    "reference_side_factory_short_circuit_impedance_authority_v1"
 )
 TRANSFORMER_NETWORK_AUTHORITY_SCOPE = (
     "static_transformer_positive_sequence_electrical_equipment_model_authority_before_"
@@ -47,7 +47,7 @@ TRANSFORMER_NETWORK_AUTHORITY_SCOPE = (
 )
 TRANSFORMER_NETWORK_AUTHORITY_COVERAGE_SCOPE = (
     "explicit_compatible_ratio_reference_voltage_transfer_phase_displacement_"
-    "and_short_circuit_impedance_magnitude"
+    "and_reference_side_short_circuit_impedance_magnitude"
 )
 
 Confidence = Literal["high", "medium", "low", "unknown"]
@@ -55,11 +55,13 @@ RatioReferenceCondition = Literal[
     "fixed_non_tapped_transformer_ratio",
     "principal_tapping",
 ]
+ShortCircuitImpedanceReferenceSide = Literal["collection_side", "network_side"]
 _CONFIDENCES = {"high", "medium", "low", "unknown"}
 _RATIO_REFERENCE_CONDITIONS = {
     "fixed_non_tapped_transformer_ratio",
     "principal_tapping",
 }
+_IMPEDANCE_REFERENCE_SIDES = {"collection_side", "network_side"}
 _ABSOLUTE_ZERO_C = -273.15
 _COLUMNS = (
     "transformer_equipment_authority_present",
@@ -81,6 +83,7 @@ _COLUMNS = (
     "short_circuit_impedance_semantics",
     "short_circuit_impedance_basis",
     "short_circuit_impedance_ratio_reference_condition",
+    "short_circuit_impedance_reference_side",
     "short_circuit_impedance_magnitude_pu",
     "short_circuit_test_current_condition",
     "short_circuit_reference_temperature_c",
@@ -149,6 +152,12 @@ def _ratio_reference_condition(value: object) -> str:
     return value
 
 
+def _impedance_reference_side(value: object) -> str:
+    if type(value) is not str or value not in _IMPEDANCE_REFERENCE_SIDES:
+        raise ValueError("impedance_reference_side is unsupported")
+    return value
+
+
 def _finite(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a real non-Boolean number")
@@ -206,9 +215,11 @@ class TransformerShortCircuitImpedanceAuthority:
     phase_sequence: Literal["positive_sequence"]
     impedance_semantics: Literal["total_two_winding_series_short_circuit_impedance_magnitude"]
     impedance_basis: Literal[
-        "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases"
+        "per_unit_on_s12a_rated_apparent_power_and_explicit_reference_side_"
+        "rated_line_to_line_voltage"
     ]
     ratio_reference_condition: RatioReferenceCondition
+    impedance_reference_side: ShortCircuitImpedanceReferenceSide
     short_circuit_impedance_magnitude_pu: float
     test_current_condition: Literal["rated_current"]
     reference_temperature_c: float
@@ -359,10 +370,12 @@ def _validate_impedance(authority: TransformerShortCircuitImpedanceAuthority) ->
         raise ValueError("impedance_semantics is unsupported")
     if (
         authority.impedance_basis
-        != "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases"
+        != "per_unit_on_s12a_rated_apparent_power_and_explicit_reference_side_"
+        "rated_line_to_line_voltage"
     ):
         raise ValueError("impedance_basis is unsupported")
     _ratio_reference_condition(authority.ratio_reference_condition)
+    _impedance_reference_side(authority.impedance_reference_side)
     _positive(
         authority.short_circuit_impedance_magnitude_pu, "short_circuit_impedance_magnitude_pu"
     )
@@ -484,6 +497,9 @@ def _record(
         "short_circuit_impedance_basis": impedance.impedance_basis if impedance else "",
         "short_circuit_impedance_ratio_reference_condition": (
             impedance.ratio_reference_condition if impedance else ""
+        ),
+        "short_circuit_impedance_reference_side": (
+            impedance.impedance_reference_side if impedance else ""
         ),
         "short_circuit_impedance_magnitude_pu": impedance.short_circuit_impedance_magnitude_pu
         if impedance
@@ -615,6 +631,9 @@ def _validator_record(
         "short_circuit_impedance_basis": impedance.impedance_basis if impedance else "",
         "short_circuit_impedance_ratio_reference_condition": (
             impedance.ratio_reference_condition if impedance else ""
+        ),
+        "short_circuit_impedance_reference_side": (
+            impedance.impedance_reference_side if impedance else ""
         ),
         "short_circuit_impedance_magnitude_pu": (
             impedance.short_circuit_impedance_magnitude_pu if impedance else math.nan
