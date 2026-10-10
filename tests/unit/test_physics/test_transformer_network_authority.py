@@ -73,7 +73,10 @@ def _topology(transformer_id: str, exit_id: str) -> TransformerBoundaryTopologyA
 
 
 def _transfer(
-    transformer_id: str = "tx-1", ratio: float = 27.5, phase: float = 0.0
+    transformer_id: str = "tx-1",
+    ratio: float = 27.5,
+    phase: float = 0.0,
+    reference: str = "fixed_non_tapped_transformer_ratio",
 ) -> TransformerVoltageTransferAuthority:
     return TransformerVoltageTransferAuthority(
         transformer_id,
@@ -82,6 +85,7 @@ def _transfer(
         "line_to_line_rms",
         "fixed_effective_no_load_ratio",
         "network_to_collection_line_to_line_voltage_magnitude_ratio",
+        reference,  # type: ignore[arg-type]
         ratio,
         "network_side_positive_sequence_voltage_leads_collection_side_positive_deg",
         phase,
@@ -91,13 +95,16 @@ def _transfer(
 
 
 def _impedance(
-    transformer_id: str = "tx-1", magnitude: float = 0.06
+    transformer_id: str = "tx-1",
+    magnitude: float = 0.06,
+    reference: str = "fixed_non_tapped_transformer_ratio",
 ) -> TransformerShortCircuitImpedanceAuthority:
     return TransformerShortCircuitImpedanceAuthority(
         transformer_id,
         "positive_sequence",
         "total_two_winding_series_short_circuit_impedance_magnitude",
         "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases",
+        reference,  # type: ignore[arg-type]
         magnitude,
         "rated_current",
         75.0,
@@ -216,6 +223,75 @@ def test_explicit_ratio_need_not_equal_s12a_rated_base_ratio(ratio: float) -> No
 
 
 @pytest.mark.parametrize(
+    "reference",
+    ["fixed_non_tapped_transformer_ratio", "principal_tapping"],
+)
+def test_explicit_compatible_ratio_reference_conditions_resolve(reference: str) -> None:
+    result = _resolve(
+        {"tx-1": _transfer(reference=reference)},
+        {"tx-1": _impedance(reference=reference)},
+    )
+    row = result.transformer_states.loc["tx-1"]
+    assert row["ratio_reference_condition"] == reference
+    assert row["short_circuit_impedance_ratio_reference_condition"] == reference
+    assert row["transformer_positive_sequence_network_authority_resolved"]
+
+
+def test_incompatible_ratio_reference_conditions_preserve_evidence_unresolved() -> None:
+    result = _resolve(
+        {"tx-1": _transfer(reference="principal_tapping")},
+        {"tx-1": _impedance(reference="fixed_non_tapped_transformer_ratio")},
+    )
+    row = result.transformer_states.loc["tx-1"]
+    assert row["transformer_voltage_transfer_authority_present"]
+    assert row["transformer_short_circuit_impedance_authority_present"]
+    assert not row["transformer_positive_sequence_network_authority_resolved"]
+    assert row["transformer_network_authority_state"] == (
+        "unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions"
+    )
+    assert result.diagnostics.unresolved_incompatible_reference_conditions_count == 1
+
+
+def test_reference_condition_is_explicit_and_never_inferred_from_rated_ratio() -> None:
+    with pytest.raises(ValueError, match="ratio_reference_condition"):
+        replace(_transfer(), ratio_reference_condition=cast(Any, None))
+    with pytest.raises(ValueError, match="ratio_reference_condition"):
+        replace(_impedance(), ratio_reference_condition=cast(Any, None))
+    with pytest.raises(TypeError):
+        TransformerShortCircuitImpedanceAuthority(  # type: ignore[call-arg]
+            transformer_id="tx-1",
+            phase_sequence="positive_sequence",
+            impedance_semantics="total_two_winding_series_short_circuit_impedance_magnitude",
+            impedance_basis=(
+                "per_unit_on_s12a_rated_apparent_power_and_"
+                "corresponding_rated_terminal_voltage_bases"
+            ),
+            short_circuit_impedance_magnitude_pu=0.06,
+            test_current_condition="rated_current",
+            reference_temperature_c=75.0,
+            test_frequency_hz=50.0,
+            parameter_source="report",
+            confidence="high",
+        )
+
+
+def test_equipment_only_resolution_is_not_static_or_boundary_operating_readiness() -> None:
+    row = _complete(partial="equipment-only").transformer_states.loc["tx-1"]
+    assert row["transformer_positive_sequence_network_authority_resolved"]
+    assert not row["transformer_static_authority_resolved"]
+    assert not row["transformer_topology_authority_present"]
+    assert not row["transformer_boundary_operating_readiness_established"]
+
+
+def test_impedance_only_preserves_shared_positive_sequence_evidence() -> None:
+    row = _resolve({}, {"tx-1": _impedance()}).transformer_states.loc["tx-1"]
+    assert row["phase_sequence"] == "positive_sequence"
+    assert row["short_circuit_impedance_ratio_reference_condition"] == (
+        "fixed_non_tapped_transformer_ratio"
+    )
+
+
+@pytest.mark.parametrize(
     ("transfer", "impedance", "state"),
     [
         (True, False, "unresolved_missing_transformer_short_circuit_impedance_authority"),
@@ -312,6 +388,7 @@ def test_transfer_numeric_domains_reject_invalid(field: str, value: object) -> N
         ("network_voltage_basis", "phase"),
         ("ratio_state_semantics", "tap"),
         ("ratio_semantics", "turns_ratio"),
+        ("ratio_reference_condition", "unspecified"),
         ("phase_displacement_semantics", "opposite"),
         ("parameter_source", " "),
         ("confidence", "certain"),
@@ -349,6 +426,7 @@ def test_impedance_numeric_domains_reject_invalid(field: str, value: object) -> 
         ("phase_sequence", "zero_sequence"),
         ("impedance_semantics", "leakage"),
         ("impedance_basis", "ohms"),
+        ("ratio_reference_condition", "unspecified"),
         ("test_current_condition", "half_current"),
         ("parameter_source", " report "),
         ("confidence", "certain"),
@@ -408,9 +486,12 @@ def test_strong_static_replay_rejects_mutable_equal_mapping(field: str) -> None:
         ("transformer_voltage_transfer_authority_present", False),
         ("transformer_short_circuit_impedance_authority_present", False),
         ("transformer_positive_sequence_network_authority_resolved", False),
+        ("transformer_boundary_operating_readiness_established", True),
+        ("ratio_reference_condition", "principal_tapping"),
         ("network_to_collection_voltage_ratio", 1.0),
         ("network_side_phase_displacement_deg", 1.0),
         ("short_circuit_impedance_magnitude_pu", 0.1),
+        ("short_circuit_impedance_ratio_reference_condition", "principal_tapping"),
         ("short_circuit_reference_temperature_c", 20.0),
         ("short_circuit_test_frequency_hz", 60.0),
         ("voltage_transfer_parameter_source", "tampered"),
@@ -445,6 +526,7 @@ def test_private_validator_rejects_state_tampering(column: str, value: object) -
         "unresolved_missing_equipment_basis_count",
         "unresolved_missing_voltage_transfer_count",
         "unresolved_missing_short_circuit_impedance_count",
+        "unresolved_incompatible_reference_conditions_count",
     ],
 )
 def test_private_validator_rejects_diagnostic_tampering(field: str) -> None:
@@ -475,7 +557,9 @@ def test_module_has_no_cross_channel_or_operating_dependencies() -> None:
         "P_LL",
         "beta_I",
         "vector_group",
-        "tap_position",
+        "tap_schedule",
+        "timestamped_tap",
+        "oltc_controller",
     ):
         assert forbidden not in source
     assert type(_complete().diagnostics) is TopologyTransformerNetworkAuthorityDiagnostics

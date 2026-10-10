@@ -38,19 +38,28 @@ TRANSFORMER_NETWORK_AUTHORITY_CONTRACT_ID = (
     "transfer_and_short_circuit_impedance_authority_v1"
 )
 TRANSFORMER_NETWORK_AUTHORITY_MODEL_ID = (
-    "explicit_fixed_positive_sequence_voltage_transfer_and_"
+    "explicit_reference_condition_positive_sequence_voltage_transfer_and_"
     "factory_short_circuit_impedance_authority_v1"
 )
 TRANSFORMER_NETWORK_AUTHORITY_SCOPE = (
-    "static_transformer_positive_sequence_network_authority_before_"
+    "static_transformer_positive_sequence_electrical_equipment_model_authority_before_"
     "excitation_and_terminal_operating_solve"
 )
 TRANSFORMER_NETWORK_AUTHORITY_COVERAGE_SCOPE = (
-    "explicit_fixed_voltage_ratio_phase_displacement_and_short_circuit_impedance_magnitude"
+    "explicit_compatible_ratio_reference_voltage_transfer_phase_displacement_"
+    "and_short_circuit_impedance_magnitude"
 )
 
 Confidence = Literal["high", "medium", "low", "unknown"]
+RatioReferenceCondition = Literal[
+    "fixed_non_tapped_transformer_ratio",
+    "principal_tapping",
+]
 _CONFIDENCES = {"high", "medium", "low", "unknown"}
+_RATIO_REFERENCE_CONDITIONS = {
+    "fixed_non_tapped_transformer_ratio",
+    "principal_tapping",
+}
 _ABSOLUTE_ZERO_C = -273.15
 _COLUMNS = (
     "transformer_equipment_authority_present",
@@ -59,16 +68,19 @@ _COLUMNS = (
     "transformer_voltage_transfer_authority_present",
     "transformer_short_circuit_impedance_authority_present",
     "transformer_positive_sequence_network_authority_resolved",
+    "transformer_boundary_operating_readiness_established",
     "phase_sequence",
     "collection_voltage_basis",
     "network_voltage_basis",
     "ratio_state_semantics",
     "ratio_semantics",
+    "ratio_reference_condition",
     "network_to_collection_voltage_ratio",
     "phase_displacement_semantics",
     "network_side_phase_displacement_deg",
     "short_circuit_impedance_semantics",
     "short_circuit_impedance_basis",
+    "short_circuit_impedance_ratio_reference_condition",
     "short_circuit_impedance_magnitude_pu",
     "short_circuit_test_current_condition",
     "short_circuit_reference_temperature_c",
@@ -92,6 +104,7 @@ _BOOL_COLUMNS = {
     "transformer_voltage_transfer_authority_present",
     "transformer_short_circuit_impedance_authority_present",
     "transformer_positive_sequence_network_authority_resolved",
+    "transformer_boundary_operating_readiness_established",
 }
 _FLOAT_COLUMNS = {
     "network_to_collection_voltage_ratio",
@@ -130,6 +143,12 @@ def _confidence(value: object) -> str:
     return value
 
 
+def _ratio_reference_condition(value: object) -> str:
+    if type(value) is not str or value not in _RATIO_REFERENCE_CONDITIONS:
+        raise ValueError("ratio_reference_condition is unsupported")
+    return value
+
+
 def _finite(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a real non-Boolean number")
@@ -154,6 +173,7 @@ class TransformerVoltageTransferAuthority:
     network_voltage_basis: Literal["line_to_line_rms"]
     ratio_state_semantics: Literal["fixed_effective_no_load_ratio"]
     ratio_semantics: Literal["network_to_collection_line_to_line_voltage_magnitude_ratio"]
+    ratio_reference_condition: RatioReferenceCondition
     network_to_collection_voltage_ratio: float
     phase_displacement_semantics: Literal[
         "network_side_positive_sequence_voltage_leads_collection_side_positive_deg"
@@ -188,6 +208,7 @@ class TransformerShortCircuitImpedanceAuthority:
     impedance_basis: Literal[
         "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases"
     ]
+    ratio_reference_condition: RatioReferenceCondition
     short_circuit_impedance_magnitude_pu: float
     test_current_condition: Literal["rated_current"]
     reference_temperature_c: float
@@ -226,6 +247,7 @@ class TopologyTransformerNetworkAuthorityDiagnostics:
     unresolved_missing_equipment_basis_count: int
     unresolved_missing_voltage_transfer_count: int
     unresolved_missing_short_circuit_impedance_count: int
+    unresolved_incompatible_reference_conditions_count: int
     model: str
 
 
@@ -310,6 +332,7 @@ def _validate_transfer(authority: TransformerVoltageTransferAuthority) -> None:
         raise ValueError("ratio_state_semantics is unsupported")
     if authority.ratio_semantics != "network_to_collection_line_to_line_voltage_magnitude_ratio":
         raise ValueError("ratio_semantics is unsupported")
+    _ratio_reference_condition(authority.ratio_reference_condition)
     _positive(authority.network_to_collection_voltage_ratio, "network_to_collection_voltage_ratio")
     if (
         authority.phase_displacement_semantics
@@ -339,6 +362,7 @@ def _validate_impedance(authority: TransformerShortCircuitImpedanceAuthority) ->
         != "per_unit_on_s12a_rated_apparent_power_and_corresponding_rated_terminal_voltage_bases"
     ):
         raise ValueError("impedance_basis is unsupported")
+    _ratio_reference_condition(authority.ratio_reference_condition)
     _positive(
         authority.short_circuit_impedance_magnitude_pu, "short_circuit_impedance_magnitude_pu"
     )
@@ -395,13 +419,26 @@ def _validate_parent_replay(
         raise ValueError("supplied S12A diagnostics do not match canonical replay")
 
 
-def _state(equipment: bool, transfer: bool, impedance: bool) -> str:
+def _references_compatible(
+    transfer: TransformerVoltageTransferAuthority | None,
+    impedance: TransformerShortCircuitImpedanceAuthority | None,
+) -> bool:
+    return (
+        transfer is not None
+        and impedance is not None
+        and transfer.ratio_reference_condition == impedance.ratio_reference_condition
+    )
+
+
+def _state(equipment: bool, transfer: bool, impedance: bool, compatible: bool) -> str:
     if not equipment:
         return "unresolved_missing_transformer_equipment_basis_authority"
     if not transfer:
         return "unresolved_missing_transformer_voltage_transfer_authority"
     if not impedance:
         return "unresolved_missing_transformer_short_circuit_impedance_authority"
+    if not compatible:
+        return "unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions"
     return "resolved_transformer_positive_sequence_network_authority"
 
 
@@ -414,6 +451,7 @@ def _record(
     topology = bool(static_row["transformer_topology_authority_present"])
     transfer_present = transfer is not None
     impedance_present = impedance is not None
+    compatible = _references_compatible(transfer, impedance)
     return {
         "transformer_equipment_authority_present": equipment,
         "transformer_topology_authority_present": topology,
@@ -424,12 +462,17 @@ def _record(
         "transformer_short_circuit_impedance_authority_present": impedance_present,
         "transformer_positive_sequence_network_authority_resolved": equipment
         and transfer_present
-        and impedance_present,
-        "phase_sequence": transfer.phase_sequence if transfer else "",
+        and impedance_present
+        and compatible,
+        "transformer_boundary_operating_readiness_established": False,
+        "phase_sequence": (
+            transfer.phase_sequence if transfer else impedance.phase_sequence if impedance else ""
+        ),
         "collection_voltage_basis": transfer.collection_voltage_basis if transfer else "",
         "network_voltage_basis": transfer.network_voltage_basis if transfer else "",
         "ratio_state_semantics": transfer.ratio_state_semantics if transfer else "",
         "ratio_semantics": transfer.ratio_semantics if transfer else "",
+        "ratio_reference_condition": transfer.ratio_reference_condition if transfer else "",
         "network_to_collection_voltage_ratio": transfer.network_to_collection_voltage_ratio
         if transfer
         else math.nan,
@@ -439,6 +482,9 @@ def _record(
         else math.nan,
         "short_circuit_impedance_semantics": impedance.impedance_semantics if impedance else "",
         "short_circuit_impedance_basis": impedance.impedance_basis if impedance else "",
+        "short_circuit_impedance_ratio_reference_condition": (
+            impedance.ratio_reference_condition if impedance else ""
+        ),
         "short_circuit_impedance_magnitude_pu": impedance.short_circuit_impedance_magnitude_pu
         if impedance
         else math.nan,
@@ -454,7 +500,7 @@ def _record(
         "short_circuit_impedance_parameter_source": impedance.parameter_source if impedance else "",
         "short_circuit_impedance_confidence": impedance.confidence if impedance else "",
         "transformer_network_authority_state": _state(
-            equipment, transfer_present, impedance_present
+            equipment, transfer_present, impedance_present, compatible
         ),
         "transformer_static_authority_contract": TRANSFORMER_STATIC_AUTHORITY_CONTRACT_ID,
         "transformer_static_authority_model": TRANSFORMER_STATIC_AUTHORITY_MODEL_ID,
@@ -497,6 +543,12 @@ def _diagnostics(
         int(counts.get("unresolved_missing_transformer_equipment_basis_authority", 0)),
         int(counts.get("unresolved_missing_transformer_voltage_transfer_authority", 0)),
         int(counts.get("unresolved_missing_transformer_short_circuit_impedance_authority", 0)),
+        int(
+            counts.get(
+                "unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions",
+                0,
+            )
+        ),
         TRANSFORMER_NETWORK_AUTHORITY_MODEL_ID,
     )
 
@@ -518,6 +570,11 @@ def _validator_record(
     static_resolved = bool(static_row["transformer_static_authority_resolved"])
     transfer_present = transfer is not None
     impedance_present = impedance is not None
+    compatible = (
+        transfer.ratio_reference_condition == impedance.ratio_reference_condition
+        if transfer is not None and impedance is not None
+        else False
+    )
     state = (
         "unresolved_missing_transformer_equipment_basis_authority"
         if not equipment
@@ -525,6 +582,8 @@ def _validator_record(
         if not transfer_present
         else "unresolved_missing_transformer_short_circuit_impedance_authority"
         if not impedance_present
+        else "unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions"
+        if not compatible
         else "resolved_transformer_positive_sequence_network_authority"
     )
     return {
@@ -534,13 +593,17 @@ def _validator_record(
         "transformer_voltage_transfer_authority_present": transfer_present,
         "transformer_short_circuit_impedance_authority_present": impedance_present,
         "transformer_positive_sequence_network_authority_resolved": (
-            equipment and transfer_present and impedance_present
+            equipment and transfer_present and impedance_present and compatible
         ),
-        "phase_sequence": transfer.phase_sequence if transfer else "",
+        "transformer_boundary_operating_readiness_established": False,
+        "phase_sequence": (
+            transfer.phase_sequence if transfer else impedance.phase_sequence if impedance else ""
+        ),
         "collection_voltage_basis": transfer.collection_voltage_basis if transfer else "",
         "network_voltage_basis": transfer.network_voltage_basis if transfer else "",
         "ratio_state_semantics": transfer.ratio_state_semantics if transfer else "",
         "ratio_semantics": transfer.ratio_semantics if transfer else "",
+        "ratio_reference_condition": transfer.ratio_reference_condition if transfer else "",
         "network_to_collection_voltage_ratio": (
             transfer.network_to_collection_voltage_ratio if transfer else math.nan
         ),
@@ -550,6 +613,9 @@ def _validator_record(
         ),
         "short_circuit_impedance_semantics": (impedance.impedance_semantics if impedance else ""),
         "short_circuit_impedance_basis": impedance.impedance_basis if impedance else "",
+        "short_circuit_impedance_ratio_reference_condition": (
+            impedance.ratio_reference_condition if impedance else ""
+        ),
         "short_circuit_impedance_magnitude_pu": (
             impedance.short_circuit_impedance_magnitude_pu if impedance else math.nan
         ),
@@ -638,6 +704,7 @@ def _validate_result(
             "unresolved_missing_transformer_equipment_basis_authority",
             "unresolved_missing_transformer_voltage_transfer_authority",
             "unresolved_missing_transformer_short_circuit_impedance_authority",
+            "unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions",
         )
     }
     for transformer_id, row in states.iterrows():
@@ -649,6 +716,7 @@ def _validate_result(
             bool(static_row["transformer_equipment_authority_present"]),
             transfer is not None,
             impedance is not None,
+            _references_compatible(transfer, impedance),
         )
         counts[state] += 1
         for column, value in expected.items():
@@ -665,6 +733,7 @@ def _validate_result(
         counts["unresolved_missing_transformer_equipment_basis_authority"],
         counts["unresolved_missing_transformer_voltage_transfer_authority"],
         counts["unresolved_missing_transformer_short_circuit_impedance_authority"],
+        counts["unresolved_incompatible_transformer_transfer_and_impedance_reference_conditions"],
         TRANSFORMER_NETWORK_AUTHORITY_MODEL_ID,
     )
     if result.diagnostics != expected_diagnostics:
@@ -675,6 +744,7 @@ def _validate_result(
         + diagnostics.unresolved_missing_equipment_basis_count
         + diagnostics.unresolved_missing_voltage_transfer_count
         + diagnostics.unresolved_missing_short_circuit_impedance_count
+        + diagnostics.unresolved_incompatible_reference_conditions_count
         != diagnostics.transformer_count
     ):
         raise RuntimeError("transformer network state diagnostics do not close")
