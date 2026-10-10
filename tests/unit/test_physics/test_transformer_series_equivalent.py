@@ -309,6 +309,17 @@ def test_tiny_roundoff_is_zero_but_material_inconsistency_is_unresolved() -> Non
         "unresolved_factory_load_loss_exceeds_short_circuit_impedance_capability"
     )
     assert math.isnan(bad["effective_series_resistance_pu"])
+    assert bad["rated_apparent_power_va"] == 500_000.0
+    assert bad["factory_rated_load_loss_w"] == 31_000.0
+    assert bad["short_circuit_impedance_magnitude_pu"] == 0.06
+    assert math.isnan(bad["effective_series_reactance_pu"])
+
+    tiny_material = _complete(loss=0.0055, magnitude=1e-8).transformer_states.loc["tx-1"]
+    assert not tiny_material["transformer_series_equivalent_resolved"]
+    assert tiny_material["transformer_series_equivalent_state"] == (
+        "unresolved_factory_load_loss_exceeds_short_circuit_impedance_capability"
+    )
+    assert math.isnan(tiny_material["effective_series_reactance_pu"])
 
 
 @pytest.mark.parametrize(
@@ -317,11 +328,11 @@ def test_tiny_roundoff_is_zero_but_material_inconsistency_is_unresolved() -> Non
         ({"rated_load": {}}, "unresolved_missing_transformer_rated_load_loss_authority"),
         (
             {"transfer": {}, "impedance": {}},
-            "unresolved_missing_transformer_positive_sequence_network_authority",
+            "unresolved_missing_transformer_short_circuit_impedance_authority",
         ),
         (
             {"transfer": {"tx-1": _transfer()}, "impedance": {}},
-            "unresolved_missing_transformer_positive_sequence_network_authority",
+            "unresolved_missing_transformer_short_circuit_impedance_authority",
         ),
         (
             {"references": {}},
@@ -339,6 +350,9 @@ def test_missing_evidence_precedence(kwargs: dict[str, Any], state: str) -> None
     base.update(kwargs)
     row = _resolve(**base).transformer_states.loc["tx-1"]
     assert row["transformer_series_equivalent_state"] == state
+    if not base["impedance"]:
+        assert row["factory_rated_load_loss_w"] == 5_000.0
+        assert math.isnan(row["short_circuit_impedance_magnitude_pu"])
 
 
 @pytest.mark.parametrize(
@@ -354,7 +368,7 @@ def test_missing_evidence_precedence(kwargs: dict[str, Any], state: str) -> None
             _rated_load(),
             _impedance(reference="principal_tapping"),
             _reference(),
-            "unresolved_missing_transformer_positive_sequence_network_authority",
+            "unresolved_upstream_transformer_positive_sequence_network_authority",
         ),
         (
             _rated_load(),
@@ -378,7 +392,7 @@ def test_incompatible_factory_conditions_are_unresolved(
 ) -> None:
     transfer = _transfer(
         reference=impedance.ratio_reference_condition
-        if state != "unresolved_missing_transformer_positive_sequence_network_authority"
+        if state != "unresolved_upstream_transformer_positive_sequence_network_authority"
         else "fixed_non_tapped_transformer_ratio"
     )
     row = _resolve(
@@ -388,6 +402,11 @@ def test_incompatible_factory_conditions_are_unresolved(
         references={"tx-1": reference},
     ).transformer_states.loc["tx-1"]
     assert row["transformer_series_equivalent_state"] == state
+    assert row["factory_rated_load_loss_w"] == rated.rated_load_loss_w
+    assert row["short_circuit_impedance_magnitude_pu"] == (
+        impedance.short_circuit_impedance_magnitude_pu
+    )
+    assert row["rated_apparent_power_va"] == 500_000.0
 
 
 def test_load_loss_ratio_condition_mismatch_after_resolved_s12e() -> None:
@@ -400,6 +419,10 @@ def test_load_loss_ratio_condition_mismatch_after_resolved_s12e() -> None:
     assert row["transformer_series_equivalent_state"] == (
         "unresolved_incompatible_short_circuit_ratio_reference_conditions"
     )
+    assert row["factory_rated_load_loss_w"] == 5_000.0
+    assert row["short_circuit_impedance_magnitude_pu"] == 0.06
+    assert row["load_loss_ratio_reference_condition"] == "fixed_non_tapped_transformer_ratio"
+    assert row["short_circuit_impedance_ratio_reference_condition"] == "principal_tapping"
 
 
 @pytest.mark.parametrize("value", [None, "", " ", "nominal_tap", True])
@@ -534,7 +557,16 @@ def test_strong_parent_replay_rejects_mutable_content_equal_mappings(
         )
 
 
-def test_private_validator_rejects_state_and_diagnostics_tampering() -> None:
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("effective_series_resistance_pu", 0.5),
+        ("factory_rated_load_loss_w", 123.0),
+        ("short_circuit_impedance_magnitude_pu", 0.5),
+        ("transformer_series_equivalent_state", "tampered"),
+    ],
+)
+def test_private_validator_rejects_state_tampering(column: str, value: object) -> None:
     result = _complete()
     context = _context(
         rated_load={"tx-1": _rated_load()},
@@ -542,7 +574,7 @@ def test_private_validator_rejects_state_and_diagnostics_tampering() -> None:
         impedance={"tx-1": _impedance()},
     )
     frame = result.transformer_states.copy(deep=True)
-    frame.loc["tx-1", "effective_series_resistance_pu"] = 0.5
+    frame.loc["tx-1", column] = value
     with pytest.raises(RuntimeError):
         _validate_result(
             context["static"],
@@ -550,6 +582,15 @@ def test_private_validator_rejects_state_and_diagnostics_tampering() -> None:
             context["network"],
             replace(result, transformer_states=frame),
         )
+
+
+def test_private_validator_rejects_diagnostics_tampering() -> None:
+    result = _complete()
+    context = _context(
+        rated_load={"tx-1": _rated_load()},
+        transfer={"tx-1": _transfer()},
+        impedance={"tx-1": _impedance()},
+    )
     diagnostics = replace(result.diagnostics, series_equivalent_resolved_count=0)
     with pytest.raises(RuntimeError):
         _validate_result(

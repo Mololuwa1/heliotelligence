@@ -75,8 +75,7 @@ RatioReferenceCondition = Literal[
 ]
 _CONFIDENCES = {"high", "medium", "low", "unknown"}
 _REFERENCE_CONDITIONS = {"fixed_non_tapped_transformer_ratio", "principal_tapping"}
-_RADICAND_ABS_TOL = 1e-15
-_RADICAND_REL_TOL = 1e-12
+_R_Z_REL_TOL = 1e-12
 _EFFECTIVE_RESISTANCE_SEMANTICS = (
     "effective_factory_short_circuit_series_resistance_reproducing_"
     "total_rated_load_loss_at_reference_condition"
@@ -432,10 +431,10 @@ def _state(
         return "unresolved_missing_transformer_equipment_basis_authority"
     if not rated_load:
         return "unresolved_missing_transformer_rated_load_loss_authority"
-    if not network:
-        return "unresolved_missing_transformer_positive_sequence_network_authority"
     if not impedance:
         return "unresolved_missing_transformer_short_circuit_impedance_authority"
+    if not network:
+        return "unresolved_upstream_transformer_positive_sequence_network_authority"
     if not reference:
         return "unresolved_missing_rated_load_loss_reference_condition_authority"
     if not side_ok:
@@ -464,14 +463,12 @@ def _derived_values(
     rated_power = equipment.rated_apparent_power_va
     resistance_pu = rated_load.rated_load_loss_w / rated_power
     impedance_pu = impedance.short_circuit_impedance_magnitude_pu
-    radicand = impedance_pu * impedance_pu - resistance_pu * resistance_pu
-    tolerance = max(
-        _RADICAND_ABS_TOL,
-        _RADICAND_REL_TOL * max(impedance_pu * impedance_pu, resistance_pu * resistance_pu),
-    )
-    if radicand < -tolerance:
-        return None
-    reactance_pu = math.sqrt(max(0.0, radicand))
+    if resistance_pu > impedance_pu:
+        if not math.isclose(resistance_pu, impedance_pu, rel_tol=_R_Z_REL_TOL, abs_tol=0.0):
+            return None
+        reactance_pu = 0.0
+    else:
+        reactance_pu = math.sqrt(max(0.0, impedance_pu**2 - resistance_pu**2))
     impedance_base = rated_voltage * rated_voltage / rated_power
     rated_current = rated_power / (math.sqrt(3.0) * rated_voltage)
     resistance_ohm = rated_load.rated_load_loss_w / (3.0 * rated_current * rated_current)
@@ -532,6 +529,26 @@ def _build_record(
         math_ok,
     )
     nan = math.nan
+    unresolved_numerical = {
+        name: nan
+        for name in _FLOAT_COLUMNS
+        if name
+        not in {
+            "load_loss_reference_temperature_c",
+            "short_circuit_reference_temperature_c",
+            "load_loss_test_frequency_hz",
+            "short_circuit_test_frequency_hz",
+        }
+    }
+    unresolved_numerical["rated_apparent_power_va"] = (
+        equipment.rated_apparent_power_va if equipment else nan
+    )
+    unresolved_numerical["factory_rated_load_loss_w"] = (
+        rated_load.rated_load_loss_w if rated_load else nan
+    )
+    unresolved_numerical["short_circuit_impedance_magnitude_pu"] = (
+        impedance.short_circuit_impedance_magnitude_pu if impedance else nan
+    )
     return {
         "transformer_equipment_authority_present": equipment_present,
         "transformer_factory_rated_load_loss_authority_present": rated_load is not None,
@@ -565,21 +582,7 @@ def _build_record(
         "load_loss_test_frequency_hz": rated_load.test_frequency_hz if rated_load else nan,
         "short_circuit_test_frequency_hz": impedance.test_frequency_hz if impedance else nan,
         "test_frequency_compatible": frequency_ok,
-        **(
-            derived
-            if derived is not None
-            else {
-                name: nan
-                for name in _FLOAT_COLUMNS
-                if name
-                not in {
-                    "load_loss_reference_temperature_c",
-                    "short_circuit_reference_temperature_c",
-                    "load_loss_test_frequency_hz",
-                    "short_circuit_test_frequency_hz",
-                }
-            }
-        ),
+        **(derived if derived is not None else unresolved_numerical),
         "effective_series_resistance_semantics": (
             _EFFECTIVE_RESISTANCE_SEMANTICS if derived is not None else ""
         ),
@@ -674,13 +677,15 @@ def _validator_record(
         apparent_power = equipment.rated_apparent_power_va
         resistance_pu = rated_load.rated_load_loss_w / apparent_power
         impedance_pu = impedance.short_circuit_impedance_magnitude_pu
-        radicand = impedance_pu**2 - resistance_pu**2
-        tolerance = max(
-            _RADICAND_ABS_TOL,
-            _RADICAND_REL_TOL * max(impedance_pu**2, resistance_pu**2),
+        compatible_math = resistance_pu <= impedance_pu or math.isclose(
+            resistance_pu, impedance_pu, rel_tol=_R_Z_REL_TOL, abs_tol=0.0
         )
-        if radicand >= -tolerance:
-            reactance_pu = math.sqrt(max(0.0, radicand))
+        if compatible_math:
+            reactance_pu = (
+                0.0
+                if resistance_pu > impedance_pu
+                else math.sqrt(max(0.0, impedance_pu**2 - resistance_pu**2))
+            )
             base = voltage**2 / apparent_power
             current = apparent_power / (math.sqrt(3.0) * voltage)
             resistance_ohm = rated_load.rated_load_loss_w / (3.0 * current**2)
@@ -716,6 +721,16 @@ def _validator_record(
         "short_circuit_test_frequency_hz",
     }
     numerical = values or {name: math.nan for name in _FLOAT_COLUMNS if name not in excluded}
+    if values is None:
+        numerical["rated_apparent_power_va"] = (
+            equipment.rated_apparent_power_va if equipment else math.nan
+        )
+        numerical["factory_rated_load_loss_w"] = (
+            rated_load.rated_load_loss_w if rated_load else math.nan
+        )
+        numerical["short_circuit_impedance_magnitude_pu"] = (
+            impedance.short_circuit_impedance_magnitude_pu if impedance else math.nan
+        )
     return {
         "transformer_equipment_authority_present": equipment_present,
         "transformer_factory_rated_load_loss_authority_present": rated_load is not None,
@@ -785,8 +800,8 @@ _STATES = (
     "resolved_transformer_factory_series_equivalent",
     "unresolved_missing_transformer_equipment_basis_authority",
     "unresolved_missing_transformer_rated_load_loss_authority",
-    "unresolved_missing_transformer_positive_sequence_network_authority",
     "unresolved_missing_transformer_short_circuit_impedance_authority",
+    "unresolved_upstream_transformer_positive_sequence_network_authority",
     "unresolved_missing_rated_load_loss_reference_condition_authority",
     "unresolved_incompatible_short_circuit_reference_sides",
     "unresolved_incompatible_short_circuit_ratio_reference_conditions",
@@ -819,8 +834,8 @@ def _build_diagnostics(
         series_equivalent_resolved_count=int(counts.get(_STATES[0], 0)),
         unresolved_missing_equipment_basis_count=int(counts.get(_STATES[1], 0)),
         unresolved_missing_rated_load_loss_count=int(counts.get(_STATES[2], 0)),
-        unresolved_missing_network_authority_count=int(counts.get(_STATES[3], 0)),
-        unresolved_missing_impedance_count=int(counts.get(_STATES[4], 0)),
+        unresolved_missing_network_authority_count=int(counts.get(_STATES[4], 0)),
+        unresolved_missing_impedance_count=int(counts.get(_STATES[3], 0)),
         unresolved_missing_load_loss_reference_condition_count=int(counts.get(_STATES[5], 0)),
         unresolved_incompatible_reference_sides_count=int(counts.get(_STATES[6], 0)),
         unresolved_incompatible_ratio_reference_conditions_count=int(counts.get(_STATES[7], 0)),
