@@ -10,30 +10,27 @@ Heliotelligence is being built as a **physics-first, component-resolved, provena
 
 ## Current checkpoint
 
-As of 2026-10-06, the canonical merged backend checkpoint is:
+As of 2026-10-10, the canonical merged backend checkpoint is:
 
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
+`359ac6695a19fc9781ca26b96529ed4af0566b87`
 
-This is the merge commit of PR #86, **S11C balanced radial LV AC collection solve**, and marks the completed S11 v1 milestone.
+This is the merge commit of PR #91, **S12D baseline transformer operating-loss evaluation**, and marks completion of the baseline transformer-loss milestone through S12D.
 
-Controller milestone merges:
+Transformer milestone merges:
 
-- S10A PR #79: `4a6b318946a5a2bb688bfa29f7318403362f99de`;
-- S10B PR #81: `2f4a4050c48203018fbf914c3853675f996bda97`;
-- S10C PR #82: `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
+- S12A PR #88: `7d25a186cc071a524bcbdbeba17f28d9e750fd58`;
+- S12B PR #89: `db78ef563a1c3e68dcacdb13b331a8d06395bbb0`;
+- S12C PR #90: `fc9a22f4145d52acfe092fc8b8d1f11b9e14adfa`;
+- S12D PR #91: `359ac6695a19fc9781ca26b96529ed4af0566b87`.
 
-LV collection milestone merges:
+Final reviewed S12D head was `eb8008cd68fe9715eaba056d67992048d31dc934`. CI #228 (run ID `38002846864`) validated synthetic merge `eaa78fdf9bd6bf2c8701d80d8760209ccb3c1b9a`:
 
-- S11A PR #84: `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
-- S11B PR #85: `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- S11C PR #86: `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
-
-Final reviewed S11C head was `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`. CI #217 (run ID `37544412809`) validated synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`:
-
-- backend: **3040 passed in 527.89s**;
-- Python: **3.13.15**;
+- backend: **3360 passed in 388.38s**;
+- Python: **3.13.16**;
 - `pvlib==0.15.2`;
 - frontend: success.
+
+S12A–D remain dormant from production. Transformer electrical/network terminal propagation is still deferred and is the next transformer problem to design.
 
 ## Engineering philosophy
 
@@ -51,57 +48,37 @@ Final reviewed S11C head was `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`. CI #217
 
 ## Validated physics chain
 
-The validated high-fidelity electrical/control chain now reaches the modeled LV collection-exit boundary:
+The validated high-fidelity electrical/control chain now reaches the transformer reference-condition active-loss baseline:
 
 ```text
 module electrical state
     ↓
-S8-1 physical string I-V
+S8 physical string / mismatch / direct DC branch physics
     ↓
-S8-2 source-plane common-voltage MPPT / mismatch
+S9 inverter authority / conversion / accounting / capability / thermal
     ↓
-S8-3A explicit direct branch resistance authority
-    ↓
-S8-3B resistive branch I-V transform
-    ↓
-S8-3C MPPT-input operating point
-    ↓
-S9-0 explicit CEC/SAM inverter authority
-    ↓
-S9-1 DC envelope classification
-    ↓
-S9-2 Sandia conversion
-    ↓
-S9-3A pre-limit AC potential
-    ↓
-S9-3B conversion / clipping / tare accounting
-    ↓
-S9-4A static AC capability authority
-    ↓
-S9-4B requested P/Q/S capability evaluation
-    + S9-4C thermal authority
-    + explicit inverter temperature
-    ↓
-S9-4D temperature-dependent capability
-    ↓
-S10A explicit active-power dispatch request
-    ↓
-S10B requested P/Q/S feasibility
-    ↓
-S10C selected inverter AC P/Q/S
+S10 request / feasibility / selected inverter P/Q/S
     ↓
 S11A static radial LV topology + direct per-phase R+jX authority
     ↓
 S11B timestamped collection-exit V_LL,RMS authority
     ↓
-S11C balanced radial constant-PQ operating solve
+S11C balanced radial constant-PQ LV operating solution
     ↓
-modeled collection-exit P/Q after physical LV series losses
+S12A explicit transformer static equipment + S11 boundary authority
+    ├───────────────┐
+    ↓               ↓
+S12B             S12C
+factory P_NL /   timestamped transformer
+P_LL authority   energisation authority
+    \               /
+     \             /
+      └──────┬────┘
+             ↓
+S12D factory-reference-condition transformer active-loss baseline
 ```
 
-S10 preserves strict separation between request, feasibility and selection. S10C selects only an exact request that S10B has fully proved feasible. It never clamps P, clips Q, projects onto the apparent-power circle, substitutes available power, or fabricates a selected point under partial or unresolved authority.
-
-S10C remains a selected controller/model target at `inverter_ac_output`, not measured inverter output. S11C computes a modeled electrical operating state from that target plus explicit S11A topology/impedance and S11B boundary-voltage authority. Neither state is automatically telemetry.
+S12B and S12C are independent children of S12A. S12D combines canonical S11C, S12A, S12B and S12C. S12D uses delivered collection-exit P/Q and voltage after S11 series losses; it does not use selected inverter power as transformer loading and does not yet solve the transformer network-side terminal state.
 
 ## Electrical reference planes
 
@@ -117,10 +94,14 @@ The architecture distinguishes:
 8. S10C selected target / S11A inverter-terminal binding at `inverter_ac_output`;
 9. S11C-solved internal LV nodes;
 10. `lv_ac_collection_exit`, the end of S11;
-11. future transformer / MV / HV nodes;
-12. revenue-meter boundary.
+11. transformer collection-side terminal, only where explicit S12A authority binds it directly to an S11 collection exit;
+12. transformer network-side terminal, statically identified by S12A but not yet solved as an operating electrical state;
+13. future MV/HV network nodes;
+14. revenue-meter boundary.
 
-Static equipment authority such as `Smax` is not a physical conductor plane. Sandia pre-Paco potential is a model counterfactual, not a terminal measurement.
+S12D active loss is an internal model quantity between transformer terminals, not another conductor/reference plane. Transformer terminals are called **collection side** and **network side**; the model does not silently assume LV/HV ordering.
+
+Static equipment authority such as inverter `Smax` or transformer rated apparent power is not a physical conductor plane. Sandia pre-Paco potential is a model counterfactual, not a terminal measurement.
 
 ## Current electrical coverage
 
@@ -210,31 +191,24 @@ Key semantics:
 
 
 
-## Completed S11 and what is next
+## Completed S11, S12 baseline loss, and what is next
 
-S11 v1 is complete through three dormant contracts:
+S11 v1 remains complete through S11C. The transformer baseline-loss milestone is now complete through S12D:
 
-- **S11A:** explicit balanced-three-phase radial topology, inverter-terminal bindings, collection exits, and direct per-phase `R+jX`; missing authority remains unresolved and explicit zero impedance remains valid;
-- **S11B:** exact timestamped `line_to_line_rms` voltage magnitude at `lv_ac_collection_exit`; zero volts is explicit evidence, while missing evidence is not zero and is never filled or interpolated;
-- **S11C:** deterministic balanced radial constant-PQ backward/forward sweep with segment current, voltage, instantaneous `3R|I|²` active loss, `3X|I|²` reactive consumption, and whole-tree P/Q conservation.
+- **S12A:** explicit balanced-three-phase, two-winding transformer identity, rated apparent power, rated collection/network line-to-line RMS voltage bases, transformer terminal identities, and direct S11 collection-exit binding. It does not establish impedance, vector group, tap state, losses, energisation, or network-side operating voltage.
+- **S12B:** explicit transformer-specific factory-test loss authority. `P_NL` is admitted no-load/open-circuit active loss; `P_LL` is admitted total rated load loss including winding and stray effects represented by the factory test. Missing authority is not zero and no default frequency, temperature, winding material, or test side is inferred.
+- **S12C:** explicit timestamped energised/de-energised authority. `True`, `False`, and missing remain distinct; explicit `False` is resolved evidence and there is no temporal persistence or inference from power, voltage, daylight, dispatch, or schedule.
+- **S12D:** instantaneous factory-reference-condition active-loss baseline. It derives current loading from delivered S11C P/Q and collection-exit voltage:
+  `I_oper = |S_exit| / (sqrt(3) V_exit)`,
+  `I_rated = S_rated / (sqrt(3) V_rated,collection)`,
+  `beta_I = I_oper / I_rated`,
+  then evaluates `P_load = P_LL beta_I²` and, where energised and authoritative, `P_total = P_NL + P_load`.
 
-S11 supports shared segments once, multiple independent trees, and unresolved numerical/nonconvergence states without fabricated physical output. It does not model imbalance, neutral conductors, shunts, loads, transformer physics, voltage compliance, controller feedback, energy integration, or measured actual state.
+S12D does not clamp `beta_I`; Q and operating voltage therefore affect load current. Clean explicit de-energisation gives definitive zero internal loss, while de-energised nonzero collection transfer and energised zero collection voltage are unresolved contradictions.
 
-The next physics milestone is **S12 — transformer**, beginning authority-first with explicit equipment/topology and reference-plane evidence. `lv_ac_collection_exit` must not be silently equated with a transformer winding.
+S12D does **not** perform winding-temperature, harmonic, frequency, or voltage-dependent no-load corrections. It does not allocate loss to a terminal and must not be interpreted as `P_network = P_collection - P_loss`.
 
-The intended downstream sequence is:
-
-```text
-S10C selected inverter AC P/Q/S
-    ↓
-S11A topology/R+jX → S11B exit voltage → S11C LV operating solve
-    ↓
-S12 transformer authority first [next]
-    ↓
-S13 MV/HV collection + explicit revenue-meter boundary
-    ↓
-S14 benchmarking / causal attribution
-```
+The next transformer increment is the deferred **transformer electrical/network boundary** needed to establish a defensible network-side operating state before S13 MV/HV collection. Equivalent-circuit details such as series impedance, phase displacement, or other network authority must be designed explicitly rather than inferred or assumed.
 
 ## Optical / irradiance status
 
@@ -259,7 +233,11 @@ Known unresolved site facts include:
 - physical DC cable / shared collection topology;
 - authoritative S9-4A AC capability authority for the installed inverters;
 - physical LV terminal/junction/exit topology, direct per-phase segment R/X, and exact collection-exit voltage authority;
-- transformer and MV/HV collection topology.
+- authoritative S12A transformer identity/rating/boundary evidence;
+- transformer factory P_NL/P_LL test evidence and reference conditions;
+- timestamped transformer energisation evidence;
+- transformer electrical/network parameters and network-side operating state;
+- MV/HV collection topology.
 
 Do not infer these relationships from inverter groups, counts, positions, capacities, CEC fields, or labels. See `docs/sites/bracon-ash.md`.
 
@@ -274,7 +252,7 @@ Do not infer these relationships from inverter groups, counts, positions, capaci
 | ORM | SQLAlchemy async + asyncpg |
 | Configuration | Pydantic v2 + YAML / explicit topology contracts |
 | Frontend | Vite-based frontend with CI production build |
-| Testing | pytest; final PR #79 synthetic-merge CI passed 2767 backend tests |
+| Testing | pytest; final reviewed PR #91 synthetic-merge CI passed 3360 backend tests |
 
 ## Running tests
 
@@ -290,7 +268,7 @@ A green implementation report is not merge authority by itself. Review the live 
 
 ## Production compatibility
 
-The existing aggregate production path still contains legacy percentage effects for mechanisms that are being physically replaced. Physical mismatch, direct DC branch resistance, Sandia accounting, and AC capability authority are validated contracts but are not automatically production-active.
+The existing aggregate production path still contains legacy percentage effects for mechanisms that are being physically replaced. Physical mismatch, direct DC branch resistance, Sandia accounting, AC capability authority, LV collection physics, and S12A–D transformer baseline-loss physics are validated contracts but are not automatically production-active.
 
 Production integration is a separate architecture step and must prove:
 
