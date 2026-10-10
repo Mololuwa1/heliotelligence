@@ -30,7 +30,10 @@ Current legacy loss assumptions:
 - No physical cable layout is established by the current site configuration.
 - No physical LV inverter-terminal, junction, collection-exit, or directed segment topology is established.
 - No direct per-phase LV segment R/X or collection-exit operating-voltage authority is established.
-- No transformer or MV/HV collection topology is established by the current site configuration.
+- No S12A transformer identity, rated terminal bases, rated apparent power, S11-exit-to-transformer boundary, or transformer/MV/HV collection topology is established by the current site configuration.
+- No transformer-specific factory `P_NL` / `P_LL` evidence, factory-test frequency, or load-loss reference temperature is established.
+- No explicit timestamped transformer energisation state is established.
+- No transformer electrical/network parameters or network-side operating state is established.
 - No authoritative shared post-parallel DC collection network is established.
 - No explicit S9-4A per-inverter AC capability authority has yet been established for Bracon Ash.
 
@@ -44,7 +47,7 @@ The current repository values `320 kWac`, grid export limit, inverter model name
 
 Do not invent these relationships or use group membership, equipment count, capacity, labels, positions, `Paco`, CEC/SAM `Vac`, or cable-plan assumptions as substitutes for electrical/equipment authority.
 
-## Applicability of the validated S8/S9/S10/S11 chain
+## Applicability of the validated S8/S9/S10/S11/S12 chain
 
 Heliotelligence now contains independently validated generic electrical/control contracts through the S11C balanced radial LV AC operating solution. Their existence does **not** mean Bracon Ash can be run through every high-fidelity stage from current site configuration.
 
@@ -68,6 +71,10 @@ physical string I-V
 → explicit static radial LV topology + direct per-phase R+jX
 → explicit timestamped collection-exit V_LL,RMS
 → modeled balanced radial LV operating solution
+→ explicit transformer static/boundary authority [generic S12A]
+→ explicit factory-test P_NL/P_LL authority [generic S12B]
+→ explicit timestamped energisation authority [generic S12C]
+→ current-based factory-reference active-loss baseline [generic S12D]
 ```
 
 For Bracon Ash specifically, topology-dependent stages must remain unresolved where required MPPT/string/cable authority is absent. S9-4A requires explicit per-inverter AC capability evidence; S9-4B additionally requires explicit timestamped Q requests; S9-4C requires authoritative inverter thermal-derating evidence; S9-4D additionally requires explicit matching inverter-temperature state; S10A requires explicit timestamped per-inverter active-power request; S10B requires the preceding capability/request evidence; and S10C can establish a selected point only where S10B fully proves the exact request feasible.
@@ -173,9 +180,23 @@ The legacy `wiring_loss_ac_pct` does not establish nodes, connectivity, R/X, or 
 
 Missing Bracon Ash S11 authority remains unresolved. Existing MPPT/string mapping, S9 AC capability/controller evidence, and transformer/MV/HV topology gaps also remain unresolved; no site values are populated by the generic implementation.
 
+## S12 applicability
+
+S12A–D are implemented generically, but their existence does **not** make Bracon Ash S12-ready.
+
+For Bracon Ash, S12A requires explicit evidence for the physical transformer identity, rated apparent power, collection-side and network-side rated line-to-line RMS voltage bases, exact transformer terminal identities/reference planes, and direct mapping from a physical S11 `lv_ac_collection_exit` to the transformer collection-side terminal. Do not infer these from site MW capacity, inverter nominal power, CEC `Vac`, group labels, S11 voltage, geometry, geography, grid export limit or typical UK transformer practice.
+
+S12B additionally requires transformer-specific factory-test evidence for `P_NL` and/or total rated `P_LL`, including their explicit test/reference conditions. Legacy AC wiring loss, generic transformer efficiency or material tables are not substitutes.
+
+S12C requires explicit timestamped transformer energised/de-energised authority. Do not infer energisation from PV output, S11 power/voltage, daylight, inverter state or a schedule.
+
+S12D can evaluate an energised transformer baseline only where the required S12 authority and S11C boundary state resolve. Its loading is current-based, using delivered collection-exit P/Q/V; it does not use the configured site/export power as transformer current. S12D remains a model baseline, not measured loss and not a network-side terminal state.
+
+Bracon Ash therefore remains unresolved for S12 under current repository configuration. Do not populate transformer authority merely to make the generic contracts numerically runnable.
+
 ## Legacy compatibility note
 
-The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. S11A/B/C remain dormant and do not consume `wiring_loss_ac_pct`. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
+The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. S11A/B/C and S12A–D remain dormant and do not consume `wiring_loss_ac_pct`. That percentage does not establish transformer loss authority. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
 
 ## Capacity arithmetic discrepancy
 

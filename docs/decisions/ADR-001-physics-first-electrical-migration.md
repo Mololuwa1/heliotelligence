@@ -28,20 +28,24 @@ Missing authority must remain explicit. An unresolved result is preferable to a 
 
 ## Current implementation consequence
 
-The physics-first migration now has validated dormant electrical/control contracts through S11C:
+The physics-first migration now has validated dormant electrical/control contracts through S12D:
 
 - S8 resolves physical string, MPPT mismatch and explicit direct-branch electrical behaviour;
 - S9 resolves inverter authority, conversion/accounting, static P/Q/S capability and explicit thermal capability;
-- S10A admits explicit active-power request authority;
-- S10B evaluates the exact requested P/Q/S point;
-- S10C selects only an exact request that is fully proven feasible.
+- S10 separates active-power request, requested P/Q/S feasibility and exact feasible-request selection;
 - S11A admits explicit balanced radial LV topology, terminal bindings and direct per-phase R+jX;
 - S11B admits exact timestamped collection-exit line-to-line RMS voltage;
-- S11C solves the balanced constant-PQ radial operating state and intrinsic instantaneous series losses.
+- S11C solves the balanced constant-PQ radial operating state and intrinsic instantaneous series losses;
+- S12A admits explicit transformer identity, rated terminal bases and direct S11-exit boundary authority;
+- S12B admits transformer-specific factory-test no-load and total rated-load loss evidence;
+- S12C independently admits exact timestamped transformer energised/de-energised state;
+- S12D calculates the first factory-reference-condition transformer active-loss baseline using delivered S11C P/Q/V and current-based loading.
 
-Canonical checkpoint: `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+Canonical checkpoint: `359ac6695a19fc9781ca26b96529ed4af0566b87`.
 
-These contracts do not automatically replace legacy production calculations. Activation still requires explicit migration evidence showing reference-plane consistency and no double counting.
+S12 demonstrates the same migration decision: static/evidence authority is established before operating mathematics, independent evidence channels remain independent, missing authority is not converted into a convenient zero, and the calculation remains dormant until production migration proves reference-plane consistency and no double counting.
+
+S12D does not establish a transformer network-side operating electrical state. That boundary remains future work.
 
 ## Legacy coexistence rule
 
@@ -49,7 +53,7 @@ The compatibility production path still contains aggregate effects including sta
 
 Physical mismatch and direct-branch resistance now exist as validated independent contracts, but they must not be layered on top of the legacy percentages in production without an explicit migration decision.
 
-Physical S11C AC current/cabling now exists as dormant generic physics, but legacy `wiring_loss_ac_pct` remains compatibility logic. Production must never apply both to the same path without an explicit migration proving no double counting. The same rule applies to future transformer and network physics.
+Physical S11C AC current/cabling and S12D transformer baseline-loss physics now exist as dormant generic physics, while legacy aggregate AC/network loss assumptions remain compatibility logic. Production must never apply physical and aggregate representations to the same mechanism without an explicit migration proving no double counting. `wiring_loss_ac_pct` does not establish transformer `P_NL`, `P_LL`, energisation, or network-side state.
 
 ## Physical reference-plane rule
 
@@ -64,13 +68,16 @@ Electrical quantities must retain their physical location. In particular:
 - selected/controller target and S11A terminal at `inverter_ac_output`;
 - S11C-solved LV internal nodes;
 - `lv_ac_collection_exit` at the end of S11;
-- future transformer / MV / HV / meter boundaries
+- S12A transformer collection-side terminal only where explicitly bound;
+- S12A transformer network-side terminal identity, without an operating state yet;
+- future MV/HV nodes;
+- revenue-meter boundary
 
 must not be collapsed into a single generic power state when the distinction matters to the mechanism being modelled.
 
-A counterfactual accounting quantity, such as Sandia pre-Paco AC potential, must be labelled as a model quantity rather than misrepresented as a physical terminal measurement.
+S12D active-loss magnitude is an internal model quantity, not an additional conductor plane. It does not authorize terminal power allocation. A counterfactual accounting quantity, such as Sandia pre-Paco AC potential, must likewise be labelled as a model quantity rather than misrepresented as a physical terminal measurement.
 
-Static nameplate/capability authority such as nominal AC voltage, phase or `Smax` is equipment metadata, not an operating reference plane.
+Static nameplate/capability authority is equipment metadata, not an operating reference plane.
 
 ## Shared-network rule
 
@@ -123,11 +130,13 @@ Trade-offs:
 
 ## Next decision-compatible work
 
-Proceed to S12 transformer authority from the explicit `lv_ac_collection_exit` boundary. Begin with equipment/topology and reference-plane authority; add operating transformer physics only after the necessary winding bases, ratings, ratio, impedance/loss, loading, and any tap/control evidence are explicit.
+The baseline transformer-loss milestone is complete through S12D. The next decision-compatible physics work is the **transformer electrical/network boundary** required before S13 MV/HV collection can consume a transformer output state.
 
-Do not equate `lv_ac_collection_exit` with a transformer LV winding unless future topology authority proves that physical identity. Do not infer transformer evidence from exit voltage, CEC `Vac`, nominal voltage, capacities, labels, geometry, or current site configuration.
+Design that increment separately and authority-first. Do not assume the superseded branch-only R/X/G/B S12B proposal is automatically the correct final network contract. Explicit series impedance, magnitude transformation, phase displacement, tap/control state or other electrical evidence should be admitted only where the intended operating solve requires them.
 
-S11 demonstrates the decision pattern: S11A established static authority, S11B established an operating boundary, and only S11C performed the solve. S11 remains dormant from production and distinct from measured telemetry, energy integration, curtailment accounting, and plant-export allocation.
+Do not equate `lv_ac_collection_exit` with an arbitrary transformer terminal unless S12A authority proves the direct boundary. Do not infer transformer network-side V/I/P/Q/S from S12D loss magnitude, rated voltages, labels, geography or typical equipment practice.
+
+S13 must receive a defensible transformer network-side operating boundary; S14 benchmarking remains downstream of MV/HV and explicit revenue-meter alignment.
 
 ## Rejected alternatives
 
