@@ -468,7 +468,10 @@ def _derived_values(
             return None
         reactance_pu = 0.0
     else:
-        reactance_pu = math.sqrt(max(0.0, impedance_pu**2 - resistance_pu**2))
+        resistance_to_impedance_ratio = resistance_pu / impedance_pu
+        reactance_pu = impedance_pu * math.sqrt(
+            max(0.0, 1.0 - resistance_to_impedance_ratio**2)
+        )
     impedance_base = rated_voltage * rated_voltage / rated_power
     rated_current = rated_power / (math.sqrt(3.0) * rated_voltage)
     resistance_ohm = rated_load.rated_load_loss_w / (3.0 * rated_current * rated_current)
@@ -681,11 +684,13 @@ def _validator_record(
             resistance_pu, impedance_pu, rel_tol=_R_Z_REL_TOL, abs_tol=0.0
         )
         if compatible_math:
-            reactance_pu = (
-                0.0
-                if resistance_pu > impedance_pu
-                else math.sqrt(max(0.0, impedance_pu**2 - resistance_pu**2))
-            )
+            if resistance_pu > impedance_pu:
+                reactance_pu = 0.0
+            else:
+                resistance_to_impedance_ratio = resistance_pu / impedance_pu
+                reactance_pu = impedance_pu * math.sqrt(
+                    max(0.0, 1.0 - resistance_to_impedance_ratio**2)
+                )
             base = voltage**2 / apparent_power
             current = apparent_power / (math.sqrt(3.0) * voltage)
             resistance_ohm = rated_load.rated_load_loss_w / (3.0 * current**2)
@@ -852,7 +857,7 @@ def _equal(actual: object, expected: object) -> bool:
     if isinstance(expected, float):
         if not isinstance(actual, Real):
             return False
-        return math.isclose(float(actual), expected, rel_tol=1e-12, abs_tol=1e-12)
+        return math.isclose(float(actual), expected, rel_tol=1e-12, abs_tol=0.0)
     return bool(actual == expected)
 
 
@@ -927,16 +932,14 @@ def _validate_result(
             x_ohm = float(row["effective_series_reactance_ohm_per_phase"])
             z_ohm = float(row["short_circuit_impedance_magnitude_ohm_per_phase"])
             closures = (
-                math.isclose(i, s / (math.sqrt(3.0) * v), rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(r_pu, p / s, rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(z_base, v * v / s, rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(z_ohm, z_pu * z_base, rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(r_ohm, r_pu * z_base, rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(r_pu * r_pu + x_pu * x_pu, z_pu * z_pu, rel_tol=1e-12, abs_tol=1e-12),
-                math.isclose(
-                    r_ohm * r_ohm + x_ohm * x_ohm, z_ohm * z_ohm, rel_tol=1e-12, abs_tol=1e-12
-                ),
-                math.isclose(3.0 * i * i * r_ohm, p, rel_tol=1e-12, abs_tol=1e-9),
+                math.isclose(i, s / (math.sqrt(3.0) * v), rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(r_pu, p / s, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(z_base, v * v / s, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(z_ohm, z_pu * z_base, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(r_ohm, r_pu * z_base, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(math.hypot(r_pu, x_pu), z_pu, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(math.hypot(r_ohm, x_ohm), z_ohm, rel_tol=1e-12, abs_tol=0.0),
+                math.isclose(3.0 * i * i * r_ohm, p, rel_tol=1e-12, abs_tol=0.0),
             )
             if not all(closures):
                 raise RuntimeError("transformer series-equivalent physical equations do not close")

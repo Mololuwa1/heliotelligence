@@ -322,6 +322,36 @@ def test_tiny_roundoff_is_zero_but_material_inconsistency_is_unresolved() -> Non
     assert math.isnan(tiny_material["effective_series_reactance_pu"])
 
 
+def test_tiny_valid_impedance_retains_nonzero_scale_safe_reactance() -> None:
+    result = _complete(loss=2.5e-195, magnitude=1e-200)
+    row = result.transformer_states.loc["tx-1"]
+    resistance_pu = float(row["effective_series_resistance_pu"])
+    reactance_pu = float(row["effective_series_reactance_pu"])
+    assert row["transformer_series_equivalent_resolved"]
+    assert resistance_pu == pytest.approx(5e-201, rel=1e-12, abs=0.0)
+    assert reactance_pu > 0.0
+    assert reactance_pu == pytest.approx(8.660254037844386e-201, rel=1e-12, abs=0.0)
+    assert math.isclose(math.hypot(resistance_pu, reactance_pu), 1e-200, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_private_validator_rejects_zero_reactance_for_tiny_resolved_case() -> None:
+    result = _complete(loss=2.5e-195, magnitude=1e-200)
+    context = _context(
+        rated_load={"tx-1": _rated_load(loss=2.5e-195)},
+        transfer={"tx-1": _transfer()},
+        impedance={"tx-1": _impedance(magnitude=1e-200)},
+    )
+    frame = result.transformer_states.copy(deep=True)
+    frame.loc["tx-1", "effective_series_reactance_pu"] = 0.0
+    with pytest.raises(RuntimeError):
+        _validate_result(
+            context["static"],
+            context["loss"],
+            context["network"],
+            replace(result, transformer_states=frame),
+        )
+
+
 @pytest.mark.parametrize(
     ("kwargs", "state"),
     [
