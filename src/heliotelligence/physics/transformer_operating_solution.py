@@ -486,53 +486,45 @@ def _record(
             if not math.isfinite(current_squared):
                 raise OverflowError
             series_loss = 3.0 * impedance * current_squared
-            finite = (
-                vc.real, vc.imag, abs(vc), ic.real, ic.imag, abs(ic), current_n.real,
-                current_n.imag, abs(current_n), vn.real, vn.imag, abs(vn), sn.real,
-                sn.imag, abs(sn), series_loss.real, series_loss.imag,
-            )
-            derived_finite = all(math.isfinite(value) for value in finite)
+            derived = {
+                "collection_phase_voltage_real_v": vc.real,
+                "collection_phase_voltage_imag_v": vc.imag,
+                "collection_phase_voltage_magnitude_v": abs(vc),
+                "collection_series_current_real_a": ic.real,
+                "collection_series_current_imag_a": ic.imag,
+                "collection_series_current_magnitude_a": abs(ic),
+                "collection_series_current_angle_deg": math.degrees(cmath.phase(ic)),
+                "network_series_current_real_a": current_n.real,
+                "network_series_current_imag_a": current_n.imag,
+                "network_series_current_magnitude_a": abs(current_n),
+                "network_series_current_angle_deg": math.degrees(cmath.phase(current_n)),
+                "network_terminal_phase_voltage_real_v": vn.real,
+                "network_terminal_phase_voltage_imag_v": vn.imag,
+                "network_terminal_phase_voltage_magnitude_v": abs(vn),
+                "network_terminal_voltage_line_to_line_rms_v": abs(vn) * math.sqrt(3.0),
+                "network_terminal_phase_angle_deg": math.degrees(cmath.phase(vn)),
+                "p_entering_series_transfer_w": sc_series.real,
+                "q_entering_series_transfer_var": sc_series.imag,
+                "p_network_terminal_w": sn.real,
+                "q_network_terminal_var": sn.imag,
+                "s_network_terminal_magnitude_va": abs(sn),
+                "p_no_load_active_sink_w": no_load.no_load_loss_w,
+                "p_series_active_loss_w": series_loss.real,
+                "q_series_consumption_var": series_loss.imag,
+                "p_total_transformer_active_loss_w": no_load.no_load_loss_w + series_loss.real,
+                "active_power_conservation_residual_w": (
+                    p - sn.real - no_load.no_load_loss_w - series_loss.real
+                ),
+                "reactive_power_conservation_residual_var": q - sn.imag - series_loss.imag,
+            }
+            derived_finite = all(math.isfinite(value) for value in derived.values())
         except (OverflowError, ZeroDivisionError):
             derived_finite = False
         if not derived_finite:
             primary = _STATES[10]
         else:
-            assert transfer is not None
-            record.update(
-                {
-                    "collection_phase_voltage_real_v": vc.real,
-                    "collection_phase_voltage_imag_v": vc.imag,
-                    "collection_phase_voltage_magnitude_v": abs(vc),
-                    "collection_series_current_real_a": ic.real,
-                    "collection_series_current_imag_a": ic.imag,
-                    "collection_series_current_magnitude_a": abs(ic),
-                    "collection_series_current_angle_deg": math.degrees(cmath.phase(ic)),
-                    "network_series_current_real_a": current_n.real,
-                    "network_series_current_imag_a": current_n.imag,
-                    "network_series_current_magnitude_a": abs(current_n),
-                    "network_series_current_angle_deg": math.degrees(cmath.phase(current_n)),
-                    "network_terminal_phase_voltage_real_v": vn.real,
-                    "network_terminal_phase_voltage_imag_v": vn.imag,
-                    "network_terminal_phase_voltage_magnitude_v": abs(vn),
-                    "network_terminal_voltage_line_to_line_rms_v": abs(vn) * math.sqrt(3.0),
-                    "network_terminal_phase_angle_deg": math.degrees(cmath.phase(vn)),
-                    "p_entering_series_transfer_w": sc_series.real,
-                    "q_entering_series_transfer_var": sc_series.imag,
-                    "p_network_terminal_w": sn.real,
-                    "q_network_terminal_var": sn.imag,
-                    "s_network_terminal_magnitude_va": abs(sn),
-                    "p_no_load_active_sink_w": no_load.no_load_loss_w,
-                    "p_series_active_loss_w": series_loss.real,
-                    "q_series_consumption_var": series_loss.imag,
-                    "p_total_transformer_active_loss_w": no_load.no_load_loss_w + series_loss.real,
-                    "active_power_conservation_residual_w": p
-                    - sn.real
-                    - no_load.no_load_loss_w
-                    - series_loss.real,
-                    "reactive_power_conservation_residual_var": q - sn.imag - series_loss.imag,
-                    "transformer_terminal_operating_solution_resolved": True,
-                }
-            )
+            record.update(derived)
+            record["transformer_terminal_operating_solution_resolved"] = True
             primary = _STATES[11]
     record["transformer_operating_solution_state"] = primary
     return record
@@ -826,80 +818,56 @@ def _validator_record(
             if not math.isfinite(current_squared):
                 raise OverflowError
             series_loss = 3.0 * impedance * current_squared
-            finite_values = (
-                collection_voltage.real,
-                collection_voltage.imag,
-                abs(collection_voltage),
-                collection_current.real,
-                collection_current.imag,
-                abs(collection_current),
-                network_current.real,
-                network_current.imag,
-                abs(network_current),
-                network_voltage.real,
-                network_voltage.imag,
-                abs(network_voltage),
-                network_power.real,
-                network_power.imag,
-                abs(network_power),
-                series_loss.real,
-                series_loss.imag,
-            )
-            finite = all(math.isfinite(value) for value in finite_values)
+            derived = {
+                "collection_phase_voltage_real_v": collection_voltage.real,
+                "collection_phase_voltage_imag_v": collection_voltage.imag,
+                "collection_phase_voltage_magnitude_v": abs(collection_voltage),
+                "collection_series_current_real_a": collection_current.real,
+                "collection_series_current_imag_a": collection_current.imag,
+                "collection_series_current_magnitude_a": abs(collection_current),
+                "collection_series_current_angle_deg": math.degrees(
+                    cmath.phase(collection_current)
+                ),
+                "network_series_current_real_a": network_current.real,
+                "network_series_current_imag_a": network_current.imag,
+                "network_series_current_magnitude_a": abs(network_current),
+                "network_series_current_angle_deg": math.degrees(cmath.phase(network_current)),
+                "network_terminal_phase_voltage_real_v": network_voltage.real,
+                "network_terminal_phase_voltage_imag_v": network_voltage.imag,
+                "network_terminal_phase_voltage_magnitude_v": abs(network_voltage),
+                "network_terminal_voltage_line_to_line_rms_v": (
+                    abs(network_voltage) * math.sqrt(3.0)
+                ),
+                "network_terminal_phase_angle_deg": math.degrees(cmath.phase(network_voltage)),
+                "p_entering_series_transfer_w": series_power.real,
+                "q_entering_series_transfer_var": series_power.imag,
+                "p_network_terminal_w": network_power.real,
+                "q_network_terminal_var": network_power.imag,
+                "s_network_terminal_magnitude_va": abs(network_power),
+                "p_no_load_active_sink_w": no_load.no_load_loss_w,
+                "p_series_active_loss_w": series_loss.real,
+                "q_series_consumption_var": series_loss.imag,
+                "p_total_transformer_active_loss_w": (
+                    no_load.no_load_loss_w + series_loss.real
+                ),
+                "active_power_conservation_residual_w": (
+                    p_value
+                    - network_power.real
+                    - no_load.no_load_loss_w
+                    - series_loss.real
+                ),
+                "reactive_power_conservation_residual_var": (
+                    q_value - network_power.imag - series_loss.imag
+                ),
+            }
+            finite = all(math.isfinite(value) for value in derived.values())
         except (OverflowError, ZeroDivisionError):
             finite = False
         if not finite:
             primary = _STATES[10]
         else:
-            expected.update(
-                {
-                    "collection_phase_voltage_real_v": collection_voltage.real,
-                    "collection_phase_voltage_imag_v": collection_voltage.imag,
-                    "collection_phase_voltage_magnitude_v": abs(collection_voltage),
-                    "collection_series_current_real_a": collection_current.real,
-                    "collection_series_current_imag_a": collection_current.imag,
-                    "collection_series_current_magnitude_a": abs(collection_current),
-                    "collection_series_current_angle_deg": math.degrees(
-                        cmath.phase(collection_current)
-                    ),
-                    "network_series_current_real_a": network_current.real,
-                    "network_series_current_imag_a": network_current.imag,
-                    "network_series_current_magnitude_a": abs(network_current),
-                    "network_series_current_angle_deg": math.degrees(
-                        cmath.phase(network_current)
-                    ),
-                    "network_terminal_phase_voltage_real_v": network_voltage.real,
-                    "network_terminal_phase_voltage_imag_v": network_voltage.imag,
-                    "network_terminal_phase_voltage_magnitude_v": abs(network_voltage),
-                    "network_terminal_voltage_line_to_line_rms_v": (
-                        abs(network_voltage) * math.sqrt(3.0)
-                    ),
-                    "network_terminal_phase_angle_deg": math.degrees(
-                        cmath.phase(network_voltage)
-                    ),
-                    "p_entering_series_transfer_w": series_power.real,
-                    "q_entering_series_transfer_var": series_power.imag,
-                    "p_network_terminal_w": network_power.real,
-                    "q_network_terminal_var": network_power.imag,
-                    "s_network_terminal_magnitude_va": abs(network_power),
-                    "p_no_load_active_sink_w": no_load.no_load_loss_w,
-                    "p_series_active_loss_w": series_loss.real,
-                    "q_series_consumption_var": series_loss.imag,
-                    "p_total_transformer_active_loss_w": (
-                        no_load.no_load_loss_w + series_loss.real
-                    ),
-                    "active_power_conservation_residual_w": (
-                        p_value
-                        - network_power.real
-                        - no_load.no_load_loss_w
-                        - series_loss.real
-                    ),
-                    "reactive_power_conservation_residual_var": (
-                        q_value - network_power.imag - series_loss.imag
-                    ),
-                    "transformer_terminal_operating_solution_resolved": True,
-                }
-            )
+            expected.update(derived)
+            expected["transformer_terminal_operating_solution_resolved"] = True
             primary = _STATES[11]
     expected["transformer_operating_solution_state"] = primary
     return expected

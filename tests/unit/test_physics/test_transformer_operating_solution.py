@@ -351,6 +351,19 @@ def test_nonfinite_derivation_is_explicit_state_not_exception() -> None:
         assert math.isnan(float(row[name]))
 
 
+def test_large_ratio_final_line_voltage_overflow_is_unresolved() -> None:
+    result = _run(ratio=4.5e305, p=0.0, q=0.0, no_load_w=0.0)
+    row = result.transformer_operating_states.iloc[0]
+    assert not row["transformer_terminal_operating_solution_resolved"]
+    assert (
+        row["transformer_operating_solution_state"]
+        == "unresolved_nonfinite_transformer_operating_state"
+    )
+    assert math.isnan(float(row["network_terminal_voltage_line_to_line_rms_v"]))
+    numeric = result.transformer_operating_states.select_dtypes(include=["float64"])
+    assert not any(math.isinf(float(value)) for value in numeric.iloc[0])
+
+
 def test_unresolved_operation_preserves_static_evidence() -> None:
     row = _run(p=100_000.0, q=0.0).transformer_operating_states.iloc[0]
     assert row["transformer_operating_solution_state"] == (
