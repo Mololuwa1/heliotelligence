@@ -8,10 +8,14 @@ import math
 from dataclasses import replace
 from typing import Any
 
+import pandas as pd  # type: ignore[import-untyped]
 import pytest
 
 from heliotelligence.physics import inverter_envelope_lookup, inverter_lookup
 from heliotelligence.physics import transformer_operating_solution as module
+from heliotelligence.physics.transformer_energisation_authority import (
+    resolve_transformer_energisation_authority,
+)
 from heliotelligence.physics.transformer_loss_authority import (
     TransformerRatedLoadLossAuthority,
     resolve_transformer_loss_authority,
@@ -130,13 +134,18 @@ def _inputs(
     ratio: float = 27.5,
     side: str = "collection_side",
     magnitude: float = 0.06,
+    include_no_load: bool = True,
+    include_transfer: bool = True,
+    include_series_reference: bool = True,
+    extra_energisation_timestamp: pd.Timestamp | None = None,
+    timezone_aware_energisation: bool = False,
 ) -> tuple[dict[str, Any], tuple[Any, ...]]:
     raw, s11c, static, _loss, energisation, _ = s12d._bundle(
         p=p, q=q, voltage=voltage, energised=energised, rated_s=500_000.0
     )
     inputs = dict(zip(_S11_NAMES, raw[:31], strict=True))
     equipment, topology_map = raw[32], raw[33]
-    no_load = {"tx-1": s12d._no_load("tx-1", no_load_w)}
+    no_load = {"tx-1": s12d._no_load("tx-1", no_load_w)} if include_no_load else {}
     rated_load = {
         "tx-1": TransformerRatedLoadLossAuthority(
             "tx-1",
@@ -160,15 +169,25 @@ def _inputs(
         equipment,
         topology_map,
     )
+    energisation_by_key = dict(raw[38])
+    original_key = next(iter(energisation_by_key), None)
+    if original_key is not None and timezone_aware_energisation:
+        state_value = energisation_by_key.pop(original_key)
+        energisation_by_key[(original_key[0].tz_localize(None), original_key[1])] = state_value
+    if original_key is not None and extra_energisation_timestamp is not None:
+        energisation_by_key[(extra_energisation_timestamp, original_key[1])] = raw[38][original_key]
+    energisation = resolve_transformer_energisation_authority(
+        *common, static, energisation_by_key
+    )
     loss = resolve_transformer_loss_authority(*common, static, no_load, rated_load)
-    transfer = {"tx-1": _transfer(ratio, phase)}
+    transfer = {"tx-1": _transfer(ratio, phase)} if include_transfer else {}
     impedance = {"tx-1": _impedance(side, magnitude)}
     network = resolve_transformer_network_authority(*common, static, transfer, impedance)
     references = {
         "tx-1": TransformerRatedLoadLossReferenceConditionAuthority(
             "tx-1", "fixed_non_tapped_transformer_ratio", "factory-test", "high"
         )
-    }
+    } if include_series_reference else {}
     series = resolve_transformer_series_equivalent(
         *common, static, no_load, rated_load, loss, transfer, impedance, network, references
     )
@@ -181,7 +200,7 @@ def _inputs(
             "transformer_no_load_loss_by_id": no_load,
             "transformer_rated_load_loss_by_id": rated_load,
             "transformer_loss_authority": loss,
-            "transformer_energisation_by_key": raw[38],
+            "transformer_energisation_by_key": energisation_by_key,
             "transformer_energisation_authority": energisation,
             "transformer_voltage_transfer_by_id": transfer,
             "transformer_short_circuit_impedance_by_id": impedance,
@@ -314,22 +333,116 @@ def test_missing_energisation_is_primary_and_empty_timestamp_universe_is_stable(
     assert result.diagnostics.row_count == 1  # S11C supplies the timestamp.
 
 
+def test_nonfinite_derivation_is_explicit_state_not_exception() -> None:
+    row = _run(
+        side="network_side", ratio=1e-308, p=100.0, q=0.0, no_load_w=0.0
+    ).transformer_operating_states.iloc[0]
+    assert not row["transformer_terminal_operating_solution_resolved"]
+    assert (
+        row["transformer_operating_solution_state"]
+        == "unresolved_nonfinite_transformer_operating_state"
+    )
+    for name in (
+        "network_series_current_magnitude_a",
+        "network_terminal_phase_voltage_magnitude_v",
+        "p_series_active_loss_w",
+        "q_series_consumption_var",
+    ):
+        assert math.isnan(float(row[name]))
+
+
+def test_unresolved_operation_preserves_static_evidence() -> None:
+    row = _run(p=100_000.0, q=0.0).transformer_operating_states.iloc[0]
+    assert row["transformer_operating_solution_state"] == (
+        "unresolved_s11_collection_exit_operating_solution"
+    )
+    assert row["network_to_collection_voltage_ratio"] == 27.5
+    assert row["network_side_phase_displacement_deg"] == 0.0
+    assert row["series_equivalent_reference_side"] == "collection_side"
+    assert row["effective_series_resistance_ohm_per_phase"] >= 0.0
+    assert row["effective_series_reactance_ohm_per_phase"] > 0.0
+    assert math.isnan(row["network_terminal_phase_voltage_real_v"])
+
+
+@pytest.mark.parametrize(
+    ("options", "state"),
+    [
+        (
+            {"include_no_load": False},
+            "unresolved_missing_transformer_no_load_loss_authority",
+        ),
+        (
+            {"include_transfer": False},
+            "unresolved_upstream_transformer_positive_sequence_network_authority",
+        ),
+        (
+            {"include_series_reference": False},
+            "unresolved_upstream_transformer_series_equivalent",
+        ),
+    ],
+)
+def test_missing_parent_authority_states(options: dict[str, Any], state: str) -> None:
+    row = _run(**options).transformer_operating_states.iloc[0]
+    assert row["transformer_operating_solution_state"] == state
+    assert not row["transformer_terminal_operating_solution_resolved"]
+
+
+def test_s12c_only_timestamp_exposes_missing_s11_state_and_orders_rows() -> None:
+    extra = pd.Timestamp("2030-01-01 00:00:00", tz="UTC")
+    result = _run(extra_energisation_timestamp=extra)
+    states = result.transformer_operating_states
+    assert states.index.is_monotonic_increasing
+    row = states.loc[(extra, "tx-1")]
+    assert (
+        row["transformer_operating_solution_state"]
+        == "unresolved_missing_s11_collection_exit_operating_state"
+    )
+    assert row["network_to_collection_voltage_ratio"] == 27.5
+    assert math.isnan(row["network_terminal_phase_voltage_real_v"])
+
+
+def test_incompatible_timestamp_timezone_semantics_are_rejected() -> None:
+    inputs, _ = _inputs(timezone_aware_energisation=True)
+    with pytest.raises(ValueError, match="incompatible timezone semantics"):
+        calculate_topology_transformer_operating_solution(**inputs)
+
+
 def test_private_validator_rejects_state_and_diagnostics_tampering() -> None:
     inputs, parents = _inputs()
     result = calculate_topology_transformer_operating_solution(**inputs)
     for column in (
         "network_terminal_phase_voltage_real_v",
+        "network_terminal_voltage_line_to_line_rms_v",
+        "network_terminal_phase_angle_deg",
         "network_series_current_real_a",
+        "network_series_current_magnitude_a",
+        "collection_series_current_magnitude_a",
         "p_network_terminal_w",
         "q_network_terminal_var",
         "p_series_active_loss_w",
         "q_series_consumption_var",
         "p_total_transformer_active_loss_w",
         "active_power_conservation_residual_w",
+        "network_to_collection_voltage_ratio",
+        "network_side_phase_displacement_deg",
+        "series_equivalent_reference_side",
+        "effective_series_resistance_ohm_per_phase",
+        "transformer_network_terminal_id",
+        "output_reference_plane",
+        "load_dependent_active_loss_ownership",
+        "no_load_active_loss_ownership",
+        "frequency_correction_applied",
         "transformer_operating_solution_state",
     ):
         frame = result.transformer_operating_states.copy(deep=True)
-        frame.iloc[0, frame.columns.get_loc(column)] = "tampered" if "state" in column else 123.0
+        original = frame.iloc[0, frame.columns.get_loc(column)]
+        if column.endswith("_applied") or column == "excitation_no_load_q_modeled":
+            replacement: object = not bool(original)
+        elif isinstance(original, str):
+            replacement = "tampered"
+        else:
+            replacement = 123.0
+        frame.iloc[0, frame.columns.get_loc(column)] = replacement
         try:
             _validate_result(parents, replace(result, transformer_operating_states=frame))
         except RuntimeError:
@@ -339,6 +452,25 @@ def test_private_validator_rejects_state_and_diagnostics_tampering() -> None:
     with pytest.raises(RuntimeError):
         _validate_result(
             parents, replace(result, diagnostics=replace(result.diagnostics, row_count=99))
+        )
+    frame = result.transformer_operating_states.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("transformer_operating_solution_state")] = (
+        "unresolved_nonfinite_transformer_operating_state"
+    )
+    counts = tuple(
+        (name, 1 if name == "unresolved_nonfinite_transformer_operating_state" else 0)
+        for name, _ in result.diagnostics.state_counts
+    )
+    diagnostics = replace(
+        result.diagnostics,
+        resolved_energised_count=0,
+        unresolved_count=1,
+        state_counts=counts,
+    )
+    with pytest.raises(RuntimeError):
+        _validate_result(
+            parents,
+            replace(result, transformer_operating_states=frame, diagnostics=diagnostics),
         )
 
 

@@ -10,7 +10,23 @@ from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 
+from heliotelligence.config.site import ElectricalTopologyConfig
+from heliotelligence.physics import dc_collection, electrical
+from heliotelligence.physics import inverter_ac_authority as ac_authority_module
+from heliotelligence.physics import inverter_accounting as accounting_module
+from heliotelligence.physics import inverter_authority as inverter_authority_module
+from heliotelligence.physics import inverter_conversion as conversion_module
+from heliotelligence.physics import inverter_dispatch_feasibility as feasibility_module
+from heliotelligence.physics import inverter_dispatch_request_authority as request_module
+from heliotelligence.physics import inverter_dispatch_selection as selection_module
+from heliotelligence.physics import inverter_potential as potential_module
+from heliotelligence.physics import inverter_pqs_capability as pqs_module
+from heliotelligence.physics import inverter_temperature_capability as temperature_module
+from heliotelligence.physics import inverter_thermal_authority as thermal_module
+from heliotelligence.physics import inverter_topology as inverter_topology_module
+from heliotelligence.physics import lv_ac_collection_authority as s11a_module
 from heliotelligence.physics import lv_ac_collection_operating as s11c_module
+from heliotelligence.physics import lv_ac_collection_voltage_authority as s11b_module
 from heliotelligence.physics import transformer_authority as s12a_module
 from heliotelligence.physics import transformer_energisation_authority as s12c_module
 from heliotelligence.physics import transformer_loss_authority as s12b_module
@@ -377,6 +393,32 @@ def _record(
             "collection_s_magnitude_va": s_magnitude,
         }
     )
+    transfer = network.voltage_transfer_by_id.get(transformer_id)
+    if transfer is not None:
+        record.update(
+            {
+                "network_to_collection_voltage_ratio": (
+                    transfer.network_to_collection_voltage_ratio
+                ),
+                "network_side_phase_displacement_deg": (
+                    transfer.network_side_phase_displacement_deg
+                ),
+            }
+        )
+    if bool(series_row["transformer_series_equivalent_resolved"]):
+        record.update(
+            {
+                "series_equivalent_reference_side": series_row[
+                    "series_equivalent_reference_side"
+                ],
+                "effective_series_resistance_ohm_per_phase": series_row[
+                    "effective_series_resistance_ohm_per_phase"
+                ],
+                "effective_series_reactance_ohm_per_phase": series_row[
+                    "effective_series_reactance_ohm_per_phase"
+                ],
+            }
+        )
     if state is None:
         primary = _STATES[0]
     elif not state.energised:
@@ -419,59 +461,45 @@ def _record(
     elif voltage == 0.0:
         primary = _STATES[9]
     else:
-        transfer = network.voltage_transfer_by_id[transformer_id]
-        vc = complex(voltage / math.sqrt(3.0), 0.0)
-        sc_series = complex(p - no_load.no_load_loss_w, q)
-        ic = (sc_series / (3.0 * vc)).conjugate()
-        k = transfer.network_to_collection_voltage_ratio * cmath.exp(
-            1j * math.radians(transfer.network_side_phase_displacement_deg)
-        )
-        current_n = ic / k.conjugate()
-        resistance = float(series_row["effective_series_resistance_ohm_per_phase"])
-        reactance = float(series_row["effective_series_reactance_ohm_per_phase"])
-        impedance = complex(resistance, reactance)
-        side = str(series_row["series_equivalent_reference_side"])
-        if side == "collection_side":
-            vn = k * (vc - impedance * ic)
-            current_ref = ic
-        else:
-            vn = k * vc - impedance * current_n
-            current_ref = current_n
-        sn = 3.0 * vn * current_n.conjugate()
-        series_loss = 3.0 * impedance * abs(current_ref) ** 2
-        finite = (
-            vc.real,
-            vc.imag,
-            abs(vc),
-            ic.real,
-            ic.imag,
-            abs(ic),
-            current_n.real,
-            current_n.imag,
-            abs(current_n),
-            vn.real,
-            vn.imag,
-            abs(vn),
-            sn.real,
-            sn.imag,
-            abs(sn),
-            series_loss.real,
-            series_loss.imag,
-        )
-        if not all(math.isfinite(value) for value in finite):
+        assert transfer is not None
+        try:
+            vc = complex(voltage / math.sqrt(3.0), 0.0)
+            sc_series = complex(p - no_load.no_load_loss_w, q)
+            ic = (sc_series / (3.0 * vc)).conjugate()
+            k = transfer.network_to_collection_voltage_ratio * cmath.exp(
+                1j * math.radians(transfer.network_side_phase_displacement_deg)
+            )
+            current_n = ic / k.conjugate()
+            resistance = float(series_row["effective_series_resistance_ohm_per_phase"])
+            reactance = float(series_row["effective_series_reactance_ohm_per_phase"])
+            impedance = complex(resistance, reactance)
+            side = str(series_row["series_equivalent_reference_side"])
+            if side == "collection_side":
+                vn = k * (vc - impedance * ic)
+                current_ref = ic
+            else:
+                vn = k * vc - impedance * current_n
+                current_ref = current_n
+            sn = 3.0 * vn * current_n.conjugate()
+            current_magnitude = abs(current_ref)
+            current_squared = current_magnitude * current_magnitude
+            if not math.isfinite(current_squared):
+                raise OverflowError
+            series_loss = 3.0 * impedance * current_squared
+            finite = (
+                vc.real, vc.imag, abs(vc), ic.real, ic.imag, abs(ic), current_n.real,
+                current_n.imag, abs(current_n), vn.real, vn.imag, abs(vn), sn.real,
+                sn.imag, abs(sn), series_loss.real, series_loss.imag,
+            )
+            derived_finite = all(math.isfinite(value) for value in finite)
+        except (OverflowError, ZeroDivisionError):
+            derived_finite = False
+        if not derived_finite:
             primary = _STATES[10]
         else:
+            assert transfer is not None
             record.update(
                 {
-                    "network_to_collection_voltage_ratio": (
-                        transfer.network_to_collection_voltage_ratio
-                    ),
-                    "network_side_phase_displacement_deg": (
-                        transfer.network_side_phase_displacement_deg
-                    ),
-                    "series_equivalent_reference_side": side,
-                    "effective_series_resistance_ohm_per_phase": resistance,
-                    "effective_series_reactance_ohm_per_phase": reactance,
                     "collection_phase_voltage_real_v": vc.real,
                     "collection_phase_voltage_imag_v": vc.imag,
                     "collection_phase_voltage_magnitude_v": abs(vc),
@@ -547,9 +575,88 @@ def _diagnostics(
 
 
 def calculate_topology_transformer_operating_solution(
-    **inputs: Any,
+    topology: ElectricalTopologyConfig,
+    topology_string_iv: electrical.TopologyStringIVResult,
+    branch_authority: dc_collection.DcBranchPathAuthorityResult,
+    mppt_input_string_iv: dc_collection.TopologyMpptInputStringIVResult,
+    mppt_input_operating_points: dc_collection.TopologyMpptInputOperatingPointResult,
+    cec_sam_name_by_inverter_id: Mapping[str, str],
+    inverter_authority: inverter_authority_module.TopologyInverterAuthorityResult,
+    mppt_current_limit_by_key: Mapping[
+        tuple[str, str], inverter_topology_module.MpptDcCurrentLimitAuthority
+    ],
+    inverter_dc_envelope: inverter_topology_module.TopologyInverterDcEnvelopeResult,
+    inverter_ac: conversion_module.TopologySandiaInverterAcResult,
+    pre_limit_ac: potential_module.TopologySandiaPreLimitAcResult,
+    inverter_power_accounting: accounting_module.TopologySandiaInverterPowerAccountingResult,
+    ac_capability_by_inverter_id: Mapping[
+        str, ac_authority_module.InverterAcCapabilityAuthority
+    ],
+    ac_capability_authority: ac_authority_module.TopologyInverterAcCapabilityAuthorityResult,
+    reactive_power_request_by_key: Mapping[
+        tuple[pd.Timestamp, str], pqs_module.InverterReactivePowerRequest
+    ],
+    pqs_capability: pqs_module.TopologyInverterPqsCapabilityResult,
+    thermal_derating_by_inverter_id: Mapping[
+        str, thermal_module.InverterThermalDeratingAuthority
+    ],
+    thermal_derating_authority: thermal_module.TopologyInverterThermalDeratingAuthorityResult,
+    inverter_temperature_by_key: Mapping[
+        tuple[pd.Timestamp, str], temperature_module.InverterTemperatureState
+    ],
+    temperature_capability: temperature_module.TopologyInverterTemperatureCapabilityResult,
+    active_power_dispatch_request_by_key: Mapping[
+        tuple[pd.Timestamp, str], request_module.InverterActivePowerDispatchRequest
+    ],
+    dispatch_request_authority: (
+        request_module.TopologyInverterActivePowerDispatchRequestAuthorityResult
+    ),
+    dispatch_feasibility: feasibility_module.TopologyInverterDispatchFeasibilityResult,
+    dispatch_selection: selection_module.TopologyInverterDispatchSelectionResult,
+    network_basis: s11a_module.LvAcCollectionNetworkBasisAuthority | None,
+    node_authority_by_id: Mapping[str, s11a_module.LvAcCollectionNodeAuthority],
+    segment_authority_by_id: Mapping[str, s11a_module.LvAcCollectionSegmentAuthority],
+    inverter_terminal_binding_by_inverter_id: Mapping[
+        str, s11a_module.LvAcInverterTerminalBindingAuthority
+    ],
+    lv_ac_collection_authority: s11a_module.TopologyLvAcCollectionAuthorityResult,
+    collection_exit_voltage_by_key: Mapping[
+        tuple[pd.Timestamp, str], s11b_module.LvAcCollectionExitVoltageState
+    ],
+    collection_exit_voltage_authority: s11b_module.TopologyLvAcCollectionExitVoltageAuthorityResult,
+    lv_ac_collection_operating_solution: s11c_module.TopologyLvAcCollectionOperatingSolutionResult,
+    transformer_equipment_by_id: Mapping[
+        str, s12a_module.TransformerStaticEquipmentAuthority
+    ],
+    transformer_topology_by_id: Mapping[
+        str, s12a_module.TransformerBoundaryTopologyAuthority
+    ],
+    transformer_static_authority: s12a_module.TopologyTransformerStaticAuthorityResult,
+    transformer_no_load_loss_by_id: Mapping[
+        str, s12b_module.TransformerNoLoadLossAuthority
+    ],
+    transformer_rated_load_loss_by_id: Mapping[
+        str, s12b_module.TransformerRatedLoadLossAuthority
+    ],
+    transformer_loss_authority: s12b_module.TopologyTransformerLossAuthorityResult,
+    transformer_energisation_by_key: Mapping[
+        tuple[pd.Timestamp, str], s12c_module.TransformerEnergisationState
+    ],
+    transformer_energisation_authority: s12c_module.TopologyTransformerEnergisationAuthorityResult,
+    transformer_voltage_transfer_by_id: Mapping[
+        str, s12e_module.TransformerVoltageTransferAuthority
+    ],
+    transformer_short_circuit_impedance_by_id: Mapping[
+        str, s12e_module.TransformerShortCircuitImpedanceAuthority
+    ],
+    transformer_network_authority: s12e_module.TopologyTransformerNetworkAuthorityResult,
+    transformer_rated_load_loss_reference_condition_by_id: Mapping[
+        str, s12f_module.TransformerRatedLoadLossReferenceConditionAuthority
+    ],
+    transformer_series_equivalent: s12f_module.TopologyTransformerSeriesEquivalentResult,
 ) -> TopologyTransformerOperatingSolutionResult:
     """Replay canonical parents and solve exact network-side transformer terminal states."""
+    inputs: dict[str, Any] = locals()
     parents = _canonical_parents(inputs)
     s11, static, _loss, energisation, _network, _series = parents
     ids = static.transformer_states.index.tolist()
@@ -563,6 +670,239 @@ def calculate_topology_transformer_operating_solution(
     )
     _validate_result(parents, result)
     return result
+
+
+def _validator_record(
+    timestamp: pd.Timestamp, transformer_id: str, parents: tuple[Any, ...]
+) -> dict[str, object]:
+    """Independently reconstruct one expected row without using ``_record``."""
+    s11, static, loss, energisation, network, series = parents
+    expected = _blank()
+    static_row = static.transformer_states.loc[transformer_id]
+    network_row = network.transformer_states.loc[transformer_id]
+    series_row = series.transformer_states.loc[transformer_id]
+    boundary = static.topology_by_id.get(transformer_id)
+    state = energisation.energisation_states_by_key.get((timestamp, transformer_id))
+    no_load = loss.no_load_loss_by_id.get(transformer_id)
+    transfer = network.voltage_transfer_by_id.get(transformer_id)
+    exit_id = boundary.s11_collection_exit_node_id if boundary is not None else ""
+    key = (timestamp, exit_id)
+    present = bool(exit_id) and key in s11.collection_exit_states.index
+    s11_row = s11.collection_exit_states.loc[key] if present else None
+    s11_resolved = (
+        bool(s11_row["lv_ac_operating_solution_resolved"]) if s11_row is not None else False
+    )
+    voltage = (
+        float(s11_row["exit_voltage_line_to_line_rms_v"])
+        if s11_row is not None
+        else math.nan
+    )
+    p_value = (
+        float(s11_row["p_delivered_at_collection_exit_w"])
+        if s11_row is not None
+        else math.nan
+    )
+    q_value = (
+        float(s11_row["q_delivered_at_collection_exit_var"])
+        if s11_row is not None
+        else math.nan
+    )
+    s_magnitude = math.hypot(p_value, q_value) if s11_resolved else math.nan
+    expected.update(
+        {
+            "transformer_static_authority_resolved": bool(
+                static_row["transformer_static_authority_resolved"]
+            ),
+            "transformer_energisation_authority_resolved": state is not None,
+            "transformer_energised": state.energised if state is not None else pd.NA,
+            "s11_operating_state_present": present,
+            "s11_operating_solution_resolved": s11_resolved,
+            "transformer_positive_sequence_network_authority_resolved": bool(
+                network_row["transformer_positive_sequence_network_authority_resolved"]
+            ),
+            "transformer_series_equivalent_resolved": bool(
+                series_row["transformer_series_equivalent_resolved"]
+            ),
+            "s11_collection_exit_node_id": exit_id,
+            "transformer_collection_terminal_id": (
+                boundary.transformer_collection_terminal_id if boundary is not None else ""
+            ),
+            "transformer_network_terminal_id": (
+                boundary.transformer_network_terminal_id if boundary is not None else ""
+            ),
+            "collection_voltage_line_to_line_rms_v": voltage,
+            "collection_p_w": p_value,
+            "collection_q_var": q_value,
+            "collection_s_magnitude_va": s_magnitude,
+        }
+    )
+    if transfer is not None:
+        expected["network_to_collection_voltage_ratio"] = (
+            transfer.network_to_collection_voltage_ratio
+        )
+        expected["network_side_phase_displacement_deg"] = (
+            transfer.network_side_phase_displacement_deg
+        )
+    series_resolved = bool(series_row["transformer_series_equivalent_resolved"])
+    if series_resolved:
+        expected["series_equivalent_reference_side"] = series_row[
+            "series_equivalent_reference_side"
+        ]
+        expected["effective_series_resistance_ohm_per_phase"] = series_row[
+            "effective_series_resistance_ohm_per_phase"
+        ]
+        expected["effective_series_reactance_ohm_per_phase"] = series_row[
+            "effective_series_reactance_ohm_per_phase"
+        ]
+
+    if state is None:
+        primary = _STATES[0]
+    elif not state.energised:
+        if s11_resolved and s_magnitude > _POWER_ZERO_ABS_TOL_VA:
+            primary = _STATES[1]
+        else:
+            primary = _STATES[2]
+            expected.update(
+                {
+                    "transformer_terminal_operating_solution_resolved": True,
+                    "collection_series_current_real_a": 0.0,
+                    "collection_series_current_imag_a": 0.0,
+                    "collection_series_current_magnitude_a": 0.0,
+                    "network_series_current_real_a": 0.0,
+                    "network_series_current_imag_a": 0.0,
+                    "network_series_current_magnitude_a": 0.0,
+                    "p_network_terminal_w": 0.0,
+                    "q_network_terminal_var": 0.0,
+                    "s_network_terminal_magnitude_va": 0.0,
+                    "p_no_load_active_sink_w": 0.0,
+                    "p_series_active_loss_w": 0.0,
+                    "q_series_consumption_var": 0.0,
+                    "p_total_transformer_active_loss_w": 0.0,
+                    "active_power_conservation_residual_w": 0.0,
+                    "reactive_power_conservation_residual_var": 0.0,
+                }
+            )
+    elif not bool(static_row["transformer_static_authority_resolved"]):
+        primary = _STATES[3]
+    elif no_load is None:
+        primary = _STATES[4]
+    elif not bool(network_row["transformer_positive_sequence_network_authority_resolved"]):
+        primary = _STATES[5]
+    elif not series_resolved:
+        primary = _STATES[6]
+    elif not present:
+        primary = _STATES[7]
+    elif not s11_resolved:
+        primary = _STATES[8]
+    elif voltage == 0.0:
+        primary = _STATES[9]
+    else:
+        assert transfer is not None and no_load is not None
+        try:
+            collection_voltage = complex(voltage / math.sqrt(3.0), 0.0)
+            series_power = complex(p_value - no_load.no_load_loss_w, q_value)
+            collection_current = (series_power / (3.0 * collection_voltage)).conjugate()
+            transfer_factor = transfer.network_to_collection_voltage_ratio * cmath.exp(
+                1j * math.radians(transfer.network_side_phase_displacement_deg)
+            )
+            network_current = collection_current / transfer_factor.conjugate()
+            impedance = complex(
+                float(series_row["effective_series_resistance_ohm_per_phase"]),
+                float(series_row["effective_series_reactance_ohm_per_phase"]),
+            )
+            reference_current = (
+                collection_current
+                if str(series_row["series_equivalent_reference_side"]) == "collection_side"
+                else network_current
+            )
+            network_voltage = (
+                transfer_factor * (collection_voltage - impedance * collection_current)
+                if reference_current is collection_current
+                else transfer_factor * collection_voltage - impedance * network_current
+            )
+            network_power = 3.0 * network_voltage * network_current.conjugate()
+            current_magnitude = abs(reference_current)
+            current_squared = current_magnitude * current_magnitude
+            if not math.isfinite(current_squared):
+                raise OverflowError
+            series_loss = 3.0 * impedance * current_squared
+            finite_values = (
+                collection_voltage.real,
+                collection_voltage.imag,
+                abs(collection_voltage),
+                collection_current.real,
+                collection_current.imag,
+                abs(collection_current),
+                network_current.real,
+                network_current.imag,
+                abs(network_current),
+                network_voltage.real,
+                network_voltage.imag,
+                abs(network_voltage),
+                network_power.real,
+                network_power.imag,
+                abs(network_power),
+                series_loss.real,
+                series_loss.imag,
+            )
+            finite = all(math.isfinite(value) for value in finite_values)
+        except (OverflowError, ZeroDivisionError):
+            finite = False
+        if not finite:
+            primary = _STATES[10]
+        else:
+            expected.update(
+                {
+                    "collection_phase_voltage_real_v": collection_voltage.real,
+                    "collection_phase_voltage_imag_v": collection_voltage.imag,
+                    "collection_phase_voltage_magnitude_v": abs(collection_voltage),
+                    "collection_series_current_real_a": collection_current.real,
+                    "collection_series_current_imag_a": collection_current.imag,
+                    "collection_series_current_magnitude_a": abs(collection_current),
+                    "collection_series_current_angle_deg": math.degrees(
+                        cmath.phase(collection_current)
+                    ),
+                    "network_series_current_real_a": network_current.real,
+                    "network_series_current_imag_a": network_current.imag,
+                    "network_series_current_magnitude_a": abs(network_current),
+                    "network_series_current_angle_deg": math.degrees(
+                        cmath.phase(network_current)
+                    ),
+                    "network_terminal_phase_voltage_real_v": network_voltage.real,
+                    "network_terminal_phase_voltage_imag_v": network_voltage.imag,
+                    "network_terminal_phase_voltage_magnitude_v": abs(network_voltage),
+                    "network_terminal_voltage_line_to_line_rms_v": (
+                        abs(network_voltage) * math.sqrt(3.0)
+                    ),
+                    "network_terminal_phase_angle_deg": math.degrees(
+                        cmath.phase(network_voltage)
+                    ),
+                    "p_entering_series_transfer_w": series_power.real,
+                    "q_entering_series_transfer_var": series_power.imag,
+                    "p_network_terminal_w": network_power.real,
+                    "q_network_terminal_var": network_power.imag,
+                    "s_network_terminal_magnitude_va": abs(network_power),
+                    "p_no_load_active_sink_w": no_load.no_load_loss_w,
+                    "p_series_active_loss_w": series_loss.real,
+                    "q_series_consumption_var": series_loss.imag,
+                    "p_total_transformer_active_loss_w": (
+                        no_load.no_load_loss_w + series_loss.real
+                    ),
+                    "active_power_conservation_residual_w": (
+                        p_value
+                        - network_power.real
+                        - no_load.no_load_loss_w
+                        - series_loss.real
+                    ),
+                    "reactive_power_conservation_residual_var": (
+                        q_value - network_power.imag - series_loss.imag
+                    ),
+                    "transformer_terminal_operating_solution_resolved": True,
+                }
+            )
+            primary = _STATES[11]
+    expected["transformer_operating_solution_state"] = primary
+    return expected
 
 
 def _validate_result(
@@ -582,140 +922,32 @@ def _validate_result(
         or states.index.has_duplicates
     ):
         raise RuntimeError("transformer operating solution schema/index/order is invalid")
-    expected_diagnostics = _diagnostics(states, len(ids), len(timestamps))
+    expected_records = [
+        _validator_record(timestamp, transformer_id, parents)
+        for timestamp, transformer_id in keys
+    ]
+    expected_states = _state_frame(keys, expected_records)
+    try:
+        pd.testing.assert_frame_equal(states, expected_states, check_exact=True)
+    except AssertionError as error:
+        raise RuntimeError("transformer operating solution states failed exact closure") from error
+    expected_diagnostics = _diagnostics(expected_states, len(ids), len(timestamps))
     if result.diagnostics != expected_diagnostics:
         raise RuntimeError("transformer operating solution diagnostics failed exact closure")
     if sum(count for _, count in result.diagnostics.state_counts) != result.diagnostics.row_count:
         raise RuntimeError("transformer operating solution primary states do not partition rows")
-    for timestamp, transformer_id in keys:
-        row = states.loc[(timestamp, transformer_id)]
-        static_row = static.transformer_states.loc[transformer_id]
-        network_row = network.transformer_states.loc[transformer_id]
-        series_row = series.transformer_states.loc[transformer_id]
-        boundary = static.topology_by_id.get(transformer_id)
-        energisation_state = energisation.energisation_states_by_key.get(
-            (timestamp, transformer_id)
-        )
-        no_load = loss.no_load_loss_by_id.get(transformer_id)
-        exit_id = boundary.s11_collection_exit_node_id if boundary else ""
-        s11_key = (timestamp, exit_id)
-        present = bool(exit_id) and s11_key in s11.collection_exit_states.index
-        s11_row = s11.collection_exit_states.loc[s11_key] if present else None
-        resolved = (
-            bool(s11_row["lv_ac_operating_solution_resolved"]) if s11_row is not None else False
-        )
-        p_value = (
-            float(s11_row["p_delivered_at_collection_exit_w"]) if s11_row is not None else math.nan
-        )
-        q_value = (
-            float(s11_row["q_delivered_at_collection_exit_var"])
-            if s11_row is not None
-            else math.nan
-        )
-        magnitude = math.hypot(p_value, q_value) if resolved else math.nan
-        if energisation_state is None:
-            expected_state = _STATES[0]
-        elif not energisation_state.energised:
-            expected_state = (
-                _STATES[1] if resolved and magnitude > _POWER_ZERO_ABS_TOL_VA else _STATES[2]
-            )
-        elif not bool(static_row["transformer_static_authority_resolved"]):
-            expected_state = _STATES[3]
-        elif no_load is None:
-            expected_state = _STATES[4]
-        elif not bool(network_row["transformer_positive_sequence_network_authority_resolved"]):
-            expected_state = _STATES[5]
-        elif not bool(series_row["transformer_series_equivalent_resolved"]):
-            expected_state = _STATES[6]
-        elif not present:
-            expected_state = _STATES[7]
-        elif not resolved:
-            expected_state = _STATES[8]
-        elif s11_row is not None and float(s11_row["exit_voltage_line_to_line_rms_v"]) == 0.0:
-            expected_state = _STATES[9]
-        else:
-            expected_state = str(row["transformer_operating_solution_state"])
-            if expected_state not in (_STATES[10], _STATES[11]):
-                raise RuntimeError("transformer operating solution primary state is invalid")
-        if str(row["transformer_operating_solution_state"]) != expected_state:
-            raise RuntimeError("transformer operating solution primary state failed closure")
-        if expected_state != _STATES[11]:
+    # Exact expected-frame equality above validates every result field. These
+    # independent identities additionally protect the accepted transformer
+    # equations from synchronized implementation mistakes.
+    for key in keys:
+        row = expected_states.loc[key]
+        if str(row["transformer_operating_solution_state"]) != _STATES[11]:
             continue
-        assert s11_row is not None and no_load is not None
-        transfer = network.voltage_transfer_by_id[transformer_id]
-        voltage = float(s11_row["exit_voltage_line_to_line_rms_v"])
-        vc = complex(voltage / math.sqrt(3.0), 0.0)
-        sc_series = complex(p_value - no_load.no_load_loss_w, q_value)
-        expected_ic = (sc_series / (3.0 * vc)).conjugate()
-        k = transfer.network_to_collection_voltage_ratio * cmath.exp(
-            1j * math.radians(transfer.network_side_phase_displacement_deg)
-        )
-        expected_in = expected_ic / k.conjugate()
-        impedance = complex(
-            float(series_row["effective_series_resistance_ohm_per_phase"]),
-            float(series_row["effective_series_reactance_ohm_per_phase"]),
-        )
-        side = str(series_row["series_equivalent_reference_side"])
-        expected_vn = (
-            k * (vc - impedance * expected_ic)
-            if side == "collection_side"
-            else k * vc - impedance * expected_in
-        )
-        reference_current = expected_ic if side == "collection_side" else expected_in
-        expected_sn = 3.0 * expected_vn * expected_in.conjugate()
-        expected_loss = 3.0 * impedance * abs(reference_current) ** 2
-        actual_ic = complex(
-            float(row["collection_series_current_real_a"]),
-            float(row["collection_series_current_imag_a"]),
-        )
-        actual_in = complex(
-            float(row["network_series_current_real_a"]),
-            float(row["network_series_current_imag_a"]),
-        )
-        actual_vn = complex(
-            float(row["network_terminal_phase_voltage_real_v"]),
-            float(row["network_terminal_phase_voltage_imag_v"]),
-        )
-        actual_sn = complex(
-            float(row["p_network_terminal_w"]), float(row["q_network_terminal_var"])
-        )
-        actual_loss = complex(
-            float(row["p_series_active_loss_w"]),
-            float(row["q_series_consumption_var"]),
-        )
-        for actual, expected_value, label in (
-            (actual_ic, expected_ic, "collection current"),
-            (actual_in, expected_in, "network current"),
-            (actual_vn, expected_vn, "network voltage"),
-            (actual_sn, expected_sn, "network power"),
-            (actual_loss, expected_loss, "series loss"),
-        ):
-            scale = max(abs(expected_value), 1.0)
-            if abs(actual - expected_value) > _REL_TOL * scale:
-                raise RuntimeError(f"transformer {label} failed independent closure")
-        if not math.isclose(abs(actual_in), abs(actual_ic) / abs(k), rel_tol=_REL_TOL, abs_tol=0.0):
-            raise RuntimeError("ideal transformer current-ratio identity failed closure")
-        expected_total = no_load.no_load_loss_w + expected_loss.real
+        ratio = float(row["network_to_collection_voltage_ratio"])
         if not math.isclose(
-            float(row["p_total_transformer_active_loss_w"]),
-            expected_total,
+            float(row["network_series_current_magnitude_a"]),
+            float(row["collection_series_current_magnitude_a"]) / ratio,
             rel_tol=_REL_TOL,
             abs_tol=0.0,
         ):
-            raise RuntimeError("total transformer active loss failed closure")
-        p_residual = p_value - expected_sn.real - no_load.no_load_loss_w - expected_loss.real
-        q_residual = q_value - expected_sn.imag - expected_loss.imag
-        p_scale = max(abs(p_value), abs(expected_sn.real), 1.0)
-        q_scale = max(abs(q_value), abs(expected_sn.imag), 1.0)
-        if (
-            abs(p_residual) > _REL_TOL * p_scale
-            or abs(float(row["active_power_conservation_residual_w"]) - p_residual)
-            > _REL_TOL * p_scale
-        ):
-            raise RuntimeError("active-power conservation failed closure")
-        if (
-            abs(q_residual) > _REL_TOL * q_scale
-            or abs(float(row["reactive_power_conservation_residual_var"]) - q_residual)
-            > _REL_TOL * q_scale
-        ):
-            raise RuntimeError("reactive-power conservation failed closure")
+            raise RuntimeError("ideal transformer current-ratio identity failed closure")
