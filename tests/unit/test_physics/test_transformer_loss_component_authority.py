@@ -1,0 +1,703 @@
+"""Tests for S12H transformer construction and load-loss components."""
+
+from __future__ import annotations
+
+import inspect
+import math
+from dataclasses import replace
+from types import MappingProxyType
+from typing import Any, cast
+
+import pytest
+
+from heliotelligence.config.site import ElectricalTopologyConfig
+from heliotelligence.physics import transformer_loss_component_authority as module
+from heliotelligence.physics.lv_ac_collection_authority import (
+    LvAcCollectionNetworkBasisAuthority,
+    LvAcCollectionNodeAuthority,
+    resolve_topology_lv_ac_collection_authority,
+)
+from heliotelligence.physics.transformer_authority import (
+    TransformerBoundaryTopologyAuthority,
+    TransformerStaticEquipmentAuthority,
+    resolve_transformer_static_authority,
+)
+from heliotelligence.physics.transformer_loss_authority import (
+    TransformerNoLoadLossAuthority,
+    TransformerRatedLoadLossAuthority,
+    resolve_transformer_loss_authority,
+)
+from heliotelligence.physics.transformer_loss_component_authority import (
+    REFERENCE_LOAD_LOSS_OWNERSHIP,
+    TRANSFORMER_LOSS_COMPONENT_AUTHORITY_CONTRACT_ID,
+    TRANSFORMER_LOSS_COMPONENT_AUTHORITY_COVERAGE_SCOPE,
+    TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID,
+    TRANSFORMER_LOSS_COMPONENT_AUTHORITY_SCOPE,
+    TransformerAdvancedConstructionAuthority,
+    TransformerRatedLoadLossComponentAuthority,
+    _validate_result,
+    resolve_transformer_loss_component_authority,
+)
+
+
+def _equipment(identifier: str) -> TransformerStaticEquipmentAuthority:
+    return TransformerStaticEquipmentAuthority(
+        identifier,
+        "two_winding",
+        "balanced_three_phase",
+        "line_to_line_rms",
+        500_000.0,
+        400.0,
+        11_000.0,
+        f"nameplate:{identifier}",
+        "high",
+    )
+
+
+def _topology(identifier: str, exit_id: str) -> TransformerBoundaryTopologyAuthority:
+    return TransformerBoundaryTopologyAuthority(
+        identifier,
+        exit_id,
+        "lv_ac_collection_exit",
+        f"{identifier}:collection",
+        "transformer_collection_side_terminal",
+        f"{identifier}:network",
+        "transformer_network_side_terminal",
+        "direct_electrical_boundary",
+        "drawing",
+        "high",
+    )
+
+
+def _rated(
+    identifier: str = "tx-1",
+    *,
+    loss: float = 5_000.0,
+    side: str = "collection_side",
+    temperature: float = 75.0,
+    frequency: float = 50.0,
+) -> TransformerRatedLoadLossAuthority:
+    return TransformerRatedLoadLossAuthority(
+        identifier,
+        loss,
+        side,  # type: ignore[arg-type]
+        "rated_current",
+        temperature,
+        frequency,
+        "total_rated_load_loss_including_winding_and_stray",
+        f"factory-total:{identifier}",
+        "high",
+    )
+
+
+def _no_load(identifier: str = "tx-1") -> TransformerNoLoadLossAuthority:
+    return TransformerNoLoadLossAuthority(
+        identifier,
+        600.0,
+        "collection_side",
+        "rated_terminal_voltage",
+        "line_to_line_rms",
+        50.0,
+        "factory-no-load",
+        "high",
+    )
+
+
+def _construction(identifier: str = "tx-1") -> TransformerAdvancedConstructionAuthority:
+    return TransformerAdvancedConstructionAuthority(
+        identifier,
+        "mineral_oil_immersed",
+        "copper",
+        "electrolytic copper windings",
+        "ONAN",
+        "crgo_silicon_steel",
+        "grain-oriented electrical steel core",
+        f"design-record:{identifier}",
+        "high",
+    )
+
+
+def _component(
+    identifier: str = "tx-1",
+    *,
+    i2r: float = 3_500.0,
+    eddy: float = 700.0,
+    reported: float | None = None,
+    side: str = "collection_side",
+    temperature: float = 75.0,
+    frequency: float = 50.0,
+) -> TransformerRatedLoadLossComponentAuthority:
+    return TransformerRatedLoadLossComponentAuthority(
+        identifier,
+        i2r,
+        eddy,
+        reported,
+        side,  # type: ignore[arg-type]
+        "rated_current",
+        temperature,
+        frequency,
+        "rated_total_load_loss_three_component_decomposition_at_factory_reference_condition",
+        "manufacturer_design_data",
+        f"component-report:{identifier}",
+        "high",
+    )
+
+
+def _context(
+    ids: tuple[str, ...] = ("tx-1",),
+    *,
+    rated: dict[str, TransformerRatedLoadLossAuthority] | None = None,
+    no_load: dict[str, TransformerNoLoadLossAuthority] | None = None,
+    construction: dict[str, TransformerAdvancedConstructionAuthority] | None = None,
+    components: dict[str, TransformerRatedLoadLossComponentAuthority] | None = None,
+    partial: str | None = None,
+) -> dict[str, Any]:
+    topology = ElectricalTopologyConfig(inverters=[])
+    basis = LvAcCollectionNetworkBasisAuthority(
+        "balanced_three_phase", "line_to_line_rms", "per_phase_series", "basis", "high"
+    )
+    nodes = {
+        f"exit-{position}": LvAcCollectionNodeAuthority(
+            f"exit-{position}", "collection_exit", "drawing", "high"
+        )
+        for position, _ in enumerate(ids)
+    }
+    s11a = resolve_topology_lv_ac_collection_authority(topology, basis, nodes, {}, {})
+    equipment = {
+        identifier: _equipment(identifier) for identifier in ids if partial != "topology-only"
+    }
+    boundaries = {
+        identifier: _topology(identifier, f"exit-{position}")
+        for position, identifier in enumerate(ids)
+        if partial != "equipment-only"
+    }
+    static = resolve_transformer_static_authority(
+        topology, basis, nodes, {}, {}, s11a, equipment, boundaries
+    )
+    rated = rated or {}
+    no_load = no_load or {}
+    loss = resolve_transformer_loss_authority(
+        topology,
+        basis,
+        nodes,
+        {},
+        {},
+        s11a,
+        equipment,
+        boundaries,
+        static,
+        no_load,
+        rated,
+    )
+    return locals()
+
+
+def _resolve(
+    *,
+    ids: tuple[str, ...] = ("tx-1",),
+    rated: dict[str, TransformerRatedLoadLossAuthority] | None = None,
+    no_load: dict[str, TransformerNoLoadLossAuthority] | None = None,
+    construction: dict[str, TransformerAdvancedConstructionAuthority] | None = None,
+    components: dict[str, TransformerRatedLoadLossComponentAuthority] | None = None,
+    partial: str | None = None,
+    mutations: dict[str, Any] | None = None,
+) -> Any:
+    context = _context(
+        ids,
+        rated=rated,
+        no_load=no_load,
+        construction=construction,
+        components=components,
+        partial=partial,
+    )
+    inputs = {
+        "topology": context["topology"],
+        "network_basis": context["basis"],
+        "node_authority_by_id": context["nodes"],
+        "segment_authority_by_id": {},
+        "inverter_terminal_binding_by_inverter_id": {},
+        "lv_ac_collection_authority": context["s11a"],
+        "transformer_equipment_by_id": context["equipment"],
+        "transformer_topology_by_id": context["boundaries"],
+        "transformer_static_authority": context["static"],
+        "transformer_no_load_loss_by_id": context["no_load"],
+        "transformer_rated_load_loss_by_id": context["rated"],
+        "transformer_loss_authority": context["loss"],
+        "transformer_construction_by_id": context["construction"] or {},
+        "transformer_rated_load_loss_component_by_id": context["components"] or {},
+    }
+    inputs.update(mutations or {})
+    return resolve_transformer_loss_component_authority(**cast(Any, inputs))
+
+
+def _complete(**kwargs: Any) -> Any:
+    return _resolve(
+        rated={
+            "tx-1": _rated(
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k in {"loss", "side", "temperature", "frequency"}
+                }
+            )
+        },
+        construction={"tx-1": _construction()},
+        components={
+            "tx-1": _component(
+                **{
+                    k: v
+                    for k, v in kwargs.items()
+                    if k in {"i2r", "eddy", "reported", "side", "temperature", "frequency"}
+                }
+            )
+        },
+    )
+
+
+def test_complete_basis_residual_closes_to_s12b() -> None:
+    result = _complete()
+    row = result.transformer_states.loc["tx-1"]
+    assert row["transformer_advanced_loss_basis_resolved"]
+    assert row["canonical_other_stray_loss_reference_w"] == 800.0
+    assert row["canonical_component_sum_w"] == 5_000.0
+    assert row["component_closure_residual_w"] == 0.0
+    assert row["cooling_method_code"] == "ONAN"
+    assert row["reference_load_loss_ownership"] == REFERENCE_LOAD_LOSS_OWNERSHIP
+
+
+@pytest.mark.parametrize("side", ["collection_side", "network_side"])
+def test_both_reference_sides_resolve(side: str) -> None:
+    assert _complete(side=side).transformer_states.iloc[0][
+        "transformer_advanced_loss_basis_resolved"
+    ]
+
+
+def test_reported_other_stray_absent_present_and_inconsistent() -> None:
+    absent = _complete().transformer_states.iloc[0]
+    assert not absent["reported_other_stray_loss_present"]
+    assert absent["other_stray_loss_residual_derived"]
+    present = _complete(reported=800.0).transformer_states.iloc[0]
+    assert present["reported_other_stray_loss_compatible"]
+    assert not present["other_stray_loss_residual_derived"]
+    near = _complete(reported=800.0000000005).transformer_states.iloc[0]
+    assert near["transformer_advanced_loss_basis_resolved"]
+    assert near["canonical_other_stray_loss_reference_w"] == 800.0
+    incompatible = _complete(reported=801.0).transformer_states.iloc[0]
+    assert incompatible["transformer_loss_component_authority_state"] == (
+        "unresolved_reported_other_stray_loss_inconsistent_with_s12b_residual"
+    )
+    assert incompatible["reported_other_stray_loss_w"] == 801.0
+
+
+def test_equality_roundoff_and_material_exceedance() -> None:
+    equal = _complete(i2r=4_300.0, eddy=700.0).transformer_states.iloc[0]
+    assert equal["canonical_other_stray_loss_reference_w"] == 0.0
+    rounded = _complete(i2r=4_300.000000001, eddy=700.0).transformer_states.iloc[0]
+    assert rounded["component_closure_roundoff_adjusted"]
+    assert rounded["canonical_other_stray_loss_reference_w"] == 0.0
+    exceeded = _complete(i2r=4_301.0, eddy=700.0).transformer_states.iloc[0]
+    assert exceeded["transformer_loss_component_authority_state"] == (
+        "unresolved_component_i2r_plus_winding_eddy_exceeds_s12b_rated_load_loss"
+    )
+    assert exceeded["i2r_loss_reference_w"] == 4_301.0
+    assert exceeded["s12b_rated_load_loss_w"] == 5_000.0
+
+
+def test_finite_component_sum_overflow_is_deterministically_unresolved() -> None:
+    row = _complete(loss=1.0e308, i2r=1.0e308, eddy=1.0e308).transformer_states.iloc[0]
+    assert not row["component_math_compatible"]
+    assert math.isnan(row["canonical_other_stray_loss_reference_w"])
+    assert row["transformer_loss_component_authority_state"] == (
+        "unresolved_component_i2r_plus_winding_eddy_exceeds_s12b_rated_load_loss"
+    )
+
+
+def test_zero_total_loss_rules() -> None:
+    assert _complete(loss=0.0, i2r=0.0, eddy=0.0, reported=0.0).transformer_states.iloc[0][
+        "transformer_advanced_loss_basis_resolved"
+    ]
+    row = _complete(loss=0.0, i2r=0.001, eddy=0.0).transformer_states.iloc[0]
+    assert not row["component_math_compatible"]
+
+
+def test_no_load_missing_does_not_gate_components() -> None:
+    context = _context(rated={"tx-1": _rated()})
+    assert not context["loss"].transformer_states.iloc[0][
+        "transformer_factory_loss_authority_resolved"
+    ]
+    result = _complete()
+    assert result.transformer_states.iloc[0]["transformer_advanced_loss_basis_resolved"]
+
+
+def test_unresolved_static_precedes_preserved_complete_s12h_evidence() -> None:
+    row = _resolve(
+        partial="topology-only",
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _component()},
+    ).transformer_states.iloc[0]
+    assert row["transformer_loss_component_authority_state"] == (
+        "unresolved_upstream_transformer_static_authority"
+    )
+    assert row["transformer_construction_basis_resolved"]
+    assert row["transformer_load_loss_component_basis_resolved"]
+    assert not row["transformer_advanced_loss_basis_resolved"]
+    assert row["s12b_rated_load_loss_w"] == 5_000.0
+
+
+@pytest.mark.parametrize(
+    ("rated", "construction", "components", "state"),
+    [
+        (
+            {},
+            {"tx-1": _construction()},
+            {"tx-1": _component()},
+            "unresolved_missing_s12b_rated_load_loss_authority",
+        ),
+        (
+            {"tx-1": _rated()},
+            {},
+            {"tx-1": _component()},
+            "unresolved_missing_transformer_advanced_construction_authority",
+        ),
+        (
+            {"tx-1": _rated()},
+            {"tx-1": _construction()},
+            {},
+            "unresolved_missing_transformer_rated_load_loss_component_authority",
+        ),
+    ],
+)
+def test_missing_evidence_states(
+    rated: dict[str, TransformerRatedLoadLossAuthority],
+    construction: dict[str, TransformerAdvancedConstructionAuthority],
+    components: dict[str, TransformerRatedLoadLossComponentAuthority],
+    state: str,
+) -> None:
+    row = _resolve(
+        rated=rated, construction=construction, components=components
+    ).transformer_states.iloc[0]
+    assert row["transformer_loss_component_authority_state"] == state
+
+
+@pytest.mark.parametrize(
+    ("rated_kwargs", "component_kwargs", "state"),
+    [
+        (
+            {},
+            {"side": "network_side"},
+            "unresolved_incompatible_load_loss_component_reference_side",
+        ),
+        (
+            {},
+            {"temperature": 85.0},
+            "unresolved_incompatible_load_loss_component_reference_temperature",
+        ),
+        ({}, {"frequency": 60.0}, "unresolved_incompatible_load_loss_component_test_frequency"),
+    ],
+)
+def test_reference_condition_mismatches_preserve_evidence(
+    rated_kwargs: dict[str, Any], component_kwargs: dict[str, Any], state: str
+) -> None:
+    row = _resolve(
+        rated={"tx-1": _rated(**rated_kwargs)},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _component(**component_kwargs)},
+    ).transformer_states.iloc[0]
+    assert row["transformer_loss_component_authority_state"] == state
+    assert row["s12b_rated_load_loss_w"] == 5_000.0
+    assert row["i2r_loss_reference_w"] == 3_500.0
+    assert row["thermal_construction_family"] == "mineral_oil_immersed"
+
+
+def test_multiple_transformers_sorted_independent_and_immutable() -> None:
+    ids = ("tx-b", "tx-a")
+    result = _resolve(
+        ids=ids,
+        rated={identifier: _rated(identifier) for identifier in ids},
+        construction={identifier: _construction(identifier) for identifier in ids},
+        components={"tx-a": _component("tx-a")},
+    )
+    assert result.transformer_states.index.tolist() == ["tx-a", "tx-b"]
+    assert result.transformer_states.loc["tx-a", "transformer_advanced_loss_basis_resolved"]
+    assert not result.transformer_states.loc["tx-b", "transformer_advanced_loss_basis_resolved"]
+    assert type(result.construction_by_id) is MappingProxyType
+    with pytest.raises(TypeError):
+        result.construction_by_id["x"] = _construction("x")  # type: ignore[index]
+    assert type(result.rated_load_loss_component_by_id) is MappingProxyType
+
+
+def test_caller_mapping_mutation_cannot_change_result() -> None:
+    construction = {"tx-1": _construction()}
+    components = {"tx-1": _component()}
+    result = _resolve(rated={"tx-1": _rated()}, construction=construction, components=components)
+    construction.clear()
+    components.clear()
+    assert tuple(result.construction_by_id) == ("tx-1",)
+    assert tuple(result.rated_load_loss_component_by_id) == ("tx-1",)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("transformer_id", ""),
+        ("transformer_id", " tx-1"),
+        ("conductor_material_description", ""),
+        ("cooling_method_code", " "),
+        ("parameter_source", ""),
+        ("confidence", "certain"),
+        ("thermal_construction_family", "wet"),
+        ("winding_conductor_material", "silver"),
+        ("core_material_family", "iron"),
+    ],
+)
+def test_construction_rejects_invalid_fields(field: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        replace(_construction(), **{field: value})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("i2r_loss_w", -1.0),
+        ("i2r_loss_w", True),
+        ("winding_eddy_current_loss_w", math.nan),
+        ("reported_other_stray_loss_w", math.inf),
+        ("reference_temperature_c", -273.15),
+        ("reference_temperature_c", True),
+        ("reference_temperature_c", math.inf),
+        ("test_frequency_hz", 0.0),
+        ("test_frequency_hz", True),
+        ("test_frequency_hz", -math.inf),
+        ("test_current_reference_side", "primary"),
+        ("test_current_condition", "nominal"),
+        ("component_basis_semantics", "percentages"),
+        ("decomposition_method", "estimated"),
+        ("parameter_source", " source"),
+        ("confidence", "certain"),
+    ],
+)
+def test_component_rejects_invalid_fields(field: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        replace(_component(), **{field: value})  # type: ignore[arg-type]
+
+
+def test_mapping_rejects_unknown_mismatch_and_wrong_type() -> None:
+    with pytest.raises(ValueError, match="unknown"):
+        _resolve(construction={"unknown": _construction("unknown")})
+    with pytest.raises(ValueError, match="key mismatch"):
+        _resolve(construction={"tx-1": _construction("tx-2")})
+    with pytest.raises(TypeError, match="invalid value type"):
+        _resolve(construction=cast(Any, {"tx-1": object()}))
+    with pytest.raises(TypeError, match="must be a mapping"):
+        _resolve(construction=cast(Any, [_construction()]))
+
+
+def test_strong_parent_replay_rejects_frame_mapping_and_diagnostics_tampering() -> None:
+    context = _context(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _component()},
+    )
+    base = {
+        "rated": {"tx-1": _rated()},
+        "construction": {"tx-1": _construction()},
+        "components": {"tx-1": _component()},
+    }
+    static_frame = context["static"].transformer_states.copy(deep=True)
+    static_frame.iloc[0, 0] = not bool(static_frame.iloc[0, 0])
+    loss_frame = context["loss"].transformer_states.copy(deep=True)
+    loss_frame.iloc[0, 0] = not bool(loss_frame.iloc[0, 0])
+    mutations = (
+        {
+            "transformer_static_authority": replace(
+                context["static"], transformer_states=static_frame
+            )
+        },
+        {
+            "transformer_static_authority": replace(
+                context["static"], equipment_by_id=dict(context["static"].equipment_by_id)
+            )
+        },
+        {
+            "transformer_static_authority": replace(
+                context["static"], topology_by_id=dict(context["static"].topology_by_id)
+            )
+        },
+        {
+            "transformer_static_authority": replace(
+                context["static"],
+                diagnostics=replace(context["static"].diagnostics, transformer_record_count=99),
+            )
+        },
+        {"transformer_loss_authority": replace(context["loss"], transformer_states=loss_frame)},
+        {
+            "transformer_loss_authority": replace(
+                context["loss"], rated_load_loss_by_id=dict(context["loss"].rated_load_loss_by_id)
+            )
+        },
+        {
+            "transformer_loss_authority": replace(
+                context["loss"], no_load_loss_by_id=dict(context["loss"].no_load_loss_by_id)
+            )
+        },
+        {
+            "transformer_loss_authority": replace(
+                context["loss"],
+                diagnostics=replace(context["loss"].diagnostics, transformer_record_count=99),
+            )
+        },
+    )
+    for mutation in mutations:
+        with pytest.raises(ValueError):
+            _resolve(**cast(Any, base), mutations=mutation)
+
+
+def test_strong_parent_replay_rejects_wrong_types_and_reordered_frames() -> None:
+    context = _context(ids=("tx-b", "tx-a"))
+    reversed_static_frame = context["static"].transformer_states.iloc[::-1]
+    reversed_loss_frame = context["loss"].transformer_states.iloc[::-1]
+    for mutation in (
+        {"transformer_static_authority": object()},
+        {"transformer_loss_authority": object()},
+        {
+            "transformer_static_authority": replace(
+                context["static"], transformer_states=reversed_static_frame
+            )
+        },
+        {
+            "transformer_loss_authority": replace(
+                context["loss"], transformer_states=reversed_loss_frame
+            )
+        },
+    ):
+        with pytest.raises(ValueError):
+            _resolve(ids=("tx-b", "tx-a"), mutations=mutation)
+
+
+def test_validator_rejects_each_contract_family_and_diagnostics_tamper() -> None:
+    context = _context(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _component()},
+    )
+    result = _complete()
+    for column in (
+        "s12b_rated_load_loss_w",
+        "i2r_loss_reference_w",
+        "winding_eddy_current_loss_reference_w",
+        "canonical_other_stray_loss_reference_w",
+        "canonical_component_sum_w",
+        "component_closure_residual_w",
+        "component_reference_side_compatible",
+        "component_reference_temperature_compatible",
+        "component_test_frequency_compatible",
+        "component_math_compatible",
+        "reported_other_stray_loss_compatible",
+        "transformer_construction_basis_resolved",
+        "transformer_load_loss_component_basis_resolved",
+        "transformer_advanced_loss_basis_resolved",
+        "thermal_construction_family",
+        "winding_conductor_material",
+        "cooling_method_code",
+        "core_material_family",
+        "construction_parameter_source",
+        "construction_confidence",
+        "component_parameter_source",
+        "component_confidence",
+        "decomposition_method",
+        "reference_load_loss_ownership",
+        "transformer_static_authority_contract",
+        "transformer_static_authority_model",
+        "transformer_loss_authority_contract",
+        "transformer_loss_authority_model",
+        "transformer_loss_component_authority_contract",
+        "transformer_loss_component_authority_model",
+        "transformer_loss_component_authority_scope",
+        "transformer_loss_component_authority_coverage_scope",
+        "transformer_loss_component_authority_state",
+    ):
+        frame = result.transformer_states.copy(deep=True)
+        original = frame.loc["tx-1", column]
+        replacement: object = (
+            not bool(original)
+            if frame[column].dtype == bool
+            else ("tampered" if isinstance(original, str) else 123.0)
+        )
+        frame.loc["tx-1", column] = replacement
+        with pytest.raises(RuntimeError):
+            _validate_result(
+                context["static"],
+                context["loss"],
+                result.construction_by_id,
+                result.rated_load_loss_component_by_id,
+                replace(result, transformer_states=frame),
+            )
+    with pytest.raises(RuntimeError):
+        _validate_result(
+            context["static"],
+            context["loss"],
+            result.construction_by_id,
+            result.rated_load_loss_component_by_id,
+            replace(result, diagnostics=replace(result.diagnostics, transformer_count=99)),
+        )
+    with pytest.raises(RuntimeError, match="immutable"):
+        _validate_result(
+            context["static"],
+            context["loss"],
+            result.construction_by_id,
+            result.rated_load_loss_component_by_id,
+            replace(result, construction_by_id=dict(result.construction_by_id)),
+        )
+
+
+def test_validator_rejects_reordered_immutable_mappings() -> None:
+    ids = ("tx-b", "tx-a")
+    constructions = {identifier: _construction(identifier) for identifier in ids}
+    components = {identifier: _component(identifier) for identifier in ids}
+    rated = {identifier: _rated(identifier) for identifier in ids}
+    context = _context(ids, rated=rated, construction=constructions, components=components)
+    result = _resolve(ids=ids, rated=rated, construction=constructions, components=components)
+    reversed_construction = MappingProxyType(dict(reversed(result.construction_by_id.items())))
+    with pytest.raises(RuntimeError, match="mapping"):
+        _validate_result(
+            context["static"],
+            context["loss"],
+            result.construction_by_id,
+            result.rated_load_loss_component_by_id,
+            replace(result, construction_by_id=reversed_construction),
+        )
+
+
+def test_diagnostics_count_all_conditions_independently_of_state_precedence() -> None:
+    ids = ("tx-b", "tx-a")
+    result = _resolve(
+        ids=ids,
+        rated={"tx-a": _rated("tx-a")},
+        construction={},
+        components={"tx-a": _component("tx-a", side="network_side")},
+    )
+    diagnostics = result.diagnostics
+    assert diagnostics.missing_s12b_rated_load_count == 1
+    assert diagnostics.missing_construction_count == 2
+    assert diagnostics.missing_component_count == 1
+    assert diagnostics.incompatible_side_count == 1
+    assert sum(count for _, count in diagnostics.state_counts) == diagnostics.transformer_count
+
+
+def test_contract_constants_and_scope_exclusions() -> None:
+    assert TRANSFORMER_LOSS_COMPONENT_AUTHORITY_CONTRACT_ID.endswith("_v1")
+    assert TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID.endswith("_v1")
+    assert "harmonic_thermal" in TRANSFORMER_LOSS_COMPONENT_AUTHORITY_SCOPE
+    assert "three_component" in TRANSFORMER_LOSS_COMPONENT_AUTHORITY_COVERAGE_SCOPE
+    source = inspect.getsource(module)
+    for forbidden in (
+        "transformer_series_equivalent",
+        "transformer_operating_loss",
+        "transformer_operating_solution",
+        "harmonic_spectrum",
+        "top_oil_temperature",
+        "steinmetz",
+        "magnetising_current",
+    ):
+        assert forbidden not in source
