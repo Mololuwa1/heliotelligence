@@ -208,7 +208,6 @@ class TopologyTransformerCorrectedLoadLossResult:
 _BOOL_COLUMNS = {
     "s12g_operating_row_present",
     "s12g_terminal_operating_solution_resolved",
-    "transformer_energised",
     "s12h_advanced_loss_basis_resolved",
     "s12i_harmonic_characterisation_resolved",
     "s12j_thermal_row_present",
@@ -224,6 +223,7 @@ _BOOL_COLUMNS = {
     "series_equivalent_modified",
     "coupled_thermal_iteration_applied",
 }
+_NULLABLE_BOOL_COLUMNS = {"transformer_energised"}
 _FLOAT_COLUMNS = {
     "component_reference_frequency_hz",
     "harmonic_fundamental_frequency_hz",
@@ -250,6 +250,30 @@ _FLOAT_COLUMNS = {
     "factory_total_rated_load_loss_w",
     "effective_winding_ohmic_resistance_reference_ohm_per_phase",
     "effective_winding_ohmic_resistance_temperature_corrected_ohm_per_phase",
+    "i2r_loss_fundamental_temperature_corrected_w",
+    "i2r_loss_harmonic_increment_w",
+    "i2r_loss_corrected_total_w",
+    "winding_eddy_loss_fundamental_temperature_corrected_w",
+    "winding_eddy_loss_harmonic_increment_w",
+    "winding_eddy_loss_corrected_total_w",
+    "other_stray_loss_fundamental_temperature_corrected_w",
+    "other_stray_loss_harmonic_increment_w",
+    "other_stray_loss_corrected_total_w",
+    "reconstructed_reference_sinusoidal_load_loss_w",
+    "s12g_reference_load_loss_w",
+    "s12g_reference_load_loss_closure_residual_w",
+    "temperature_corrected_sinusoidal_load_loss_w",
+    "temperature_correction_effect_w",
+    "harmonic_incremental_load_loss_w",
+    "harmonic_and_temperature_corrected_load_loss_w",
+    "advanced_correction_vs_s12g_w",
+    "advanced_correction_decomposition_residual_w",
+}
+_DEENERGISED_ZERO_COLUMNS = {
+    "fundamental_operating_current_a",
+    "fundamental_current_loading_ratio",
+    "total_rms_operating_current_a",
+    "total_rms_current_loading_ratio",
     "i2r_loss_fundamental_temperature_corrected_w",
     "i2r_loss_harmonic_increment_w",
     "i2r_loss_corrected_total_w",
@@ -572,7 +596,7 @@ def _record(
         {
             "s12g_operating_row_present": grow is not None,
             "s12g_terminal_operating_solution_resolved": g_ok,
-            "transformer_energised": grow["transformer_energised"] if grow is not None else "",
+            "transformer_energised": (grow["transformer_energised"] if grow is not None else pd.NA),
             "s12h_advanced_loss_basis_resolved": h_ok,
             "s12i_harmonic_characterisation_resolved": i_ok,
             "s12j_thermal_row_present": jrow is not None,
@@ -620,6 +644,19 @@ def _record(
             "other_stray_harmonic_loss_factor": float(irow["other_stray_harmonic_loss_factor"]),
         }
     )
+    evidence_side = (
+        component_side if component_side in {"collection_side", "network_side"} else operating_side
+    )
+    if grow is not None:
+        if evidence_side == "collection_side":
+            record["fundamental_operating_current_a"] = float(
+                grow["collection_series_current_magnitude_a"]
+            )
+        elif evidence_side == "network_side":
+            record["fundamental_operating_current_a"] = float(
+                grow["network_series_current_magnitude_a"]
+            )
+        record["s12g_reference_load_loss_w"] = float(grow["p_series_active_loss_w"])
     if custom:
         record.update(
             {
@@ -634,28 +671,8 @@ def _record(
     elif not g_ok and not deenergised:
         state = _STATES[1]
     elif deenergised:
-        zero_names = [
-            name
-            for name in _FLOAT_COLUMNS
-            if any(
-                token in name
-                for token in (
-                    "operating_current",
-                    "loading_ratio",
-                    "loss_fundamental",
-                    "harmonic_increment",
-                    "loss_corrected_total",
-                    "load_loss_w",
-                    "correction_effect",
-                    "advanced_correction",
-                )
-            )
-        ]
-        for name in zero_names:
+        for name in _DEENERGISED_ZERO_COLUMNS:
             record[name] = 0.0
-        record["s12g_reference_load_loss_w"] = 0.0
-        record["reconstructed_reference_sinusoidal_load_loss_w"] = 0.0
-        record["s12g_reference_load_loss_closure_residual_w"] = 0.0
         state = _STATES[2]
     elif not h_ok:
         state = _STATES[3]
@@ -679,7 +696,7 @@ def _record(
         tw = float(jrow["average_winding_temperature_c"])
         tk: float | None
         mode: str
-        if tw == tref and custom is None:
+        if tw == tref:
             tk, mode = None, "not_required_equal_reference_temperature"
             kr = 1.0
         elif custom is not None:
@@ -830,9 +847,11 @@ def _frame(keys: list[tuple[pd.Timestamp, str]], records: list[dict[str, object]
     frame = pd.DataFrame(records, index=index, columns=_COLUMNS)
     for name in _BOOL_COLUMNS:
         frame[name] = frame[name].astype(bool)
+    for name in _NULLABLE_BOOL_COLUMNS:
+        frame[name] = frame[name].astype("boolean")
     for name in _FLOAT_COLUMNS:
         frame[name] = frame[name].astype("float64")
-    for name in set(_COLUMNS) - _BOOL_COLUMNS - _FLOAT_COLUMNS:
+    for name in set(_COLUMNS) - _BOOL_COLUMNS - _NULLABLE_BOOL_COLUMNS - _FLOAT_COLUMNS:
         frame[name] = frame[name].astype(object)
     return frame
 
@@ -908,6 +927,490 @@ def _diagnostics(
     )
 
 
+def _validator_record(
+    timestamp: pd.Timestamp,
+    identifier: str,
+    parents: tuple[Any, Any, Any, Any],
+    equipment: Any,
+    constants: Mapping[str, Any],
+    applications: Mapping[tuple[pd.Timestamp, str], Any],
+) -> dict[str, object]:
+    """Reconstruct one expected row without any production S12K builder."""
+    g_parent, h_parent, i_parent, j_parent = parents
+    key = (timestamp, identifier)
+    g_row = (
+        g_parent.transformer_operating_states.loc[key]
+        if key in g_parent.transformer_operating_states.index
+        else None
+    )
+    h_row = h_parent.transformer_states.loc[identifier]
+    i_row = i_parent.transformer_states.loc[identifier]
+    j_row = j_parent.states.loc[key] if key in j_parent.states.index else None
+    construction = h_parent.construction_by_id.get(identifier)
+    binding = applications.get(key)
+    custom = constants.get(identifier)
+
+    expected: dict[str, object] = {
+        name: (
+            False
+            if name in _BOOL_COLUMNS
+            else pd.NA
+            if name in _NULLABLE_BOOL_COLUMNS
+            else math.nan
+            if name in _FLOAT_COLUMNS
+            else ""
+        )
+        for name in _COLUMNS
+    }
+    expected.update(
+        {
+            "current_loading_semantics": CURRENT_LOADING_SEMANTICS,
+            "i2r_temperature_semantics": I2R_TEMPERATURE_SEMANTICS,
+            "winding_eddy_temperature_semantics": WINDING_EDDY_TEMPERATURE_SEMANTICS,
+            "other_stray_temperature_semantics": OTHER_STRAY_TEMPERATURE_SEMANTICS,
+            "harmonic_other_stray_semantics": HARMONIC_OTHER_STRAY_SEMANTICS,
+            "other_stray_temperature_assumption": OTHER_STRAY_TEMPERATURE_ASSUMPTION,
+            "advanced_load_loss_ownership": ADVANCED_LOAD_LOSS_OWNERSHIP,
+            "s12d_operating_loss_treatment": S12D_OPERATING_LOSS_TREATMENT,
+            "no_load_loss_included": False,
+            "terminal_voltage_recalculated": False,
+            "series_equivalent_modified": False,
+            "coupled_thermal_iteration_applied": False,
+            "transformer_operating_solution_contract": (TRANSFORMER_OPERATING_SOLUTION_CONTRACT_ID),
+            "transformer_operating_solution_model": TRANSFORMER_OPERATING_SOLUTION_MODEL_ID,
+            "transformer_loss_component_authority_contract": (
+                TRANSFORMER_LOSS_COMPONENT_AUTHORITY_CONTRACT_ID
+            ),
+            "transformer_loss_component_authority_model": (
+                TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID
+            ),
+            "transformer_harmonic_current_authority_contract": (
+                TRANSFORMER_HARMONIC_CURRENT_AUTHORITY_CONTRACT_ID
+            ),
+            "transformer_harmonic_current_authority_model": (
+                TRANSFORMER_HARMONIC_CURRENT_AUTHORITY_MODEL_ID
+            ),
+            "transformer_thermal_state_authority_contract": (
+                TRANSFORMER_THERMAL_STATE_AUTHORITY_CONTRACT_ID
+            ),
+            "transformer_thermal_state_authority_model": (
+                TRANSFORMER_THERMAL_STATE_AUTHORITY_MODEL_ID
+            ),
+            "transformer_corrected_load_loss_contract": (
+                TRANSFORMER_CORRECTED_LOAD_LOSS_CONTRACT_ID
+            ),
+            "transformer_corrected_load_loss_model": TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,
+            "transformer_corrected_load_loss_scope": TRANSFORMER_CORRECTED_LOAD_LOSS_SCOPE,
+            "transformer_corrected_load_loss_coverage_scope": (
+                TRANSFORMER_CORRECTED_LOAD_LOSS_COVERAGE_SCOPE
+            ),
+        }
+    )
+    g_resolved = bool(
+        g_row is not None and g_row["transformer_terminal_operating_solution_resolved"]
+    )
+    deenergised = bool(
+        g_row is not None
+        and g_row["transformer_operating_solution_state"]
+        == "resolved_deenergised_transformer_no_transfer"
+    )
+    h_resolved = bool(h_row["transformer_advanced_loss_basis_resolved"])
+    i_resolved = bool(i_row["transformer_harmonic_current_characterisation_resolved"])
+    j_resolved = bool(
+        j_row is not None and j_row["transformer_load_loss_temperature_basis_resolved"]
+    )
+    component_side = str(h_row["component_test_current_reference_side"])
+    harmonic_side = str(i_row["harmonic_current_reference_side"])
+    operating_side = str(g_row["series_equivalent_reference_side"]) if g_row is not None else ""
+    evidence_side = (
+        component_side if component_side in {"collection_side", "network_side"} else operating_side
+    )
+    if g_row is not None:
+        if evidence_side == "collection_side":
+            expected["fundamental_operating_current_a"] = float(
+                g_row["collection_series_current_magnitude_a"]
+            )
+        elif evidence_side == "network_side":
+            expected["fundamental_operating_current_a"] = float(
+                g_row["network_series_current_magnitude_a"]
+            )
+        expected["s12g_reference_load_loss_w"] = float(g_row["p_series_active_loss_w"])
+    harmonic_applicability = str(i_row["applicability_semantics"])
+    harmonic_side_ok = bool(component_side and harmonic_side and component_side == harmonic_side)
+    operating_side_ok = bool(component_side and operating_side and component_side == operating_side)
+    component_frequency = float(h_row["component_test_frequency_hz"])
+    harmonic_frequency = float(i_row["fundamental_frequency_hz"])
+    frequency_ok = bool(
+        math.isfinite(component_frequency)
+        and math.isfinite(harmonic_frequency)
+        and component_frequency == harmonic_frequency
+    )
+    harmonic_applies = bool(
+        harmonic_applicability == "declared_representative_normalized_spectrum"
+        or binding is not None
+    )
+    expected.update(
+        {
+            "s12g_operating_row_present": g_row is not None,
+            "s12g_terminal_operating_solution_resolved": g_resolved,
+            "transformer_energised": (
+                g_row["transformer_energised"] if g_row is not None else pd.NA
+            ),
+            "s12h_advanced_loss_basis_resolved": h_resolved,
+            "s12i_harmonic_characterisation_resolved": i_resolved,
+            "s12j_thermal_row_present": j_row is not None,
+            "s12j_load_loss_temperature_basis_resolved": j_resolved,
+            "component_reference_side": component_side,
+            "harmonic_reference_side": harmonic_side,
+            "operating_series_reference_side": operating_side,
+            "harmonic_reference_side_compatible": harmonic_side_ok,
+            "operating_current_reference_side_compatible": operating_side_ok,
+            "component_reference_frequency_hz": component_frequency,
+            "harmonic_fundamental_frequency_hz": harmonic_frequency,
+            "harmonic_frequency_compatible": frequency_ok,
+            "harmonic_spectrum_applicability_semantics": harmonic_applicability,
+            "single_condition_harmonic_application_present": binding is not None,
+            "harmonic_spectrum_applicable_at_timestamp": harmonic_applies,
+            "single_condition_operating_condition_match_basis": (
+                binding.operating_condition_match_basis if binding else ""
+            ),
+            "single_condition_parameter_source": binding.parameter_source if binding else "",
+            "single_condition_confidence": binding.confidence if binding else "",
+            "winding_conductor_material": (
+                construction.winding_conductor_material if construction else ""
+            ),
+            "component_reference_temperature_c": float(h_row["component_reference_temperature_c"]),
+            "average_winding_temperature_c": (
+                float(j_row["average_winding_temperature_c"]) if j_row is not None else math.nan
+            ),
+            "i2r_loss_reference_w": float(h_row["i2r_loss_reference_w"]),
+            "winding_eddy_current_loss_reference_w": float(
+                h_row["winding_eddy_current_loss_reference_w"]
+            ),
+            "other_stray_loss_reference_w": float(h_row["canonical_other_stray_loss_reference_w"]),
+            "factory_total_rated_load_loss_w": float(h_row["s12b_rated_load_loss_w"]),
+            "sum_current_ratio_squared": float(i_row["sum_current_ratio_squared"]),
+            "total_rms_to_fundamental_current_ratio": float(
+                i_row["total_rms_current_to_fundamental_ratio"]
+            ),
+            "current_thd_ratio": float(i_row["current_thd_ratio"]),
+            "current_thd_percent": float(i_row["current_thd_percent"]),
+            "winding_eddy_harmonic_loss_factor": float(i_row["winding_eddy_harmonic_loss_factor"]),
+            "other_stray_harmonic_loss_factor": float(i_row["other_stray_harmonic_loss_factor"]),
+        }
+    )
+    if custom is not None:
+        expected.update(
+            {
+                "resistance_temperature_constant_c": (custom.resistance_temperature_constant_c),
+                "resistance_temperature_constant_source_mode": "explicit_authority",
+                "resistance_temperature_constant_parameter_source": custom.parameter_source,
+                "resistance_temperature_constant_confidence": custom.confidence,
+            }
+        )
+
+    if g_row is None:
+        primary = _STATES[0]
+    elif not g_resolved and not deenergised:
+        primary = _STATES[1]
+    elif deenergised:
+        for column in _DEENERGISED_ZERO_COLUMNS:
+            expected[column] = 0.0
+        primary = _STATES[2]
+    elif not h_resolved:
+        primary = _STATES[3]
+    elif not i_resolved:
+        primary = _STATES[4]
+    elif not harmonic_side_ok:
+        primary = _STATES[5]
+    elif not operating_side_ok:
+        primary = _STATES[6]
+    elif not frequency_ok:
+        primary = _STATES[7]
+    elif not harmonic_applies:
+        primary = _STATES[8]
+    elif j_row is None:
+        primary = _STATES[9]
+    elif not j_resolved:
+        primary = _STATES[10]
+    else:
+        material = construction.winding_conductor_material
+        reference_temperature = float(h_row["component_reference_temperature_c"])
+        winding_temperature = float(j_row["average_winding_temperature_c"])
+        constant: float | None
+        if winding_temperature == reference_temperature:
+            constant = None
+            source_mode = "not_required_equal_reference_temperature"
+            resistance_factor = 1.0
+        elif custom is not None:
+            constant = custom.resistance_temperature_constant_c
+            source_mode = "explicit_authority"
+            numerator = winding_temperature + constant
+            denominator = reference_temperature + constant
+            resistance_factor = (
+                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+            )
+        elif material == "copper":
+            constant = 234.5
+            source_mode = "standard_copper_234p5_c"
+            numerator = winding_temperature + constant
+            denominator = reference_temperature + constant
+            resistance_factor = (
+                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+            )
+        elif material == "aluminium":
+            constant = 225.0
+            source_mode = "standard_aluminium_225_c"
+            numerator = winding_temperature + constant
+            denominator = reference_temperature + constant
+            resistance_factor = (
+                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+            )
+        else:
+            constant = None
+            source_mode = "unresolved"
+            resistance_factor = math.nan
+        expected["resistance_temperature_constant_source_mode"] = source_mode
+        if constant is not None:
+            expected["resistance_temperature_constant_c"] = constant
+
+        if (
+            material == "mixed_or_other_explicit"
+            and constant is None
+            and (winding_temperature != reference_temperature)
+        ):
+            primary = _STATES[11]
+        elif not math.isfinite(resistance_factor) or resistance_factor <= 0.0:
+            primary = _STATES[12]
+        else:
+            try:
+                rated_voltage = (
+                    equipment.collection_side_rated_line_to_line_rms_v
+                    if component_side == "collection_side"
+                    else equipment.network_side_rated_line_to_line_rms_v
+                )
+                rated_current = equipment.rated_apparent_power_va / (math.sqrt(3.0) * rated_voltage)
+                fundamental_current = float(
+                    g_row["collection_series_current_magnitude_a"]
+                    if component_side == "collection_side"
+                    else g_row["network_series_current_magnitude_a"]
+                )
+                beta_fundamental = fundamental_current / rated_current
+                rms_multiplier = float(i_row["total_rms_current_to_fundamental_ratio"])
+                total_current = fundamental_current * rms_multiplier
+                beta_total = beta_fundamental * rms_multiplier
+                beta_fundamental_squared = beta_fundamental * beta_fundamental
+                beta_total_squared = beta_total * beta_total
+                inverse_factor = 1.0 / resistance_factor
+                i2r_reference = float(h_row["i2r_loss_reference_w"])
+                eddy_reference = float(h_row["winding_eddy_current_loss_reference_w"])
+                stray_reference = float(h_row["canonical_other_stray_loss_reference_w"])
+                eddy_harmonic_factor = float(i_row["winding_eddy_harmonic_loss_factor"])
+                stray_harmonic_factor = float(i_row["other_stray_harmonic_loss_factor"])
+                i2r_fundamental = beta_fundamental_squared * i2r_reference * resistance_factor
+                eddy_fundamental = beta_fundamental_squared * eddy_reference * inverse_factor
+                stray_fundamental = beta_fundamental_squared * stray_reference * inverse_factor
+                i2r_total = beta_total_squared * i2r_reference * resistance_factor
+                eddy_total = (
+                    beta_total_squared * eddy_reference * eddy_harmonic_factor * inverse_factor
+                )
+                stray_total = (
+                    beta_total_squared * stray_reference * stray_harmonic_factor * inverse_factor
+                )
+                i2r_increment = i2r_total - i2r_fundamental
+                eddy_increment = eddy_total - eddy_fundamental
+                stray_increment = stray_total - stray_fundamental
+                reference_loss = beta_fundamental_squared * math.fsum(
+                    [i2r_reference, eddy_reference, stray_reference]
+                )
+                s12g_loss = float(g_row["p_series_active_loss_w"])
+                closure = reference_loss - s12g_loss
+                temperature_total = math.fsum(
+                    [i2r_fundamental, eddy_fundamental, stray_fundamental]
+                )
+                advanced_total = math.fsum([i2r_total, eddy_total, stray_total])
+                temperature_effect = temperature_total - reference_loss
+                harmonic_effect = advanced_total - temperature_total
+                advanced_effect = advanced_total - s12g_loss
+                effect_residual = temperature_effect + harmonic_effect - advanced_effect
+                resistance_reference = i2r_reference / (3.0 * rated_current * rated_current)
+                resistance_temperature = resistance_reference * resistance_factor
+                derived = [
+                    rated_current,
+                    fundamental_current,
+                    beta_fundamental,
+                    total_current,
+                    beta_total,
+                    resistance_factor,
+                    inverse_factor,
+                    i2r_fundamental,
+                    eddy_fundamental,
+                    stray_fundamental,
+                    i2r_total,
+                    eddy_total,
+                    stray_total,
+                    i2r_increment,
+                    eddy_increment,
+                    stray_increment,
+                    reference_loss,
+                    s12g_loss,
+                    closure,
+                    temperature_total,
+                    advanced_total,
+                    temperature_effect,
+                    harmonic_effect,
+                    advanced_effect,
+                    effect_residual,
+                    resistance_reference,
+                    resistance_temperature,
+                ]
+            except (OverflowError, ValueError, ZeroDivisionError):
+                derived = [math.nan]
+            if not all(math.isfinite(value) for value in derived):
+                primary = _STATES[14]
+            else:
+                expected.update(
+                    {
+                        "fundamental_operating_current_a": fundamental_current,
+                        "rated_reference_side_current_a": rated_current,
+                        "fundamental_current_loading_ratio": beta_fundamental,
+                        "total_rms_operating_current_a": total_current,
+                        "total_rms_current_loading_ratio": beta_total,
+                        "i2r_temperature_correction_factor": resistance_factor,
+                        "winding_eddy_temperature_correction_factor": inverse_factor,
+                        "other_stray_temperature_correction_factor": inverse_factor,
+                        "other_stray_structural_temperature_proxy_applied": True,
+                        "effective_winding_ohmic_resistance_reference_ohm_per_phase": (
+                            resistance_reference
+                        ),
+                        "effective_winding_ohmic_resistance_temperature_corrected_ohm_per_phase": (
+                            resistance_temperature
+                        ),
+                        "i2r_loss_fundamental_temperature_corrected_w": i2r_fundamental,
+                        "i2r_loss_harmonic_increment_w": i2r_increment,
+                        "i2r_loss_corrected_total_w": i2r_total,
+                        "winding_eddy_loss_fundamental_temperature_corrected_w": (eddy_fundamental),
+                        "winding_eddy_loss_harmonic_increment_w": eddy_increment,
+                        "winding_eddy_loss_corrected_total_w": eddy_total,
+                        "other_stray_loss_fundamental_temperature_corrected_w": (stray_fundamental),
+                        "other_stray_loss_harmonic_increment_w": stray_increment,
+                        "other_stray_loss_corrected_total_w": stray_total,
+                        "reconstructed_reference_sinusoidal_load_loss_w": reference_loss,
+                        "s12g_reference_load_loss_w": s12g_loss,
+                        "s12g_reference_load_loss_closure_residual_w": closure,
+                        "temperature_corrected_sinusoidal_load_loss_w": temperature_total,
+                        "temperature_correction_effect_w": temperature_effect,
+                        "harmonic_incremental_load_loss_w": harmonic_effect,
+                        "harmonic_and_temperature_corrected_load_loss_w": advanced_total,
+                        "advanced_correction_vs_s12g_w": advanced_effect,
+                        "advanced_correction_decomposition_residual_w": effect_residual,
+                    }
+                )
+                primary = (
+                    _STATES[13]
+                    if not math.isclose(
+                        reference_loss, s12g_loss, rel_tol=_REL_TOL, abs_tol=_ABS_TOL_W
+                    )
+                    else _STATES[15]
+                )
+    expected["transformer_corrected_load_loss_state"] = primary
+    return expected
+
+
+def _validator_frame(
+    keys: list[tuple[pd.Timestamp, str]], records: list[dict[str, object]]
+) -> pd.DataFrame:
+    """Build the expected frame without calling the production frame builder."""
+    expected_index = pd.MultiIndex.from_tuples(keys, names=["timestamp", "transformer_id"])
+    expected = pd.DataFrame(records, index=expected_index, columns=_COLUMNS)
+    for column in _BOOL_COLUMNS:
+        expected[column] = expected[column].astype(bool)
+    for column in _NULLABLE_BOOL_COLUMNS:
+        expected[column] = expected[column].astype("boolean")
+    for column in _FLOAT_COLUMNS:
+        expected[column] = expected[column].astype("float64")
+    text_columns = set(_COLUMNS) - _BOOL_COLUMNS - _NULLABLE_BOOL_COLUMNS - _FLOAT_COLUMNS
+    for column in text_columns:
+        expected[column] = expected[column].astype(object)
+    return expected
+
+
+def _validator_diagnostics(
+    frame: pd.DataFrame, transformer_count: int, timestamp_count: int
+) -> TopologyTransformerCorrectedLoadLossDiagnostics:
+    """Reconstruct diagnostics independently of the production diagnostic builder."""
+    states = frame["transformer_corrected_load_loss_state"]
+    modes = frame["resistance_temperature_constant_source_mode"]
+
+    def true_count(column: str) -> int:
+        return int(frame[column].sum())
+
+    single = frame["harmonic_spectrum_applicability_semantics"] == (
+        "single_declared_operating_condition"
+    )
+    return TopologyTransformerCorrectedLoadLossDiagnostics(
+        transformer_count=transformer_count,
+        timestamp_count=timestamp_count,
+        row_count=len(frame),
+        s12g_row_present_count=true_count("s12g_operating_row_present"),
+        s12g_operating_solution_resolved_count=true_count(
+            "s12g_terminal_operating_solution_resolved"
+        ),
+        resolved_deenergised_zero_loss_count=int((states == _STATES[2]).sum()),
+        s12h_basis_resolved_count=true_count("s12h_advanced_loss_basis_resolved"),
+        s12i_characterisation_resolved_count=true_count("s12i_harmonic_characterisation_resolved"),
+        s12j_temperature_basis_resolved_count=true_count(
+            "s12j_load_loss_temperature_basis_resolved"
+        ),
+        harmonic_side_mismatch_count=int(
+            (
+                ~frame["harmonic_reference_side_compatible"]
+                & frame["s12h_advanced_loss_basis_resolved"]
+                & frame["s12i_harmonic_characterisation_resolved"]
+            ).sum()
+        ),
+        operating_side_mismatch_count=int(
+            (
+                ~frame["operating_current_reference_side_compatible"]
+                & frame["s12h_advanced_loss_basis_resolved"]
+                & frame["s12g_operating_row_present"]
+            ).sum()
+        ),
+        frequency_mismatch_count=int(
+            (
+                ~frame["harmonic_frequency_compatible"]
+                & frame["s12h_advanced_loss_basis_resolved"]
+                & frame["s12i_harmonic_characterisation_resolved"]
+            ).sum()
+        ),
+        single_condition_binding_required_count=int(single.sum()),
+        single_condition_binding_missing_count=int(
+            (single & ~frame["single_condition_harmonic_application_present"]).sum()
+        ),
+        standard_copper_temperature_constant_count=int((modes == "standard_copper_234p5_c").sum()),
+        standard_aluminium_temperature_constant_count=int(
+            (modes == "standard_aluminium_225_c").sum()
+        ),
+        explicit_temperature_constant_count=int((modes == "explicit_authority").sum()),
+        missing_temperature_constant_count=int((states == _STATES[11]).sum()),
+        temperature_domain_failure_count=int((states == _STATES[12]).sum()),
+        baseline_closure_mismatch_count=int((states == _STATES[13]).sum()),
+        nonfinite_count=int((states == _STATES[14]).sum()),
+        resolved_corrected_load_loss_count=int((states == _STATES[15]).sum()),
+        positive_temperature_correction_effect_count=int(
+            (frame["temperature_correction_effect_w"] > 0).sum()
+        ),
+        negative_temperature_correction_effect_count=int(
+            (frame["temperature_correction_effect_w"] < 0).sum()
+        ),
+        positive_harmonic_increment_count=int(
+            (frame["harmonic_incremental_load_loss_w"] > 0).sum()
+        ),
+        state_counts=tuple((name, int((states == name).sum())) for name in _STATES),
+        model=TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,
+    )
+
+
 def calculate_topology_transformer_corrected_load_loss(
     **values: Any,
 ) -> TopologyTransformerCorrectedLoadLossResult:
@@ -969,15 +1472,15 @@ def _validate_result(
         raise ValueError("S12K temperature constant mapping failed validation")
     ids = parents[1].transformer_states.index.tolist()
     keys = [(timestamp, identifier) for timestamp in timestamps for identifier in ids]
-    # This separate reconstruction never consumes the submitted frame or diagnostics.
+    # The validator has its own record, frame, numerical, and diagnostic pathway.
     expected_records = [
-        _record(t, i, parents, equipment.get(i), constants, applications) for t, i in keys
+        _validator_record(t, i, parents, equipment.get(i), constants, applications) for t, i in keys
     ]
-    expected = _frame(keys, expected_records)
+    expected = _validator_frame(keys, expected_records)
     try:
         pd.testing.assert_frame_equal(result.states, expected, check_exact=True)
     except AssertionError as error:
         raise ValueError("S12K result frame failed independent validation") from error
-    diagnostics = _diagnostics(expected, len(ids), len(timestamps))
+    diagnostics = _validator_diagnostics(expected, len(ids), len(timestamps))
     if result.diagnostics != diagnostics:
         raise ValueError("S12K diagnostics failed independent validation")
