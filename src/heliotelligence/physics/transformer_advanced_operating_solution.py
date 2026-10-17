@@ -183,30 +183,97 @@ _FLOAT = {
 }
 _INT = {"fixed_point_iterations", "fixed_point_maximum_iterations"}
 _COLUMNS = (
-    tuple(_BOOL)
-    + ("transformer_energised",)
-    + tuple(_FLOAT)
-    + tuple(_INT)
-    + (
-        "series_reference_side",
-        "advanced_fundamental_series_resistance_semantics",
-        "advanced_series_reactance_treatment",
-        "harmonic_increment_treatment",
-        "advanced_load_loss_ownership",
-        "advanced_no_load_loss_ownership",
-        "s12d_operating_loss_treatment",
-        "transformer_advanced_operating_solution_state",
-        "transformer_operating_solution_contract",
-        "transformer_operating_solution_model",
-        "transformer_corrected_load_loss_contract",
-        "transformer_corrected_load_loss_model",
-        "transformer_core_no_load_loss_contract",
-        "transformer_core_no_load_loss_model",
-        "transformer_advanced_operating_solution_contract",
-        "transformer_advanced_operating_solution_model",
-        "transformer_advanced_operating_solution_scope",
-        "transformer_advanced_operating_solution_coverage_scope",
-    )
+    "s12g_operating_row_present",
+    "s12g_terminal_operating_solution_resolved",
+    "s12k_corrected_load_loss_row_present",
+    "s12k_corrected_load_loss_resolved",
+    "s12l_core_no_load_loss_row_present",
+    "s12l_no_load_loss_output_resolved",
+    "s12l_advanced_core_loss_scaling_resolved",
+    "transformer_energised",
+    "collection_voltage_line_to_line_rms_v",
+    "collection_p_w",
+    "collection_q_var",
+    "network_to_collection_voltage_ratio",
+    "network_side_phase_displacement_deg",
+    "series_reference_side",
+    "s12g_reference_effective_series_resistance_ohm_per_phase",
+    "advanced_fundamental_effective_series_resistance_ohm_per_phase",
+    "advanced_fundamental_series_resistance_delta_ohm_per_phase",
+    "retained_series_reactance_ohm_per_phase",
+    "harmonic_increment_accounting_resistance_ohm_per_phase",
+    "harmonic_increment_roundoff_adjusted",
+    "collection_series_current_real_a",
+    "collection_series_current_imag_a",
+    "collection_series_current_magnitude_a",
+    "collection_series_current_angle_deg",
+    "network_series_current_real_a",
+    "network_series_current_imag_a",
+    "network_series_current_magnitude_a",
+    "network_series_current_angle_deg",
+    "internal_collection_excitation_voltage_line_to_line_rms_v",
+    "internal_network_excitation_voltage_line_to_line_rms_v",
+    "network_terminal_phase_voltage_real_v",
+    "network_terminal_phase_voltage_imag_v",
+    "network_terminal_phase_voltage_magnitude_v",
+    "network_terminal_voltage_line_to_line_rms_v",
+    "network_terminal_phase_angle_deg",
+    "p_network_terminal_w",
+    "q_network_terminal_var",
+    "s_network_terminal_magnitude_va",
+    "p_no_load_active_loss_w",
+    "p_harmonic_incremental_load_loss_w",
+    "p_fundamental_series_active_loss_w",
+    "q_fundamental_series_consumption_var",
+    "p_advanced_load_loss_w",
+    "coupled_advanced_load_loss_w",
+    "p_total_transformer_active_loss_w",
+    "coupled_no_load_loss_w",
+    "coupled_total_transformer_active_loss_w",
+    "s12g_baseline_load_loss_w",
+    "s12k_baseline_advanced_load_loss_w",
+    "coupled_load_loss_adjustment_vs_s12k_w",
+    "s12g_baseline_no_load_loss_w",
+    "s12l_selected_no_load_loss_w",
+    "coupled_no_load_adjustment_vs_s12l_w",
+    "s12g_baseline_total_transformer_active_loss_w",
+    "advanced_total_loss_correction_vs_s12g_w",
+    "fixed_point_iterations",
+    "fixed_point_converged",
+    "fixed_point_maximum_iterations",
+    "fixed_point_damping_factor",
+    "fixed_point_relative_tolerance",
+    "fixed_point_absolute_tolerance_w",
+    "no_load_fixed_point_residual_w",
+    "harmonic_fixed_point_residual_w",
+    "coupled_core_voltage_ratio_to_factory_reference",
+    "coupled_core_frequency_ratio_to_factory_reference",
+    "coupled_core_flux_density_ratio_to_factory_reference",
+    "coupled_core_loss_scaling_multiplier",
+    "active_power_conservation_residual_w",
+    "reactive_power_conservation_residual_var",
+    "s12l_core_loss_re_evaluated_in_coupled_iteration",
+    "harmonic_voltage_drop_modeled",
+    "excitation_no_load_q_modeled",
+    "coupled_thermal_iteration_applied",
+    "upstream_collection_recalculated",
+    "advanced_fundamental_series_resistance_semantics",
+    "advanced_series_reactance_treatment",
+    "harmonic_increment_treatment",
+    "advanced_load_loss_ownership",
+    "advanced_no_load_loss_ownership",
+    "s12d_operating_loss_treatment",
+    "transformer_advanced_operating_solution_state",
+    "transformer_operating_solution_contract",
+    "transformer_operating_solution_model",
+    "transformer_corrected_load_loss_contract",
+    "transformer_corrected_load_loss_model",
+    "transformer_core_no_load_loss_contract",
+    "transformer_core_no_load_loss_model",
+    "transformer_advanced_operating_solution_contract",
+    "transformer_advanced_operating_solution_model",
+    "transformer_advanced_operating_solution_scope",
+    "transformer_advanced_operating_solution_coverage_scope",
 )
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -530,16 +597,38 @@ def _record(
                 solved = None
                 domain = True
                 converged = False
+                nonfinite = False
                 final_no_load_residual = math.nan
                 final_harmonic_residual = math.nan
+                final_pnl = math.nan
+                final_ph = math.nan
+                iteration_count = 0
                 proposed: dict[str, Any] = {}
                 for iteration in range(1, MAXIMUM_ITERATIONS + 1):
                     iteration_count = iteration
                     proposed, domain = _propose(gr, lr, rf, rh, x, pnl, ph)
+                    complex_values = tuple(
+                        complex(proposed[name]) for name in ("ic", "in", "ec", "en", "vn", "sn")
+                    )
+                    finite_values = [float(proposed[name]) for name in ("iref", "ph")]
+                    if bool(lr["advanced_core_loss_scaling_resolved"]):
+                        finite_values.extend(float(proposed[name]) for name in ("rv", "rfq", "rb"))
+                        if domain:
+                            finite_values.extend(float(proposed[name]) for name in ("mult", "pnl"))
+                    else:
+                        finite_values.append(float(proposed["pnl"]))
+                    nonfinite = not all(
+                        math.isfinite(value.real) and math.isfinite(value.imag)
+                        for value in complex_values
+                    ) or not all(math.isfinite(value) for value in finite_values)
+                    if nonfinite:
+                        break
                     if not domain:
                         break
                     rn = float(proposed["pnl"]) - pnl
                     rhres = float(proposed["ph"]) - ph
+                    final_no_load_residual = rn
+                    final_harmonic_residual = rhres
                     if math.isclose(
                         rn,
                         0,
@@ -553,12 +642,19 @@ def _record(
                     ):
                         converged = True
                         solved = proposed
-                        final_no_load_residual = rn
-                        final_harmonic_residual = rhres
+                        final_pnl = pnl
+                        final_ph = ph
                         break
                     pnl += DAMPING_FACTOR * rn
                     ph += DAMPING_FACTOR * rhres
-                if not domain:
+                r["fixed_point_iterations"] = iteration_count
+                if math.isfinite(final_no_load_residual):
+                    r["no_load_fixed_point_residual_w"] = final_no_load_residual
+                if math.isfinite(final_harmonic_residual):
+                    r["harmonic_fixed_point_residual_w"] = final_harmonic_residual
+                if nonfinite:
+                    state = _STATES[11]
+                elif not domain:
                     r.update(
                         {
                             "coupled_core_voltage_ratio_to_factory_reference": float(
@@ -591,8 +687,8 @@ def _record(
                         vn = complex(solved["vn"])
                         sn = complex(solved["sn"])
                         iref = float(solved["iref"])
-                        pnl = float(solved["pnl"])
-                        ph = float(solved["ph"])
+                        pnl = final_pnl
+                        ph = final_ph
                         pfs = 3 * rf * iref**2
                         qfs = 3 * x * iref**2
                         pl = pfs + ph
@@ -1051,16 +1147,38 @@ def _validator_record(
                 solved = None
                 domain = True
                 converged = False
+                nonfinite = False
                 final_no_load_residual = math.nan
                 final_harmonic_residual = math.nan
+                final_pnl = math.nan
+                final_ph = math.nan
+                iteration_count = 0
                 proposed: dict[str, Any] = {}
                 for iteration in range(1, MAXIMUM_ITERATIONS + 1):
                     iteration_count = iteration
                     proposed, domain = _validator_propose(gr, lr, rf, rh, x, pnl, ph)
+                    complex_values = tuple(
+                        complex(proposed[name]) for name in ("ic", "in", "ec", "en", "vn", "sn")
+                    )
+                    finite_values = [float(proposed[name]) for name in ("iref", "ph")]
+                    if bool(lr["advanced_core_loss_scaling_resolved"]):
+                        finite_values.extend(float(proposed[name]) for name in ("rv", "rfq", "rb"))
+                        if domain:
+                            finite_values.extend(float(proposed[name]) for name in ("mult", "pnl"))
+                    else:
+                        finite_values.append(float(proposed["pnl"]))
+                    nonfinite = not all(
+                        math.isfinite(value.real) and math.isfinite(value.imag)
+                        for value in complex_values
+                    ) or not all(math.isfinite(value) for value in finite_values)
+                    if nonfinite:
+                        break
                     if not domain:
                         break
                     rn = float(proposed["pnl"]) - pnl
                     rhres = float(proposed["ph"]) - ph
+                    final_no_load_residual = rn
+                    final_harmonic_residual = rhres
                     if math.isclose(
                         rn,
                         0,
@@ -1074,12 +1192,19 @@ def _validator_record(
                     ):
                         converged = True
                         solved = proposed
-                        final_no_load_residual = rn
-                        final_harmonic_residual = rhres
+                        final_pnl = pnl
+                        final_ph = ph
                         break
                     pnl += DAMPING_FACTOR * rn
                     ph += DAMPING_FACTOR * rhres
-                if not domain:
+                r["fixed_point_iterations"] = iteration_count
+                if math.isfinite(final_no_load_residual):
+                    r["no_load_fixed_point_residual_w"] = final_no_load_residual
+                if math.isfinite(final_harmonic_residual):
+                    r["harmonic_fixed_point_residual_w"] = final_harmonic_residual
+                if nonfinite:
+                    state = _STATES[11]
+                elif not domain:
                     r.update(
                         {
                             "coupled_core_voltage_ratio_to_factory_reference": float(
@@ -1112,8 +1237,8 @@ def _validator_record(
                         vn = complex(solved["vn"])
                         sn = complex(solved["sn"])
                         iref = float(solved["iref"])
-                        pnl = float(solved["pnl"])
-                        ph = float(solved["ph"])
+                        pnl = final_pnl
+                        ph = final_ph
                         pfs = 3 * rf * iref**2
                         qfs = 3 * x * iref**2
                         pl = pfs + ph

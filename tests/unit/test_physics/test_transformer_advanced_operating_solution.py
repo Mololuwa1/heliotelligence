@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import cmath
 import importlib
 import inspect
+import math
 from dataclasses import replace
 from typing import Any
 
@@ -133,6 +135,90 @@ def test_harmonic_increment_is_a_separate_coupled_active_sink() -> None:
     )
 
 
+def test_published_fixed_point_losses_and_phasors_are_one_consistent_iterate() -> None:
+    values = _context(
+        advanced_core=True,
+        winding_temperature=110.0,
+        ratios={1: 1.0, 5: 0.1, 7: 0.05},
+        q=30.0,
+    )
+    row = calculate_topology_transformer_advanced_operating_solution(**values).states.iloc[0]
+    core = values["transformer_core_no_load_loss"].states.iloc[0]
+    vc = complex(row["collection_voltage_line_to_line_rms_v"] / math.sqrt(3.0), 0.0)
+    series_power = complex(
+        row["collection_p_w"]
+        - row["p_no_load_active_loss_w"]
+        - row["p_harmonic_incremental_load_loss_w"],
+        row["collection_q_var"],
+    )
+    ic = (series_power / (3.0 * vc)).conjugate()
+    transfer = row["network_to_collection_voltage_ratio"] * cmath.exp(
+        1j * math.radians(row["network_side_phase_displacement_deg"])
+    )
+    network_current = ic / transfer.conjugate()
+    impedance = complex(
+        row["advanced_fundamental_effective_series_resistance_ohm_per_phase"],
+        row["retained_series_reactance_ohm_per_phase"],
+    )
+    if row["series_reference_side"] == "collection_side":
+        ec = vc - impedance * ic
+        en = transfer * ec
+        vn = en
+        reference_current = ic
+    else:
+        ec = vc
+        en = transfer * ec
+        vn = en - impedance * network_current
+        reference_current = network_current
+    network_power = 3.0 * vn * network_current.conjugate()
+    assert complex(
+        row["collection_series_current_real_a"], row["collection_series_current_imag_a"]
+    ) == pytest.approx(ic)
+    assert complex(
+        row["network_series_current_real_a"], row["network_series_current_imag_a"]
+    ) == pytest.approx(network_current)
+    assert row["internal_collection_excitation_voltage_line_to_line_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(ec)
+    )
+    assert row["internal_network_excitation_voltage_line_to_line_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(en)
+    )
+    assert complex(
+        row["network_terminal_phase_voltage_real_v"],
+        row["network_terminal_phase_voltage_imag_v"],
+    ) == pytest.approx(vn)
+    assert row["p_network_terminal_w"] == pytest.approx(network_power.real)
+    assert row["q_network_terminal_var"] == pytest.approx(network_power.imag)
+
+    harmonic_target = (
+        3.0
+        * row["harmonic_increment_accounting_resistance_ohm_per_phase"]
+        * abs(reference_current) ** 2
+    )
+    assert harmonic_target - row["p_harmonic_incremental_load_loss_w"] == pytest.approx(
+        row["harmonic_fixed_point_residual_w"], abs=1e-12
+    )
+    core_voltage = math.sqrt(3.0) * abs(
+        ec if core["no_load_test_reference_side"] == "collection_side" else en
+    )
+    frequency_ratio = core["operating_frequency_hz"] / core["no_load_test_frequency_hz"]
+    flux_ratio = (
+        core_voltage / core["factory_reference_core_excitation_voltage_ll_rms_v"]
+    ) / frequency_ratio
+    multiplier = frequency_ratio ** core["steinmetz_frequency_exponent_alpha"] * (
+        flux_ratio ** core["steinmetz_flux_density_exponent_beta"]
+    )
+    no_load_target = (
+        core["scalable_core_loss_reference_w"] * multiplier
+        + core["non_scaling_no_load_loss_reference_residual_w"]
+    )
+    assert no_load_target - row["p_no_load_active_loss_w"] == pytest.approx(
+        row["no_load_fixed_point_residual_w"], abs=1e-12
+    )
+    assert abs(row["harmonic_fixed_point_residual_w"]) <= row["fixed_point_absolute_tolerance_w"]
+    assert abs(row["no_load_fixed_point_residual_w"]) <= row["fixed_point_absolute_tolerance_w"]
+
+
 def test_advanced_core_loss_is_re_evaluated_at_coupled_internal_voltage() -> None:
     row = _run(advanced_core=True, winding_temperature=110.0).states.iloc[0]
     assert row["s12l_advanced_core_loss_scaling_resolved"]
@@ -180,6 +266,9 @@ def test_controlled_iteration_limit_reports_nonconvergence(
         "unresolved_advanced_transformer_fixed_point_nonconvergence"
     )
     assert not row["fixed_point_converged"]
+    assert row["fixed_point_iterations"] == 1
+    assert pd.notna(row["no_load_fixed_point_residual_w"])
+    assert pd.notna(row["harmonic_fixed_point_residual_w"])
 
 
 def test_coupled_core_domain_exit_does_not_extrapolate() -> None:
@@ -212,10 +301,11 @@ def test_coupled_core_domain_exit_does_not_extrapolate() -> None:
         "unresolved_coupled_core_loss_outside_s12l_scaling_domain"
     )
     assert pd.notna(record["coupled_core_flux_density_ratio_to_factory_reference"])
+    assert record["fixed_point_iterations"] != 0
 
 
 def test_derived_nonfinite_state_is_controlled_and_publishes_no_infinity() -> None:
-    values = _context()
+    values = _context(advanced_core=True)
     g = values["transformer_operating_solution"]
     frame = g.transformer_operating_states.copy(deep=True)
     frame.loc[:, "collection_p_w"] = 1e308
@@ -305,3 +395,24 @@ def test_source_has_no_production_validator_alias_or_s12d_dependency() -> None:
     source = inspect.getsource(module)
     assert "_validator_record = _record" not in source
     assert "transformer_operating_loss" not in source
+    schema_source = source.split("_COLUMNS =", 1)[1].split("F = TypeVar", 1)[0]
+    assert "tuple(_BOOL)" not in schema_source
+    assert "tuple(_FLOAT)" not in schema_source
+    assert "tuple(_INT)" not in schema_source
+
+
+def test_public_schema_has_explicit_unique_contract_order() -> None:
+    result = _run()
+    columns = tuple(result.states.columns)
+    assert columns == module._COLUMNS
+    assert len(module._COLUMNS) == len(set(module._COLUMNS))
+    assert columns.index("transformer_energised") < columns.index("collection_p_w")
+    assert columns.index("series_reference_side") < columns.index(
+        "advanced_fundamental_effective_series_resistance_ohm_per_phase"
+    )
+    assert columns.index("fixed_point_iterations") < columns.index(
+        "coupled_core_voltage_ratio_to_factory_reference"
+    )
+    assert columns.index("transformer_advanced_operating_solution_state") < columns.index(
+        "transformer_advanced_operating_solution_contract"
+    )
