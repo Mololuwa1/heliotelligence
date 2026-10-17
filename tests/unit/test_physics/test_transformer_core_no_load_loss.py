@@ -15,6 +15,7 @@ import pytest
 
 from heliotelligence.physics import inverter_envelope_lookup, inverter_lookup
 from heliotelligence.physics import transformer_core_no_load_loss as module
+from heliotelligence.physics.transformer_authority import resolve_transformer_static_authority
 from heliotelligence.physics.transformer_core_no_load_loss import (
     CORRECTED_NO_LOAD_LOSS_OWNERSHIP,
     OPERATING_WAVEFORM_BASIS,
@@ -26,8 +27,18 @@ from heliotelligence.physics.transformer_core_no_load_loss import (
     _validate_result,
     calculate_topology_transformer_core_no_load_loss,
 )
+from heliotelligence.physics.transformer_energisation_authority import (
+    resolve_transformer_energisation_authority,
+)
+from heliotelligence.physics.transformer_loss_authority import resolve_transformer_loss_authority
+from heliotelligence.physics.transformer_network_authority import (
+    resolve_transformer_network_authority,
+)
 from heliotelligence.physics.transformer_operating_solution import (
     calculate_topology_transformer_operating_solution,
+)
+from heliotelligence.physics.transformer_series_equivalent import (
+    resolve_transformer_series_equivalent,
 )
 from tests.unit.test_physics.test_transformer_operating_solution import _inputs
 
@@ -381,6 +392,39 @@ def test_nullable_energisation_for_frequency_only_row() -> None:
     result = calculate_topology_transformer_core_no_load_loss(**values)
     assert str(result.states["transformer_energised"].dtype) == "boolean"
     assert pd.isna(result.states.loc[(t2, "tx-1"), "transformer_energised"])
+
+
+def test_missing_s12a_equipment_preserves_s12b_no_load_evidence() -> None:
+    values = _context()
+    values["transformer_equipment_by_id"] = {}
+    values["transformer_static_authority"] = module._call(
+        resolve_transformer_static_authority, values
+    )
+    values["transformer_loss_authority"] = module._call(resolve_transformer_loss_authority, values)
+    values["transformer_energisation_authority"] = module._call(
+        resolve_transformer_energisation_authority, values
+    )
+    values["transformer_network_authority"] = module._call(
+        resolve_transformer_network_authority, values
+    )
+    values["transformer_series_equivalent"] = module._call(
+        resolve_transformer_series_equivalent, values
+    )
+    values["transformer_operating_solution"] = module._call(
+        calculate_topology_transformer_operating_solution, values
+    )
+
+    result = calculate_topology_transformer_core_no_load_loss(**values)
+    row = result.states.iloc[0]
+    assert row["transformer_core_no_load_loss_state"] == (
+        "unresolved_upstream_s12g_transformer_operating_solution"
+    )
+    assert row["s12b_no_load_loss_authority_present"]
+    assert row["s12b_factory_no_load_loss_w"] == 600.0
+    assert row["no_load_test_reference_side"] == "collection_side"
+    assert row["no_load_test_frequency_hz"] == 50.0
+    assert math.isnan(row["factory_reference_core_excitation_voltage_ll_rms_v"])
+    assert math.isnan(row["corrected_no_load_loss_w"])
 
 
 def test_result_validator_rejects_frame_diagnostics_and_mappings() -> None:

@@ -542,21 +542,21 @@ def _record(
         }
     )
     if no_load is not None:
-        reference_voltage = (
-            equipment.collection_side_rated_line_to_line_rms_v
-            if no_load.test_reference_side == "collection_side"
-            else equipment.network_side_rated_line_to_line_rms_v
-        )
         record.update(
             {
                 "no_load_test_reference_side": no_load.test_reference_side,
                 "s12b_factory_no_load_loss_w": no_load.no_load_loss_w,
                 "no_load_test_frequency_hz": no_load.test_frequency_hz,
-                "factory_reference_core_excitation_voltage_ll_rms_v": reference_voltage,
                 "no_load_parameter_source": no_load.parameter_source,
                 "no_load_confidence": no_load.confidence,
             }
         )
+        if equipment is not None:
+            record["factory_reference_core_excitation_voltage_ll_rms_v"] = (
+                equipment.collection_side_rated_line_to_line_rms_v
+                if no_load.test_reference_side == "collection_side"
+                else equipment.network_side_rated_line_to_line_rms_v
+            )
     if frequency is not None:
         record.update(
             {
@@ -922,21 +922,21 @@ def _validator_record(
         }
     )
     if no_load is not None:
-        reference_voltage = (
-            equipment.collection_side_rated_line_to_line_rms_v
-            if no_load.test_reference_side == "collection_side"
-            else equipment.network_side_rated_line_to_line_rms_v
-        )
         record.update(
             {
                 "no_load_test_reference_side": no_load.test_reference_side,
                 "s12b_factory_no_load_loss_w": no_load.no_load_loss_w,
                 "no_load_test_frequency_hz": no_load.test_frequency_hz,
-                "factory_reference_core_excitation_voltage_ll_rms_v": reference_voltage,
                 "no_load_parameter_source": no_load.parameter_source,
                 "no_load_confidence": no_load.confidence,
             }
         )
+        if equipment is not None:
+            record["factory_reference_core_excitation_voltage_ll_rms_v"] = (
+                equipment.collection_side_rated_line_to_line_rms_v
+                if no_load.test_reference_side == "collection_side"
+                else equipment.network_side_rated_line_to_line_rms_v
+            )
     if frequency is not None:
         record.update(
             {
