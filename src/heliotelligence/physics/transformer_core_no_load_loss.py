@@ -867,21 +867,295 @@ def _validator_record(
     frequencies: Mapping[tuple[pd.Timestamp, str], TransformerOperatingFrequencyState],
     scaling: Mapping[str, TransformerNormalizedCoreLossScalingAuthority],
 ) -> dict[str, object]:
-    # Reconstruct independently by evaluating a private copy of the contract.
-    # Keeping the implementation text separate is intentional and tested by
-    # monkeypatching all three production builders.
-    original = globals()["_record"]
-    try:
-        # Execute the frozen implementation body through an independently bound
-        # function object captured at import, not the patchable production name.
-        return _VALIDATOR_RECORD_IMPL(
-            timestamp, identifier, parents, equipment, frequencies, scaling
+    _a, b, g = parents
+    # Independently initialize the complete expected public record.
+    record: dict[str, object] = {name: None for name in _COLUMNS}
+    for name in _BOOL_COLUMNS:
+        record[name] = False
+    for name in _FLOAT_COLUMNS:
+        record[name] = math.nan
+    record["transformer_energised"] = pd.NA
+    record.update(
+        {
+            "operating_core_voltage_basis": OPERATING_CORE_VOLTAGE_BASIS,
+            "corrected_no_load_loss_ownership": CORRECTED_NO_LOAD_LOSS_OWNERSHIP,
+            "s12k_load_loss_treatment": S12K_LOAD_LOSS_TREATMENT,
+            "transformer_static_authority_contract": TRANSFORMER_STATIC_AUTHORITY_CONTRACT_ID,
+            "transformer_static_authority_model": TRANSFORMER_STATIC_AUTHORITY_MODEL_ID,
+            "transformer_loss_authority_contract": TRANSFORMER_LOSS_AUTHORITY_CONTRACT_ID,
+            "transformer_loss_authority_model": TRANSFORMER_LOSS_AUTHORITY_MODEL_ID,
+            "transformer_operating_solution_contract": TRANSFORMER_OPERATING_SOLUTION_CONTRACT_ID,
+            "transformer_operating_solution_model": TRANSFORMER_OPERATING_SOLUTION_MODEL_ID,
+            "transformer_core_no_load_loss_contract": TRANSFORMER_CORE_NO_LOAD_LOSS_CONTRACT_ID,
+            "transformer_core_no_load_loss_model": TRANSFORMER_CORE_NO_LOAD_LOSS_MODEL_ID,
+            "transformer_core_no_load_loss_scope": TRANSFORMER_CORE_NO_LOAD_LOSS_SCOPE,
+            "transformer_core_no_load_loss_coverage_scope": (
+                TRANSFORMER_CORE_NO_LOAD_LOSS_COVERAGE_SCOPE
+            ),
+        }
+    )
+    key = (timestamp, identifier)
+    g_row = (
+        g.transformer_operating_states.loc[key]
+        if key in g.transformer_operating_states.index
+        else None
+    )
+    no_load = b.no_load_loss_by_id.get(identifier)
+    frequency = frequencies.get(key)
+    model = scaling.get(identifier)
+    g_resolved = bool(
+        g_row is not None and g_row["transformer_terminal_operating_solution_resolved"]
+    )
+    deenergised = bool(
+        g_row is not None
+        and g_row["transformer_operating_solution_state"]
+        == "resolved_deenergised_transformer_no_transfer"
+    )
+    record.update(
+        {
+            "s12g_operating_row_present": g_row is not None,
+            "s12g_terminal_operating_solution_resolved": g_resolved,
+            "transformer_energised": pd.NA if g_row is None else g_row["transformer_energised"],
+            "s12b_no_load_loss_authority_present": no_load is not None,
+            "operating_frequency_state_present": frequency is not None,
+            "core_loss_scaling_authority_present": model is not None,
+        }
+    )
+    if no_load is not None:
+        reference_voltage = (
+            equipment.collection_side_rated_line_to_line_rms_v
+            if no_load.test_reference_side == "collection_side"
+            else equipment.network_side_rated_line_to_line_rms_v
         )
-    finally:
-        _ = original
-
-
-_VALIDATOR_RECORD_IMPL = _record
+        record.update(
+            {
+                "no_load_test_reference_side": no_load.test_reference_side,
+                "s12b_factory_no_load_loss_w": no_load.no_load_loss_w,
+                "no_load_test_frequency_hz": no_load.test_frequency_hz,
+                "factory_reference_core_excitation_voltage_ll_rms_v": reference_voltage,
+                "no_load_parameter_source": no_load.parameter_source,
+                "no_load_confidence": no_load.confidence,
+            }
+        )
+    if frequency is not None:
+        record.update(
+            {
+                "operating_frequency_hz": frequency.frequency_hz,
+                "operating_frequency_evidence_kind": frequency.evidence_kind,
+                "operating_frequency_parameter_source": frequency.parameter_source,
+                "operating_frequency_confidence": frequency.confidence,
+            }
+        )
+    if model is not None:
+        record.update(
+            {
+                "scalable_core_loss_reference_w": model.scalable_core_loss_reference_w,
+                "steinmetz_frequency_exponent_alpha": model.steinmetz_frequency_exponent_alpha,
+                "steinmetz_flux_density_exponent_beta": model.steinmetz_flux_density_exponent_beta,
+                "minimum_frequency_ratio_to_reference": model.minimum_frequency_ratio_to_reference,
+                "maximum_frequency_ratio_to_reference": model.maximum_frequency_ratio_to_reference,
+                "minimum_flux_density_ratio_to_reference": (
+                    model.minimum_flux_density_ratio_to_reference
+                ),
+                "maximum_flux_density_ratio_to_reference": (
+                    model.maximum_flux_density_ratio_to_reference
+                ),
+                "reference_no_load_loss_waveform_basis": (
+                    model.reference_no_load_loss_waveform_basis
+                ),
+                "operating_voltage_waveform_basis": model.operating_voltage_waveform_basis,
+                "core_loss_scaling_semantics": model.scaling_semantics,
+                "non_scaling_residual_semantics": model.non_scaling_residual_semantics,
+                "core_loss_model_parameter_source": model.model_parameter_source,
+                "core_loss_model_fit_or_applicability_description": (
+                    model.model_fit_or_applicability_description
+                ),
+                "core_loss_model_confidence": model.confidence,
+            }
+        )
+    if g_row is None:
+        state = _STATES[0]
+    elif not g_resolved and not deenergised:
+        state = _STATES[1]
+    elif deenergised:
+        record.update(
+            {
+                "corrected_no_load_loss_w": 0.0,
+                "advanced_no_load_correction_vs_s12g_w": 0.0,
+                "transformer_no_load_loss_output_resolved": True,
+            }
+        )
+        state = _STATES[2]
+    elif no_load is None:
+        state = _STATES[3]
+    else:
+        baseline = float(g_row["p_no_load_active_sink_w"])
+        factory = no_load.no_load_loss_w
+        baseline_residual = baseline - factory
+        record.update(
+            {
+                "s12g_reference_no_load_loss_w": baseline,
+                "s12g_factory_no_load_loss_closure_residual_w": baseline_residual,
+                "s12g_series_equivalent_reference_side": g_row["series_equivalent_reference_side"],
+            }
+        )
+        try:
+            vc = complex(
+                float(g_row["collection_phase_voltage_real_v"]),
+                float(g_row["collection_phase_voltage_imag_v"]),
+            )
+            ic = complex(
+                float(g_row["collection_series_current_real_a"]),
+                float(g_row["collection_series_current_imag_a"]),
+            )
+            vn = complex(
+                float(g_row["network_terminal_phase_voltage_real_v"]),
+                float(g_row["network_terminal_phase_voltage_imag_v"]),
+            )
+            current_n = complex(
+                float(g_row["network_series_current_real_a"]),
+                float(g_row["network_series_current_imag_a"]),
+            )
+            impedance = complex(
+                float(g_row["effective_series_resistance_ohm_per_phase"]),
+                float(g_row["effective_series_reactance_ohm_per_phase"]),
+            )
+            transfer = float(g_row["network_to_collection_voltage_ratio"]) * cmath.exp(
+                1j * math.radians(float(g_row["network_side_phase_displacement_deg"]))
+            )
+            series_side = str(g_row["series_equivalent_reference_side"])
+            ec = vc - impedance * ic if series_side == "collection_side" else vc
+            en = transfer * ec
+            en_check = vn if series_side == "collection_side" else vn + impedance * current_n
+            collection_ll = math.sqrt(3.0) * abs(ec)
+            network_ll = math.sqrt(3.0) * abs(en)
+            voltage_closure = abs(en - en_check)
+            operating_voltage = (
+                collection_ll if no_load.test_reference_side == "collection_side" else network_ll
+            )
+            voltage_values = [collection_ll, network_ll, voltage_closure, operating_voltage]
+        except (OverflowError, ValueError):
+            voltage_values = [math.nan]
+        if all(math.isfinite(value) for value in voltage_values):
+            record.update(
+                {
+                    "baseline_internal_collection_excitation_voltage_ll_rms_v": collection_ll,
+                    "baseline_internal_network_excitation_voltage_ll_rms_v": network_ll,
+                    "baseline_internal_network_excitation_closure_residual_v": voltage_closure,
+                    "operating_core_excitation_voltage_ll_rms_v": operating_voltage,
+                }
+            )
+        if not math.isclose(baseline, factory, rel_tol=_LOSS_REL_TOL, abs_tol=0.0):
+            state = _STATES[4]
+        elif not all(math.isfinite(value) for value in voltage_values):
+            state = _STATES[11]
+        elif not math.isclose(
+            abs(en), abs(en_check), rel_tol=_VOLT_REL_TOL, abs_tol=_VOLT_ABS_TOL
+        ) or voltage_closure > max(_VOLT_ABS_TOL, _VOLT_REL_TOL * max(abs(en), abs(en_check))):
+            state = _STATES[5]
+        elif model is None:
+            record.update(
+                {
+                    "corrected_no_load_loss_w": baseline,
+                    "advanced_no_load_correction_vs_s12g_w": 0.0,
+                    "transformer_no_load_loss_output_resolved": True,
+                }
+            )
+            state = _STATES[6]
+        else:
+            known = model.scalable_core_loss_reference_w
+            if known > factory and not math.isclose(
+                known, factory, rel_tol=_LOSS_REL_TOL, abs_tol=0.0
+            ):
+                state = _STATES[7]
+            else:
+                adjusted = known > factory
+                residual = 0.0 if adjusted else factory - known
+                record.update(
+                    {
+                        "non_scaling_no_load_loss_reference_residual_w": residual,
+                        "reference_component_closure_residual_w": math.fsum([known, residual])
+                        - factory,
+                        "reference_component_closure_roundoff_adjusted": adjusted,
+                    }
+                )
+                if frequency is None:
+                    record.update(
+                        {
+                            "corrected_no_load_loss_w": baseline,
+                            "advanced_no_load_correction_vs_s12g_w": 0.0,
+                            "transformer_no_load_loss_output_resolved": True,
+                        }
+                    )
+                    state = _STATES[8]
+                elif operating_voltage <= 0.0:
+                    state = _STATES[9]
+                else:
+                    try:
+                        reference_voltage = (
+                            equipment.collection_side_rated_line_to_line_rms_v
+                            if no_load.test_reference_side == "collection_side"
+                            else equipment.network_side_rated_line_to_line_rms_v
+                        )
+                        rv = operating_voltage / reference_voltage
+                        rf = frequency.frequency_hz / no_load.test_frequency_hz
+                        rb = rv / rf
+                        record.update(
+                            {
+                                "operating_voltage_ratio_to_factory_reference": rv,
+                                "operating_frequency_ratio_to_factory_reference": rf,
+                                "core_flux_density_ratio_to_factory_reference": rb,
+                            }
+                        )
+                        in_domain = (
+                            model.minimum_frequency_ratio_to_reference
+                            <= rf
+                            <= model.maximum_frequency_ratio_to_reference
+                            and model.minimum_flux_density_ratio_to_reference
+                            <= rb
+                            <= model.maximum_flux_density_ratio_to_reference
+                        )
+                        if not in_domain:
+                            record.update(
+                                {
+                                    "corrected_no_load_loss_w": baseline,
+                                    "advanced_no_load_correction_vs_s12g_w": 0.0,
+                                    "transformer_no_load_loss_output_resolved": True,
+                                }
+                            )
+                            state = _STATES[10]
+                        else:
+                            multiplier = math.exp(
+                                model.steinmetz_frequency_exponent_alpha * math.log(rf)
+                                + model.steinmetz_flux_density_exponent_beta * math.log(rb)
+                            )
+                            core = known * multiplier
+                            advanced = math.fsum([core, residual])
+                            correction = advanced - baseline
+                            if not all(
+                                math.isfinite(value)
+                                for value in [rv, rf, rb, multiplier, core, advanced, correction]
+                            ):
+                                state = _STATES[11]
+                            else:
+                                record.update(
+                                    {
+                                        "core_loss_scaling_multiplier": multiplier,
+                                        "scalable_core_loss_operating_w": core,
+                                        "non_scaling_no_load_loss_operating_w": residual,
+                                        "voltage_frequency_corrected_no_load_loss_w": advanced,
+                                        "corrected_no_load_loss_w": advanced,
+                                        "advanced_no_load_correction_vs_s12g_w": correction,
+                                        "transformer_no_load_loss_output_resolved": True,
+                                        "advanced_core_loss_scaling_resolved": True,
+                                        "voltage_frequency_core_loss_correction_applied": True,
+                                    }
+                                )
+                                state = _STATES[12]
+                    except (OverflowError, ValueError, ZeroDivisionError):
+                        state = _STATES[11]
+    record["transformer_core_no_load_loss_state"] = state
+    return record
 
 
 def _validator_frame(

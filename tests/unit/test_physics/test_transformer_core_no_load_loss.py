@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import cmath
 import importlib
 import math
 from dataclasses import replace
@@ -144,6 +145,79 @@ def test_reference_identity_has_no_double_counting() -> None:
     assert row["advanced_no_load_correction_vs_s12g_w"] == pytest.approx(0.0)
 
 
+def test_nonzero_reference_identity_closes_to_s12g_factory_loss() -> None:
+    row = _run(scaling=_scaling()).states.iloc[0]
+    assert row["operating_frequency_ratio_to_factory_reference"] == 1.0
+    assert row["operating_voltage_ratio_to_factory_reference"] == pytest.approx(1.0, rel=2e-5)
+    assert row["core_flux_density_ratio_to_factory_reference"] == pytest.approx(1.0, rel=2e-5)
+    assert row["core_loss_scaling_multiplier"] == pytest.approx(1.0, rel=4e-5)
+    assert row["corrected_no_load_loss_w"] == pytest.approx(
+        row["s12g_reference_no_load_loss_w"], rel=4e-5
+    )
+    assert row["advanced_no_load_correction_vs_s12g_w"] == pytest.approx(0.0, abs=0.02)
+
+
+@pytest.mark.parametrize("side", ["collection_side", "network_side"])
+def test_internal_excitation_reconstruction_for_both_series_sides(side: str) -> None:
+    values = _context(side=side, scaling=_scaling())
+    result = calculate_topology_transformer_core_no_load_loss(**values)
+    row = result.states.iloc[0]
+    g = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
+    vc = complex(g["collection_phase_voltage_real_v"], g["collection_phase_voltage_imag_v"])
+    ic = complex(g["collection_series_current_real_a"], g["collection_series_current_imag_a"])
+    vn = complex(
+        g["network_terminal_phase_voltage_real_v"], g["network_terminal_phase_voltage_imag_v"]
+    )
+    current_n = complex(g["network_series_current_real_a"], g["network_series_current_imag_a"])
+    impedance = complex(
+        g["effective_series_resistance_ohm_per_phase"],
+        g["effective_series_reactance_ohm_per_phase"],
+    )
+    k = g["network_to_collection_voltage_ratio"] * cmath.exp(
+        1j * math.radians(g["network_side_phase_displacement_deg"])
+    )
+    ec = vc - impedance * ic if side == "collection_side" else vc
+    en = k * ec
+    en_check = vn if side == "collection_side" else vn + impedance * current_n
+    assert row["baseline_internal_collection_excitation_voltage_ll_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(ec)
+    )
+    assert row["baseline_internal_network_excitation_voltage_ll_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(en)
+    )
+    assert abs(en - en_check) <= max(1e-8, 1e-9 * max(abs(en), abs(en_check)))
+
+
+@pytest.mark.parametrize("side", ["collection_side", "network_side"])
+def test_factory_reference_side_selects_matching_voltage(side: str) -> None:
+    values = _context(scaling=_scaling())
+    parents = module._canonical_parents(values)
+    no_load = replace(parents[1].no_load_loss_by_id["tx-1"], test_reference_side=cast(Any, side))
+    loss = replace(parents[1], no_load_loss_by_id=MappingProxyType({"tx-1": no_load}))
+    timestamp = next(iter(values["transformer_operating_frequency_by_key"]))[0]
+    row = module._record(
+        timestamp,
+        "tx-1",
+        (parents[0], loss, parents[2]),
+        parents[0].equipment_by_id["tx-1"],
+        values["transformer_operating_frequency_by_key"],
+        values["transformer_core_loss_scaling_by_id"],
+    )
+    equipment = values["transformer_equipment_by_id"]["tx-1"]
+    selected = (
+        "baseline_internal_collection_excitation_voltage_ll_rms_v"
+        if side == "collection_side"
+        else "baseline_internal_network_excitation_voltage_ll_rms_v"
+    )
+    rated = (
+        equipment.collection_side_rated_line_to_line_rms_v
+        if side == "collection_side"
+        else equipment.network_side_rated_line_to_line_rms_v
+    )
+    assert row["operating_core_excitation_voltage_ll_rms_v"] == row[selected]
+    assert row["factory_reference_core_excitation_voltage_ll_rms_v"] == rated
+
+
 def test_partial_scalable_loss_preserves_constant_residual() -> None:
     row = _run(voltage=360.0, scaling=_scaling(scalable=500.0)).states.iloc[0]
     expected_multiplier = row["operating_voltage_ratio_to_factory_reference"] ** 2.5
@@ -180,6 +254,34 @@ def test_materially_excess_scalable_reference_is_unresolved() -> None:
         "unresolved_core_scaling_reference_loss_exceeds_s12b_no_load_loss"
     )
     assert math.isnan(row["corrected_no_load_loss_w"])
+
+
+def test_reference_component_tiny_exceedance_is_roundoff_adjusted() -> None:
+    row = _run(scaling=_scaling(scalable=600.0 * (1.0 + 5e-13))).states.iloc[0]
+    assert row["reference_component_closure_roundoff_adjusted"]
+    assert row["non_scaling_no_load_loss_reference_residual_w"] == 0.0
+
+
+def test_nonfinite_derived_scaling_is_explicitly_unresolved() -> None:
+    row = _run(voltage=440.0, scaling=_scaling(alpha=1e308, beta=1e308)).states.iloc[0]
+    assert row["transformer_core_no_load_loss_state"] == (
+        "unresolved_nonfinite_corrected_no_load_core_loss"
+    )
+    derived = row[list(module._FLOAT_COLUMNS)]
+    assert not any(math.isinf(value) for value in derived if not pd.isna(value))
+
+
+def test_flux_domain_outside_falls_back_without_extrapolation() -> None:
+    authority = _scaling(minimum_flux=0.99, maximum_flux=1.01)
+    row = _run(voltage=360.0, frequency=50.0, scaling=authority).states.iloc[0]
+    assert row["operating_frequency_ratio_to_factory_reference"] == 1.0
+    assert row["core_flux_density_ratio_to_factory_reference"] < 0.99
+    assert row["transformer_core_no_load_loss_state"] == (
+        "resolved_factory_reference_no_load_loss_fallback_outside_core_scaling_domain"
+    )
+    assert row["corrected_no_load_loss_w"] == row["s12g_reference_no_load_loss_w"]
+    assert row["advanced_no_load_correction_vs_s12g_w"] == 0.0
+    assert not row["advanced_core_loss_scaling_resolved"]
 
 
 def test_deenergised_preserves_factory_evidence_but_operating_loss_is_zero() -> None:
@@ -230,6 +332,33 @@ def test_frequency_key_validation_and_timestamp_union() -> None:
     )
 
 
+def test_incompatible_timezone_semantics_are_rejected() -> None:
+    values = _context()
+    values["transformer_operating_frequency_by_key"] = {
+        (pd.Timestamp("2027-01-02"), "tx-1"): _frequency()
+    }
+    with pytest.raises(ValueError, match="incompatible timezone semantics"):
+        calculate_topology_transformer_core_no_load_loss(**values)
+
+
+@pytest.mark.parametrize(
+    ("parent_key", "frame_name"),
+    [
+        ("transformer_static_authority", "transformer_states"),
+        ("transformer_loss_authority", "transformer_states"),
+        ("transformer_operating_solution", "transformer_operating_states"),
+    ],
+)
+def test_public_resolution_rejects_parent_frame_tampering(parent_key: str, frame_name: str) -> None:
+    values = _context(scaling=_scaling())
+    parent = values[parent_key]
+    frame = getattr(parent, frame_name).copy(deep=True)
+    frame.iloc[0, 0] = not bool(frame.iloc[0, 0])
+    values[parent_key] = replace(parent, **{frame_name: frame})
+    with pytest.raises(ValueError, match="canonical replay"):
+        calculate_topology_transformer_core_no_load_loss(**values)
+
+
 def test_input_mapping_detachment_and_result_immutability() -> None:
     values = _context(scaling=_scaling())
     frequencies = dict(values["transformer_operating_frequency_by_key"])
@@ -270,6 +399,42 @@ def test_result_validator_rejects_frame_diagnostics_and_mappings() -> None:
             times,
             replace(result, states=frame),
         )
+
+
+@pytest.mark.parametrize(
+    ("column", "replacement"),
+    [
+        ("baseline_internal_collection_excitation_voltage_ll_rms_v", 9.0),
+        ("operating_core_excitation_voltage_ll_rms_v", 9.0),
+        ("operating_frequency_hz", 9.0),
+        ("core_flux_density_ratio_to_factory_reference", 9.0),
+        ("core_loss_scaling_multiplier", 9.0),
+        ("corrected_no_load_loss_w", 9.0),
+        ("advanced_no_load_correction_vs_s12g_w", 9.0),
+        ("advanced_core_loss_scaling_resolved", False),
+        ("corrected_no_load_loss_ownership", "tampered"),
+        ("transformer_core_no_load_loss_state", "tampered"),
+        ("transformer_core_no_load_loss_contract", "tampered"),
+    ],
+)
+def test_independent_validator_rejects_representative_result_tampering(
+    column: str, replacement: object
+) -> None:
+    values = _context(scaling=_scaling())
+    result = calculate_topology_transformer_core_no_load_loss(**values)
+    parents = module._canonical_parents(values)
+    times = list(dict.fromkeys(result.states.index.get_level_values("timestamp")))
+    frame = result.states.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc(column)] = replacement
+    with pytest.raises(ValueError, match="independent validation"):
+        _validate_result(
+            parents,
+            parents[0].equipment_by_id,
+            result.operating_frequency_by_key,
+            result.core_loss_scaling_by_id,
+            times,
+            replace(result, states=frame),
+        )
     with pytest.raises(ValueError, match="mapping"):
         _validate_result(
             parents,
@@ -295,6 +460,7 @@ def test_validator_does_not_call_production_builders(monkeypatch: pytest.MonkeyP
     result = calculate_topology_transformer_core_no_load_loss(**values)
     parents = module._canonical_parents(values)
     times = list(dict.fromkeys(result.states.index.get_level_values("timestamp")))
+
     def fail(*args: object, **kwargs: object) -> None:
         pytest.fail("production builder called")
 
@@ -308,6 +474,8 @@ def test_validator_does_not_call_production_builders(monkeypatch: pytest.MonkeyP
         times,
         result,
     )
+    source = module.__loader__.get_source(module.__name__)  # type: ignore[union-attr]
+    assert "_VALIDATOR_RECORD_IMPL = _record" not in source
 
 
 def test_scope_has_no_s12k_or_disallowed_physics() -> None:
