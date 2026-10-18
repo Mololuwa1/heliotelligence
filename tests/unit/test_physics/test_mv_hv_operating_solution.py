@@ -242,6 +242,95 @@ def test_internal_transformer_terminal_meter_uses_gridward_branch_cut() -> None:
     )
 
 
+def test_true_internal_junction_meter_uses_outgoing_full_terminal_power() -> None:
+    values = _values()
+    values["mv_hv_node_by_id"] = {
+        "tx-node": _node("tx-node", "transformer_terminal"),
+        "junction": _node("junction", "junction"),
+        "grid-node": _node("grid-node", "network_exit"),
+    }
+    values["mv_hv_segment_by_id"] = {
+        "upstream": MvHvNetworkSegmentAuthority(
+            "upstream", "tx-node", "junction", 0, 0, 0, 0, "schedule", "high"
+        ),
+        "gridward": MvHvNetworkSegmentAuthority(
+            "gridward", "junction", "grid-node", 0, 0, 0, 0, "schedule", "high"
+        ),
+    }
+    values["revenue_meter_boundary_by_id"] = {
+        "meter": RevenueMeterBoundaryAuthority(
+            "meter",
+            "junction",
+            "revenue_meter_boundary",
+            "positive_plant_to_grid",
+            "positive_plant_to_grid",
+            "three_phase_total",
+            "metering",
+            "high",
+        )
+    }
+    values["mv_hv_network_authority"] = module._call(
+        resolve_topology_mv_hv_network_authority, values
+    )
+    values["mv_hv_grid_boundary_voltage_authority"] = module._call(
+        resolve_topology_mv_hv_grid_boundary_voltage_authority, values
+    )
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    meter = result.revenue_meter_states.iloc[0]
+    outgoing = result.segment_states.xs("gridward", level="segment_id").iloc[0]
+    assert meter["expected_p_at_revenue_meter_w"] == pytest.approx(
+        outgoing["p_from_terminal_into_segment_w"]
+    )
+    assert meter["expected_q_at_revenue_meter_var"] == pytest.approx(
+        outgoing["q_from_terminal_into_segment_var"]
+    )
+
+
+def test_two_transformers_merge_current_once_in_shared_downstream_segment() -> None:
+    nodes = {
+        "tx-a": _node("tx-a", "transformer_terminal"),
+        "tx-b": _node("tx-b", "transformer_terminal"),
+        "junction": _node("junction", "junction"),
+        "grid-node": _node("grid-node", "network_exit"),
+    }
+    segments = {
+        "a": MvHvNetworkSegmentAuthority("a", "tx-a", "junction", 0, 0, 0, 0, "schedule", "high"),
+        "b": MvHvNetworkSegmentAuthority("b", "tx-b", "junction", 0, 0, 0, 0, "schedule", "high"),
+        "shared": MvHvNetworkSegmentAuthority(
+            "shared", "junction", "grid-node", 0, 0, 0, 0, "schedule", "high"
+        ),
+    }
+    injections = {"tx-a": complex(300, 40), "tx-b": complex(500, -20)}
+    solved = module._solve_tree("grid-node", 11_000.0, nodes, segments, injections)
+    phase_voltage = complex(11_000 / math.sqrt(3.0), 0)
+    expected = sum((power / (3 * phase_voltage)).conjugate() for power in injections.values())
+    assert solved.converged
+    assert solved.currents["shared"] == pytest.approx(expected)
+    assert solved.currents["shared"] == pytest.approx(solved.currents["a"] + solved.currents["b"])
+
+
+def test_independent_incomplete_tree_does_not_block_resolved_tree() -> None:
+    values = _values()
+    values["mv_hv_node_by_id"] = {
+        **values["mv_hv_node_by_id"],
+        "other-exit": _node("other-exit", "network_exit"),
+    }
+    values["mv_hv_network_authority"] = module._call(
+        resolve_topology_mv_hv_network_authority, values
+    )
+    values["mv_hv_grid_boundary_voltage_authority"] = module._call(
+        resolve_topology_mv_hv_grid_boundary_voltage_authority, values
+    )
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    timestamp = result.network_exit_states.index.get_level_values("timestamp")[0]
+    assert result.network_exit_states.loc[
+        (timestamp, "grid-node"), "mv_hv_operating_solution_resolved"
+    ]
+    assert result.network_exit_states.loc[(timestamp, "other-exit"), "mv_hv_operating_state"] == (
+        "unresolved_network_exit_without_grid_boundary"
+    )
+
+
 def test_material_s12m_s13_voltage_mismatch_hides_candidate_physics() -> None:
     result = _run(boundary_voltage=9_000.0)
     tree = result.network_exit_states.iloc[0]
@@ -251,8 +340,43 @@ def test_material_s12m_s13_voltage_mismatch_hides_candidate_physics() -> None:
     )
     assert tree["mismatched_transformer_ids"] == ("tx-1",)
     assert pd.isna(tree["p_export_at_grid_boundary_w"])
+    assert pd.isna(tree["q_export_at_grid_boundary_var"])
+    tx = result.transformer_terminal_states.iloc[0]
+    assert pd.isna(tx["solved_s13_terminal_voltage_line_to_line_rms_v"])
+    assert math.isfinite(tx["terminal_voltage_magnitude_residual_v"])
+    assert not tx["terminal_voltage_magnitude_consistency_satisfied"]
     assert result.node_states["voltage_line_to_line_rms_v"].isna().all()
     assert result.segment_states["series_current_magnitude_a"].isna().all()
+    assert result.revenue_meter_states["expected_meter_voltage_line_to_line_rms_v"].isna().all()
+    assert result.revenue_meter_states["expected_p_at_revenue_meter_w"].isna().all()
+    assert result.revenue_meter_states["expected_q_at_revenue_meter_var"].isna().all()
+
+
+def test_s13b_voltage_evidence_survives_missing_s12m_row() -> None:
+    values = _values()
+    original_timestamp = next(iter(values["grid_boundary_voltage_by_key"]))[0]
+    evidence_timestamp = original_timestamp + pd.Timedelta(hours=1)
+    explicit_voltage = 10_875.0
+    values["grid_boundary_voltage_by_key"] = {
+        (evidence_timestamp, "grid"): MvHvGridBoundaryVoltageState(
+            explicit_voltage,
+            "line_to_line_rms",
+            "grid_interconnection_boundary",
+            "SCADA",
+            "high",
+        )
+    }
+    values["mv_hv_grid_boundary_voltage_authority"] = module._call(
+        resolve_topology_mv_hv_grid_boundary_voltage_authority, values
+    )
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    row = result.network_exit_states.loc[(evidence_timestamp, "grid-node")]
+    assert row["mv_hv_operating_state"] == ("unresolved_missing_s12m_transformer_operating_state")
+    assert row["grid_boundary_present"]
+    assert row["grid_boundary_voltage_resolved"]
+    assert row["grid_boundary_voltage_line_to_line_rms_v"] == explicit_voltage
+    assert not row["network_solve_attempted"]
+    assert pd.isna(row["p_export_at_grid_boundary_w"])
 
 
 def test_s12m_phase_angle_is_not_coupled() -> None:
@@ -334,13 +458,117 @@ def test_result_schemas_and_index_order_are_deterministic() -> None:
 
 
 @pytest.mark.parametrize(
+    ("columns", "names", "bools", "nullable_bools", "ints", "floats", "representative"),
+    [
+        (
+            module._TREE_COLUMNS,
+            ["timestamp", "network_exit_node_id"],
+            module._TREE_BOOL,
+            frozenset(),
+            module._TREE_INT,
+            module._TREE_FLOAT,
+            {
+                "network_basis_resolved": "bool",
+                "tree_transformer_count": "int64",
+                "p_export_at_grid_boundary_w": "float64",
+                "mv_hv_operating_state": "object",
+            },
+        ),
+        (
+            module._TX_COLUMNS,
+            ["timestamp", "transformer_id"],
+            module._TX_BOOL,
+            module._TX_NULLABLE_BOOL,
+            frozenset(),
+            module._TX_FLOAT,
+            {
+                "s12m_row_present": "bool",
+                "transformer_energised": "boolean",
+                "p_network_terminal_injection_w": "float64",
+                "s12m_operating_state": "object",
+            },
+        ),
+        (
+            module._NODE_COLUMNS,
+            ["timestamp", "node_id"],
+            module._NODE_BOOL,
+            frozenset(),
+            frozenset(),
+            module._NODE_FLOAT,
+            {
+                "node_connected_to_network_exit": "bool",
+                "voltage_phase_real_v": "float64",
+                "node_kind": "object",
+            },
+        ),
+        (
+            module._SEG_COLUMNS,
+            ["timestamp", "segment_id"],
+            module._SEG_BOOL,
+            frozenset(),
+            frozenset(),
+            module._SEG_FLOAT,
+            {
+                "segment_connected_to_network_exit": "bool",
+                "series_current_real_a": "float64",
+                "from_node_id": "object",
+            },
+        ),
+        (
+            module._METER_COLUMNS,
+            ["timestamp", "revenue_meter_id"],
+            module._METER_BOOL,
+            frozenset(),
+            frozenset(),
+            module._METER_FLOAT,
+            {
+                "meter_connected_to_network_exit": "bool",
+                "expected_p_at_revenue_meter_w": "float64",
+                "revenue_meter_expected_state": "object",
+            },
+        ),
+    ],
+)
+def test_empty_public_frames_have_exact_schema_and_dtypes(
+    columns: tuple[str, ...],
+    names: list[str],
+    bools: frozenset[str],
+    nullable_bools: frozenset[str],
+    ints: frozenset[str],
+    floats: frozenset[str],
+    representative: dict[str, str],
+) -> None:
+    frame = module._make_frame([], [], columns, names, bools, nullable_bools, ints, floats)
+    assert frame.empty
+    assert tuple(frame.columns) == columns
+    assert list(frame.index.names) == names
+    for column, expected in representative.items():
+        assert str(frame[column].dtype) == expected
+
+
+@pytest.mark.parametrize(
     ("frame_name", "column"),
     [
-        ("network_exit_states", "p_export_at_grid_boundary_w"),
-        ("transformer_terminal_states", "p_network_terminal_injection_w"),
-        ("node_states", "voltage_phase_real_v"),
-        ("segment_states", "series_current_real_a"),
-        ("revenue_meter_states", "expected_p_at_revenue_meter_w"),
+        ("network_exit_states", "grid_boundary_id"),
+        ("network_exit_states", "grid_boundary_voltage_resolved"),
+        ("network_exit_states", "solver_iteration_count"),
+        ("network_exit_states", "transformer_injected_p_total_w"),
+        ("network_exit_states", "grid_boundary_phase_angle_treatment"),
+        ("transformer_terminal_states", "s12m_operating_state"),
+        ("transformer_terminal_states", "solved_s13_terminal_voltage_line_to_line_rms_v"),
+        ("transformer_terminal_states", "terminal_voltage_consistency_applicable"),
+        ("node_states", "voltage_phase_imag_v"),
+        ("node_states", "voltage_line_to_line_rms_v"),
+        ("node_states", "total_incident_half_shunt_susceptance_siemens_per_phase"),
+        ("node_states", "node_operating_state"),
+        ("segment_states", "from_terminal_current_real_a"),
+        ("segment_states", "active_shunt_consumption_w"),
+        ("segment_states", "capacitive_shunt_reactive_injection_var"),
+        ("segment_states", "segment_operating_state"),
+        ("revenue_meter_states", "expected_meter_voltage_line_to_line_rms_v"),
+        ("revenue_meter_states", "expected_q_at_revenue_meter_var"),
+        ("revenue_meter_states", "meter_boundary_cut_semantics"),
+        ("revenue_meter_states", "active_power_sign_convention"),
     ],
 )
 def test_validator_rejects_representative_frame_tampering(frame_name: str, column: str) -> None:
@@ -348,7 +576,14 @@ def test_validator_rejects_representative_frame_tampering(frame_name: str, colum
     parents = module._parents(values)
     result = calculate_topology_mv_hv_operating_solution(**values)
     frame = getattr(result, frame_name).copy(deep=True)
-    frame.iloc[0, frame.columns.get_loc(column)] += 1.0
+    value = frame.iloc[0][column]
+    if str(frame[column].dtype) in {"bool", "boolean"}:
+        replacement: object = not bool(value)
+    elif isinstance(value, str):
+        replacement = f"{value}-tampered"
+    else:
+        replacement = float(value) + 1.0
+    frame.iloc[0, frame.columns.get_loc(column)] = replacement
     with pytest.raises(RuntimeError, match="independent exact closure"):
         module._validate_result(parents, replace(result, **{frame_name: frame}))
 
