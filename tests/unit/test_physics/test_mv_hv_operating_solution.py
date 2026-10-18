@@ -379,6 +379,86 @@ def test_s13b_voltage_evidence_survives_missing_s12m_row() -> None:
     assert pd.isna(row["p_export_at_grid_boundary_w"])
 
 
+def test_validator_rejects_structural_unresolved_publication_tampering() -> None:
+    values = _values()
+    original_timestamp = next(iter(values["grid_boundary_voltage_by_key"]))[0]
+    evidence_timestamp = original_timestamp + pd.Timedelta(hours=1)
+    values["grid_boundary_voltage_by_key"] = {
+        (evidence_timestamp, "grid"): MvHvGridBoundaryVoltageState(
+            10_875.0,
+            "line_to_line_rms",
+            "grid_interconnection_boundary",
+            "SCADA",
+            "high",
+        )
+    }
+    values["mv_hv_grid_boundary_voltage_authority"] = module._call(
+        resolve_topology_mv_hv_grid_boundary_voltage_authority, values
+    )
+    parents = module._parents(values)
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    cases = (
+        ("network_exit_states", "transformer_terminal_voltage_consistency_checked", True),
+        ("network_exit_states", "solver_max_voltage_delta_v", 1.0),
+        ("network_exit_states", "total_series_active_loss_w", 1.0),
+        ("transformer_terminal_states", "q_network_terminal_injection_var", 1.0),
+        (
+            "transformer_terminal_states",
+            "solved_s13_terminal_voltage_line_to_line_rms_v",
+            11_000.0,
+        ),
+        (
+            "transformer_terminal_states",
+            "transformer_terminal_operating_state",
+            "resolved-tamper",
+        ),
+        ("node_states", "voltage_line_to_line_rms_v", 11_000.0),
+        ("node_states", "local_transformer_p_injection_w", 100.0),
+        ("node_states", "node_operating_state", "resolved-tamper"),
+        ("segment_states", "series_current_magnitude_a", 1.0),
+        ("segment_states", "p_from_terminal_into_segment_w", 100.0),
+        ("segment_states", "segment_operating_state", "resolved-tamper"),
+        ("revenue_meter_states", "expected_meter_voltage_line_to_line_rms_v", 11_000.0),
+        ("revenue_meter_states", "expected_q_at_revenue_meter_var", 500.0),
+        ("revenue_meter_states", "revenue_meter_expected_state", "resolved-tamper"),
+    )
+    for frame_name, column, replacement in cases:
+        frame = getattr(result, frame_name).copy(deep=True)
+        frame.loc[(evidence_timestamp, slice(None)), column] = replacement
+        with pytest.raises(RuntimeError, match="independent exact closure"):
+            module._validate_result(parents, replace(result, **{frame_name: frame}))
+
+
+def test_validator_rejects_mismatch_candidate_physics_leakage() -> None:
+    values = _values(boundary_voltage=9_000.0)
+    parents = module._parents(values)
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    cases = (
+        ("node_states", "voltage_line_to_line_rms_v", 9_000.0),
+        ("segment_states", "series_current_magnitude_a", 1.0),
+        ("revenue_meter_states", "expected_p_at_revenue_meter_w", 100.0),
+        ("revenue_meter_states", "expected_q_at_revenue_meter_var", 50.0),
+    )
+    for frame_name, column, replacement in cases:
+        frame = getattr(result, frame_name).copy(deep=True)
+        frame.iloc[0, frame.columns.get_loc(column)] = replacement
+        with pytest.raises(RuntimeError, match="independent exact closure"):
+            module._validate_result(parents, replace(result, **{frame_name: frame}))
+
+
+def test_validator_closes_zero_voltage_numerical_failure_diagnostics() -> None:
+    values = _values(boundary_voltage=0.0)
+    parents = module._parents(values)
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    frame = result.network_exit_states.copy(deep=True)
+    assert frame.iloc[0]["mv_hv_operating_state"] == (
+        "unresolved_zero_grid_voltage_with_nonzero_transformer_injection"
+    )
+    frame.iloc[0, frame.columns.get_loc("solver_iteration_count")] = 1
+    with pytest.raises(RuntimeError, match="independent exact closure"):
+        module._validate_result(parents, replace(result, network_exit_states=frame))
+
+
 def test_s12m_phase_angle_is_not_coupled() -> None:
     result = _run()
     tree = result.network_exit_states.iloc[0]
@@ -638,3 +718,24 @@ def test_controlled_solver_nonconvergence_preserves_iteration_count(
     assert not solved.converged
     assert solved.failure == "nonconvergence"
     assert solved.iterations == 1
+
+
+def test_validator_closes_public_nonconvergence_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = _values(p=100.0, q=50.0, resistance=100.0, reactance=100.0)
+    parents = module._parents(values)
+    monkeypatch.setattr(module, "MAX_ITERATIONS", 1)
+    result = calculate_topology_mv_hv_operating_solution(**values)
+    row = result.network_exit_states.iloc[0]
+    assert row["mv_hv_operating_state"] == "unresolved_mv_hv_network_solver_nonconvergence"
+    assert row["network_solve_attempted"]
+    assert not row["network_solve_converged"]
+    assert row["solver_iteration_count"] == 1
+    assert math.isfinite(row["solver_max_voltage_delta_v"])
+    frame = result.network_exit_states.copy(deep=True)
+    frame.iloc[0, frame.columns.get_loc("solver_max_voltage_delta_v")] = float(
+        row["solver_max_voltage_delta_v"]
+    ) + 1.0
+    with pytest.raises(RuntimeError, match="independent exact closure"):
+        module._validate_result(parents, replace(result, network_exit_states=frame))

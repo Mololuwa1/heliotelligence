@@ -1316,6 +1316,179 @@ def _validator_check_row(row: pd.Series, expected: Mapping[str, object], label: 
             raise RuntimeError(f"S13C {label} failed independent exact closure")
 
 
+def _validator_close_unresolved_publication(
+    result: TopologyMvHvOperatingSolutionResult,
+    timestamp: pd.Timestamp,
+    exit_id: str,
+    transformer_ids: tuple[str, ...],
+    tree_nodes: Mapping[str, MvHvNetworkNodeAuthority],
+    tree_segments: Mapping[str, MvHvNetworkSegmentAuthority],
+    network: Any,
+    node_exit: Mapping[str, str | None],
+    grid_by_exit: Mapping[str, Any],
+    s12m: Any,
+    residuals: Mapping[str, float] | None = None,
+) -> None:
+    """Independently close every suppressed public row for an unresolved tree."""
+    residuals = residuals or {}
+    shunts = _validator_shunts(tree_nodes, tree_segments)
+    for transformer_id in transformer_ids:
+        binding = network.transformer_terminal_binding_by_transformer_id[transformer_id]
+        row = result.transformer_terminal_states.loc[(timestamp, transformer_id)]
+        upstream = (
+            s12m.states.loc[(timestamp, transformer_id)]
+            if (timestamp, transformer_id) in s12m.states.index
+            else None
+        )
+        state = (
+            upstream["transformer_advanced_operating_solution_state"]
+            if upstream is not None
+            else ""
+        )
+        applicable = state == "resolved_coupled_advanced_transformer_terminal_solution"
+        deenergised = state == "resolved_deenergised_transformer_zero_advanced_transfer"
+        ready = applicable or deenergised
+        if applicable:
+            assert upstream is not None
+            p = float(upstream["p_network_terminal_w"])
+            q = float(upstream["q_network_terminal_var"])
+            s12m_voltage = float(upstream["network_terminal_voltage_line_to_line_rms_v"])
+        elif deenergised:
+            p = q = 0.0
+            s12m_voltage = math.nan
+        else:
+            p = q = s12m_voltage = math.nan
+        residual = residuals.get(transformer_id, math.nan)
+        _validator_check_row(
+            row,
+            {
+                "transformer_terminal_node_id": binding.node_id,
+                "network_exit_node_id": exit_id,
+                "transformer_connected_to_network_exit": True,
+                "s12m_row_present": upstream is not None,
+                "s12m_operating_state": state,
+                "s12m_injection_ready": ready,
+                "transformer_energised": (
+                    upstream["transformer_energised"] if upstream is not None else pd.NA
+                ),
+                "p_network_terminal_injection_w": p,
+                "q_network_terminal_injection_var": q,
+                "s_network_terminal_injection_magnitude_va": (
+                    abs(complex(p, q)) if math.isfinite(p) and math.isfinite(q) else math.nan
+                ),
+                "s12m_network_terminal_voltage_line_to_line_rms_v": s12m_voltage,
+                "solved_s13_terminal_voltage_line_to_line_rms_v": math.nan,
+                "terminal_voltage_consistency_applicable": applicable,
+                "terminal_voltage_magnitude_residual_v": residual,
+                "terminal_voltage_magnitude_consistency_satisfied": (
+                    not applicable
+                    or (
+                        transformer_id in residuals
+                        and _close(residual, 0.0, terminal=True)
+                    )
+                ),
+                "mv_hv_operating_solution_resolved": False,
+                "transformer_terminal_operating_state": (
+                    "unresolved_upstream_mv_hv_operating_solution"
+                ),
+                "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+            },
+            "transformer_terminal_states",
+        )
+    for node_id, node in tree_nodes.items():
+        row = result.node_states.loc[(timestamp, node_id)]
+        _validator_check_row(
+            row,
+            {
+                "node_kind": node.node_kind,
+                "voltage_level_id": node.voltage_level_id,
+                "network_exit_node_id": exit_id,
+                "node_connected_to_network_exit": True,
+                "mv_hv_operating_solution_resolved": False,
+                "local_transformer_p_injection_w": math.nan,
+                "local_transformer_q_injection_var": math.nan,
+                "total_incident_half_shunt_conductance_siemens_per_phase": (
+                    shunts[node_id].real
+                ),
+                "total_incident_half_shunt_susceptance_siemens_per_phase": (
+                    shunts[node_id].imag
+                ),
+                "voltage_phase_real_v": math.nan,
+                "voltage_phase_imag_v": math.nan,
+                "voltage_phase_magnitude_v": math.nan,
+                "voltage_line_to_line_rms_v": math.nan,
+                "voltage_phase_angle_deg_relative_to_grid_boundary_reference": math.nan,
+                "node_operating_state": "unresolved_upstream_mv_hv_operating_solution",
+                "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+            },
+            "node_states",
+        )
+    static_segment_floats = {
+        "series_resistance_ohm_per_phase",
+        "series_reactance_ohm_per_phase",
+        "total_shunt_conductance_siemens_per_phase",
+        "total_shunt_susceptance_siemens_per_phase",
+    }
+    for segment_id, segment in tree_segments.items():
+        row = result.segment_states.loc[(timestamp, segment_id)]
+        expected: dict[str, object] = {
+            column: math.nan for column in _SEG_FLOAT - static_segment_floats
+        }
+        expected.update(
+            {
+                "from_node_id": segment.from_node_id,
+                "to_node_id": segment.to_node_id,
+                "network_exit_node_id": exit_id,
+                "segment_connected_to_network_exit": True,
+                "mv_hv_operating_solution_resolved": False,
+                "series_resistance_ohm_per_phase": segment.series_resistance_ohm_per_phase,
+                "series_reactance_ohm_per_phase": segment.series_reactance_ohm_per_phase,
+                "total_shunt_conductance_siemens_per_phase": (
+                    segment.total_shunt_conductance_siemens_per_phase
+                ),
+                "total_shunt_susceptance_siemens_per_phase": (
+                    segment.total_shunt_susceptance_siemens_per_phase
+                ),
+                "segment_operating_state": "unresolved_upstream_mv_hv_operating_solution",
+                "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+            }
+        )
+        _validator_check_row(row, expected, "segment_states")
+    grid = grid_by_exit.get(exit_id)
+    for meter_id, meter in network.revenue_meter_boundary_by_id.items():
+        if node_exit[meter.node_id] != exit_id:
+            continue
+        row = result.revenue_meter_states.loc[(timestamp, meter_id)]
+        _validator_check_row(
+            row,
+            {
+                "revenue_meter_node_id": meter.node_id,
+                "revenue_meter_node_kind": network.nodes_by_id[meter.node_id].node_kind,
+                "network_exit_node_id": exit_id,
+                "grid_boundary_id": grid.grid_boundary_id if grid is not None else None,
+                "meter_connected_to_network_exit": True,
+                "mv_hv_operating_solution_resolved": False,
+                "expected_meter_voltage_line_to_line_rms_v": math.nan,
+                "expected_p_at_revenue_meter_w": math.nan,
+                "expected_q_at_revenue_meter_var": math.nan,
+                "expected_s_at_revenue_meter_magnitude_va": math.nan,
+                "active_power_sign_convention": meter.active_power_sign_convention,
+                "reactive_power_sign_convention": meter.reactive_power_sign_convention,
+                "power_basis": meter.power_basis,
+                "meter_boundary_cut_semantics": METER_CUT,
+                "revenue_meter_expected_state": (
+                    "unresolved_upstream_mv_hv_operating_solution"
+                ),
+                "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+            },
+            "revenue_meter_states",
+        )
+
+
 def _validator_solve(
     exit_id: str,
     voltage_ll: float,
@@ -1758,12 +1931,42 @@ def _validate_result(
                     {
                         "network_solve_attempted": False,
                         "network_solve_converged": False,
+                        "transformer_terminal_voltage_consistency_checked": False,
+                        "transformer_terminal_voltage_consistency_satisfied": False,
+                        "mismatched_transformer_count": 0,
+                        "mismatched_transformer_ids": (),
+                        "maximum_transformer_terminal_voltage_magnitude_residual_v": math.nan,
                         "mv_hv_operating_solution_resolved": False,
                         "solver_iteration_count": 0,
+                        "solver_max_voltage_delta_v": math.nan,
+                        "transformer_injected_p_total_w": math.nan,
+                        "transformer_injected_q_total_var": math.nan,
+                        "transformer_injected_s_vector_magnitude_va": math.nan,
                         "p_export_at_grid_boundary_w": math.nan,
                         "q_export_at_grid_boundary_var": math.nan,
+                        "s_export_at_grid_boundary_magnitude_va": math.nan,
+                        "total_series_active_loss_w": math.nan,
+                        "total_series_reactive_consumption_var": math.nan,
+                        "total_shunt_active_consumption_w": math.nan,
+                        "total_shunt_capacitive_reactive_injection_var": math.nan,
+                        "net_network_active_consumption_w": math.nan,
+                        "net_network_reactive_consumption_var": math.nan,
+                        "active_power_conservation_residual_w": math.nan,
+                        "reactive_power_conservation_residual_var": math.nan,
                     },
                     "network_exit_states",
+                )
+                _validator_close_unresolved_publication(
+                    result,
+                    timestamp,
+                    exit_id,
+                    transformer_ids,
+                    tree_nodes,
+                    tree_segments,
+                    network,
+                    node_exit,
+                    grid_by_exit,
+                    s12m,
                 )
                 continue
             assert boundary is not None
@@ -1776,6 +1979,52 @@ def _validate_result(
             if failure_state:
                 if row["mv_hv_operating_state"] != failure_state:
                     raise RuntimeError("S13C numerical state failed independent exact closure")
+                p_source = math.fsum(value.real for value in injections.values())
+                q_source = math.fsum(value.imag for value in injections.values())
+                _validator_check_row(
+                    row,
+                    {
+                        "network_solve_attempted": boundary != 0.0,
+                        "network_solve_converged": False,
+                        "transformer_terminal_voltage_consistency_checked": False,
+                        "transformer_terminal_voltage_consistency_satisfied": False,
+                        "mismatched_transformer_count": 0,
+                        "mismatched_transformer_ids": (),
+                        "maximum_transformer_terminal_voltage_magnitude_residual_v": math.nan,
+                        "mv_hv_operating_solution_resolved": False,
+                        "transformer_injected_p_total_w": p_source,
+                        "transformer_injected_q_total_var": q_source,
+                        "transformer_injected_s_vector_magnitude_va": abs(
+                            complex(p_source, q_source)
+                        ),
+                        "p_export_at_grid_boundary_w": math.nan,
+                        "q_export_at_grid_boundary_var": math.nan,
+                        "s_export_at_grid_boundary_magnitude_va": math.nan,
+                        "total_series_active_loss_w": math.nan,
+                        "total_series_reactive_consumption_var": math.nan,
+                        "total_shunt_active_consumption_w": math.nan,
+                        "total_shunt_capacitive_reactive_injection_var": math.nan,
+                        "net_network_active_consumption_w": math.nan,
+                        "net_network_reactive_consumption_var": math.nan,
+                        "active_power_conservation_residual_w": math.nan,
+                        "reactive_power_conservation_residual_var": math.nan,
+                        "solver_iteration_count": solved.iterations,
+                        "solver_max_voltage_delta_v": solved.delta,
+                    },
+                    "network_exit_states",
+                )
+                _validator_close_unresolved_publication(
+                    result,
+                    timestamp,
+                    exit_id,
+                    transformer_ids,
+                    tree_nodes,
+                    tree_segments,
+                    network,
+                    node_exit,
+                    grid_by_exit,
+                    s12m,
+                )
                 continue
             mismatched = []
             residuals: dict[str, float] = {}
@@ -1798,6 +2047,8 @@ def _validate_result(
                     "S13C terminal mismatch evidence failed independent exact closure"
                 )
             if mismatched:
+                p_source = math.fsum(value.real for value in injections.values())
+                q_source = math.fsum(value.imag for value in injections.values())
                 if row["mv_hv_operating_state"] != _TREE_STATES[8]:
                     raise RuntimeError(
                         "S13C terminal mismatch state failed independent exact closure"
@@ -1805,34 +2056,49 @@ def _validate_result(
                 _validator_check_row(
                     row,
                     {
+                        "network_solve_attempted": boundary != 0.0,
                         "network_solve_converged": True,
+                        "transformer_terminal_voltage_consistency_checked": bool(energised),
+                        "transformer_terminal_voltage_consistency_satisfied": False,
                         "mv_hv_operating_solution_resolved": False,
                         "mismatched_transformer_count": len(mismatched),
                         "maximum_transformer_terminal_voltage_magnitude_residual_v": max(
                             abs(value) for value in residuals.values()
                         ),
+                        "transformer_injected_p_total_w": p_source,
+                        "transformer_injected_q_total_var": q_source,
+                        "transformer_injected_s_vector_magnitude_va": abs(
+                            complex(p_source, q_source)
+                        ),
                         "p_export_at_grid_boundary_w": math.nan,
                         "q_export_at_grid_boundary_var": math.nan,
+                        "s_export_at_grid_boundary_magnitude_va": math.nan,
+                        "total_series_active_loss_w": math.nan,
+                        "total_series_reactive_consumption_var": math.nan,
+                        "total_shunt_active_consumption_w": math.nan,
+                        "total_shunt_capacitive_reactive_injection_var": math.nan,
+                        "net_network_active_consumption_w": math.nan,
+                        "net_network_reactive_consumption_var": math.nan,
+                        "active_power_conservation_residual_w": math.nan,
+                        "reactive_power_conservation_residual_var": math.nan,
+                        "solver_iteration_count": solved.iterations,
+                        "solver_max_voltage_delta_v": solved.delta,
                     },
                     "network_exit_states",
                 )
-                for transformer_id, residual in residuals.items():
-                    terminal_row = result.transformer_terminal_states.loc[
-                        (timestamp, transformer_id)
-                    ]
-                    _validator_check_row(
-                        terminal_row,
-                        {
-                            "solved_s13_terminal_voltage_line_to_line_rms_v": math.nan,
-                            "terminal_voltage_magnitude_residual_v": residual,
-                            "terminal_voltage_magnitude_consistency_satisfied": False,
-                            "mv_hv_operating_solution_resolved": False,
-                            "transformer_terminal_operating_state": (
-                                "unresolved_upstream_mv_hv_operating_solution"
-                            ),
-                        },
-                        "transformer_terminal_states",
-                    )
+                _validator_close_unresolved_publication(
+                    result,
+                    timestamp,
+                    exit_id,
+                    transformer_ids,
+                    tree_nodes,
+                    tree_segments,
+                    network,
+                    node_exit,
+                    grid_by_exit,
+                    s12m,
+                    residuals,
+                )
                 continue
             # Independently reconstruct currents, branch powers, conservation,
             # node voltages, and meter cuts from validator voltages.
@@ -2127,6 +2393,171 @@ def _validate_result(
                     },
                     "revenue_meter_states",
                 )
+    # Rows outside every admitted exit tree are still part of the public
+    # Cartesian contract and must close independently rather than escaping the
+    # per-tree loops above.
+    all_shunts = _validator_shunts(network.nodes_by_id, network.segments_by_id)
+    for timestamp in times:
+        for transformer_id, binding in (
+            network.transformer_terminal_binding_by_transformer_id.items()
+        ):
+            if node_exit[binding.node_id] is not None:
+                continue
+            row = result.transformer_terminal_states.loc[(timestamp, transformer_id)]
+            upstream = (
+                s12m.states.loc[(timestamp, transformer_id)]
+                if (timestamp, transformer_id) in s12m.states.index
+                else None
+            )
+            state = (
+                upstream["transformer_advanced_operating_solution_state"]
+                if upstream is not None
+                else ""
+            )
+            applicable = state == "resolved_coupled_advanced_transformer_terminal_solution"
+            deenergised = state == "resolved_deenergised_transformer_zero_advanced_transfer"
+            if applicable:
+                assert upstream is not None
+                p = float(upstream["p_network_terminal_w"])
+                q = float(upstream["q_network_terminal_var"])
+                parent_voltage = float(
+                    upstream["network_terminal_voltage_line_to_line_rms_v"]
+                )
+            elif deenergised:
+                p = q = 0.0
+                parent_voltage = math.nan
+            else:
+                p = q = parent_voltage = math.nan
+            _validator_check_row(
+                row,
+                {
+                    "transformer_terminal_node_id": binding.node_id,
+                    "network_exit_node_id": None,
+                    "transformer_connected_to_network_exit": False,
+                    "s12m_row_present": upstream is not None,
+                    "s12m_operating_state": state,
+                    "s12m_injection_ready": applicable or deenergised,
+                    "transformer_energised": (
+                        upstream["transformer_energised"] if upstream is not None else pd.NA
+                    ),
+                    "p_network_terminal_injection_w": p,
+                    "q_network_terminal_injection_var": q,
+                    "s_network_terminal_injection_magnitude_va": (
+                        abs(complex(p, q))
+                        if math.isfinite(p) and math.isfinite(q)
+                        else math.nan
+                    ),
+                    "s12m_network_terminal_voltage_line_to_line_rms_v": parent_voltage,
+                    "solved_s13_terminal_voltage_line_to_line_rms_v": math.nan,
+                    "terminal_voltage_consistency_applicable": applicable,
+                    "terminal_voltage_magnitude_residual_v": math.nan,
+                    "terminal_voltage_magnitude_consistency_satisfied": not applicable,
+                    "mv_hv_operating_solution_resolved": False,
+                    "transformer_terminal_operating_state": (
+                        "unresolved_upstream_mv_hv_operating_solution"
+                    ),
+                    "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                    "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+                },
+                "transformer_terminal_states",
+            )
+        for node_id, node in network.nodes_by_id.items():
+            if node_exit[node_id] is not None:
+                continue
+            _validator_check_row(
+                result.node_states.loc[(timestamp, node_id)],
+                {
+                    "node_kind": node.node_kind,
+                    "voltage_level_id": node.voltage_level_id,
+                    "network_exit_node_id": None,
+                    "node_connected_to_network_exit": False,
+                    "mv_hv_operating_solution_resolved": False,
+                    "local_transformer_p_injection_w": math.nan,
+                    "local_transformer_q_injection_var": math.nan,
+                    "total_incident_half_shunt_conductance_siemens_per_phase": (
+                        all_shunts[node_id].real
+                    ),
+                    "total_incident_half_shunt_susceptance_siemens_per_phase": (
+                        all_shunts[node_id].imag
+                    ),
+                    "voltage_phase_real_v": math.nan,
+                    "voltage_phase_imag_v": math.nan,
+                    "voltage_phase_magnitude_v": math.nan,
+                    "voltage_line_to_line_rms_v": math.nan,
+                    "voltage_phase_angle_deg_relative_to_grid_boundary_reference": math.nan,
+                    "node_operating_state": "unresolved_upstream_mv_hv_operating_solution",
+                    "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                    "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+                },
+                "node_states",
+            )
+        for segment_id, segment in network.segments_by_id.items():
+            if segment_exit[segment_id] is not None:
+                continue
+            expected: dict[str, object] = {
+                column: math.nan
+                for column in _SEG_FLOAT
+                if column
+                not in {
+                    "series_resistance_ohm_per_phase",
+                    "series_reactance_ohm_per_phase",
+                    "total_shunt_conductance_siemens_per_phase",
+                    "total_shunt_susceptance_siemens_per_phase",
+                }
+            }
+            expected.update(
+                {
+                    "from_node_id": segment.from_node_id,
+                    "to_node_id": segment.to_node_id,
+                    "network_exit_node_id": None,
+                    "segment_connected_to_network_exit": False,
+                    "mv_hv_operating_solution_resolved": False,
+                    "series_resistance_ohm_per_phase": segment.series_resistance_ohm_per_phase,
+                    "series_reactance_ohm_per_phase": segment.series_reactance_ohm_per_phase,
+                    "total_shunt_conductance_siemens_per_phase": (
+                        segment.total_shunt_conductance_siemens_per_phase
+                    ),
+                    "total_shunt_susceptance_siemens_per_phase": (
+                        segment.total_shunt_susceptance_siemens_per_phase
+                    ),
+                    "segment_operating_state": "unresolved_upstream_mv_hv_operating_solution",
+                    "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                    "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+                }
+            )
+            _validator_check_row(
+                result.segment_states.loc[(timestamp, segment_id)],
+                expected,
+                "segment_states",
+            )
+        for meter_id, meter in network.revenue_meter_boundary_by_id.items():
+            if node_exit[meter.node_id] is not None:
+                continue
+            _validator_check_row(
+                result.revenue_meter_states.loc[(timestamp, meter_id)],
+                {
+                    "revenue_meter_node_id": meter.node_id,
+                    "revenue_meter_node_kind": network.nodes_by_id[meter.node_id].node_kind,
+                    "network_exit_node_id": None,
+                    "grid_boundary_id": None,
+                    "meter_connected_to_network_exit": False,
+                    "mv_hv_operating_solution_resolved": False,
+                    "expected_meter_voltage_line_to_line_rms_v": math.nan,
+                    "expected_p_at_revenue_meter_w": math.nan,
+                    "expected_q_at_revenue_meter_var": math.nan,
+                    "expected_s_at_revenue_meter_magnitude_va": math.nan,
+                    "active_power_sign_convention": meter.active_power_sign_convention,
+                    "reactive_power_sign_convention": meter.reactive_power_sign_convention,
+                    "power_basis": meter.power_basis,
+                    "meter_boundary_cut_semantics": METER_CUT,
+                    "revenue_meter_expected_state": (
+                        "unresolved_revenue_meter_node_not_connected_to_network_exit"
+                    ),
+                    "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+                    "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
+                },
+                "revenue_meter_states",
+            )
     states = result.network_exit_states["mv_hv_operating_state"]
     expected_diagnostics = TopologyMvHvOperatingSolutionDiagnostics(
         len(times),
