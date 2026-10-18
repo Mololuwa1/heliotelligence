@@ -396,6 +396,7 @@ def _validate_graph(
 
 def _validate_boundaries(
     canonical: TopologyTransformerStaticAuthorityResult,
+    levels: Mapping[str, MvHvVoltageLevelAuthority],
     nodes: Mapping[str, MvHvNetworkNodeAuthority],
     bindings: Mapping[str, MvHvTransformerTerminalBindingAuthority],
     grids: Mapping[str, MvHvGridBoundaryAuthority],
@@ -413,6 +414,17 @@ def _validate_boundaries(
         node = nodes.get(binding.node_id)
         if node is None or node.node_kind != "transformer_terminal":
             raise ValueError("transformer binding node must be a transformer_terminal")
+        equipment = canonical.equipment_by_id.get(transformer_id)
+        if equipment is not None and not math.isclose(
+            levels[node.voltage_level_id].nominal_line_to_line_rms_v,
+            equipment.network_side_rated_line_to_line_rms_v,
+            rel_tol=1e-12,
+            abs_tol=0.0,
+        ):
+            raise ValueError(
+                "S13 transformer-terminal nominal voltage does not match canonical "
+                "S12A network-side rated voltage"
+            )
         if binding.node_id in bound_nodes:
             raise ValueError("transformer_terminal node may bind to only one transformer")
         bound_nodes.add(binding.node_id)
@@ -647,7 +659,7 @@ def resolve_topology_mv_hv_network_authority(
         "revenue meter",
     )
     outgoing = _validate_graph(levels, nodes, segments)
-    _validate_boundaries(canonical, nodes, bindings, grids, meters)
+    _validate_boundaries(canonical, levels, nodes, bindings, grids, meters)
     ids = list(canonical.transformer_states.index)
     records = [
         _record(
@@ -719,6 +731,7 @@ def _validator_graph(
 
 def _validator_boundaries(
     canonical: TopologyTransformerStaticAuthorityResult,
+    levels: Mapping[str, MvHvVoltageLevelAuthority],
     nodes: Mapping[str, MvHvNetworkNodeAuthority],
     bindings: Mapping[str, MvHvTransformerTerminalBindingAuthority],
     grids: Mapping[str, MvHvGridBoundaryAuthority],
@@ -736,6 +749,15 @@ def _validator_boundaries(
         node = nodes.get(binding.node_id)
         if node is None or node.node_kind != "transformer_terminal":
             raise ValueError("transformer binding node must be a transformer_terminal")
+        equipment = canonical.equipment_by_id.get(transformer_id)
+        if equipment is not None:
+            s13_voltage = levels[node.voltage_level_id].nominal_line_to_line_rms_v
+            s12a_voltage = equipment.network_side_rated_line_to_line_rms_v
+            if not math.isclose(s13_voltage, s12a_voltage, rel_tol=1e-12, abs_tol=0.0):
+                raise ValueError(
+                    "S13 transformer-terminal nominal voltage does not match canonical "
+                    "S12A network-side rated voltage"
+                )
         if binding.node_id in bound_nodes:
             raise ValueError("transformer_terminal node may bind to only one transformer")
         bound_nodes.add(binding.node_id)
@@ -930,6 +952,7 @@ def _validate_result(
     )
     _validator_boundaries(
         canonical,
+        result.voltage_levels_by_id,
         result.nodes_by_id,
         result.transformer_terminal_binding_by_transformer_id,
         result.grid_boundary_by_id,

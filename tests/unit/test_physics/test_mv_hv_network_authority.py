@@ -186,6 +186,45 @@ def test_simple_tree_meter_and_grid_are_distinct_colocated_authorities() -> None
     assert result.diagnostics.zero_shunt_admittance_segment_count == 1
 
 
+def test_transformer_terminal_explicit_voltage_matches_s12a_network_side() -> None:
+    result = _resolve()
+    assert result.voltage_levels_by_id["11-kv"].nominal_line_to_line_rms_v == 11_000.0
+    assert (
+        result.transformer_states.loc["tx-1", "mv_hv_network_authority_state"]
+        == "resolved_mv_hv_network_and_meter_boundary_authority"
+    )
+
+
+def test_transformer_terminal_explicit_voltage_contradiction_is_rejected() -> None:
+    values = _inputs()
+    values["mv_hv_voltage_level_by_id"] = {"11-kv": _level("11-kv", 33_000.0)}
+    with pytest.raises(
+        ValueError,
+        match="S13 transformer-terminal nominal voltage does not match canonical S12A",
+    ):
+        _resolve(values)
+
+
+def test_missing_s12a_equipment_does_not_infer_or_reject_s13_voltage() -> None:
+    values = _inputs()
+    transformer_topology = values["transformer_topology_by_id"]
+    values["transformer_equipment_by_id"] = {}
+    values["transformer_static_authority"] = resolve_transformer_static_authority(
+        values["topology"],
+        values["network_basis"],
+        values["node_authority_by_id"],
+        values["segment_authority_by_id"],
+        values["inverter_terminal_binding_by_inverter_id"],
+        values["lv_ac_collection_authority"],
+        {},
+        transformer_topology,
+    )
+    result = _resolve(values)
+    row = result.transformer_states.loc["tx-1"]
+    assert not row["transformer_static_authority_resolved"]
+    assert result.voltage_levels_by_id["11-kv"].nominal_line_to_line_rms_v == 11_000.0
+
+
 def test_internal_meter_and_nonzero_nominal_pi_values_are_preserved() -> None:
     values = _inputs()
     values["mv_hv_node_by_id"]["junction"] = _node("junction", "junction")
