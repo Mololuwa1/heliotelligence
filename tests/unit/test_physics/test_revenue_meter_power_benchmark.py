@@ -178,6 +178,88 @@ def test_interval_average_preserves_both_parents_but_has_no_residual() -> None:
     )
 
 
+def _numerical_boundary_result(
+    parents: tuple[Any, Any, Any],
+    expected_p: float,
+    expected_q: float,
+    measured_p: float,
+    measured_q: float,
+) -> tuple[tuple[Any, Any, Any], Any]:
+    s13a, s13c, s13d = parents
+    expected = s13c.revenue_meter_states.copy(deep=True)
+    measured = s13d.states.copy(deep=True)
+    expected.loc[:, "expected_p_at_revenue_meter_w"] = expected_p
+    expected.loc[:, "expected_q_at_revenue_meter_var"] = expected_q
+    measured.loc[:, "measured_active_power_w"] = measured_p
+    measured.loc[:, "measured_reactive_power_var"] = measured_q
+    bounded_parents = (
+        s13a,
+        replace(s13c, revenue_meter_states=expected),
+        replace(s13d, states=measured),
+    )
+    timestamp, meter_id = expected.index[0]
+    keys = ((timestamp, meter_id),)
+    record = module._record(*bounded_parents, timestamp, meter_id)
+    frame = module._frame(keys, [record])
+    result = module.TopologyRevenueMeterInstantaneousBenchmarkResult(
+        frame,
+        module._diagnostics((meter_id,), (timestamp,), frame),
+    )
+    return bounded_parents, result
+
+
+def test_nonfinite_residual_boundaries_are_controlled_and_finite_case_resolves() -> None:
+    parents = module._parents(_values())
+    cases = (
+        ("subtraction", -1.0e308, 0.0, 1.0e308, 0.0, False),
+        ("magnitude", 0.0, 0.0, 1.3e308, 1.3e308, False),
+        ("large-finite", -1.0e307, 0.0, 1.0e307, 1.0e307, True),
+    )
+    for _label, ep, eq, mp, mq, should_resolve in cases:
+        bounded_parents, result = _numerical_boundary_result(parents, ep, eq, mp, mq)
+        row = result.states.iloc[0]
+        assert bool(row["temporal_basis_compatible"])
+        assert bool(row["benchmark_eligible"]) is should_resolve
+        if should_resolve:
+            assert row["active_power_residual_measured_minus_expected_w"] == 2.0e307
+            assert math.isfinite(row["power_residual_vector_magnitude_va"])
+            assert row["revenue_meter_power_benchmark_state"] == (
+                "resolved_instantaneous_revenue_meter_power_benchmark"
+            )
+        else:
+            assert row["revenue_meter_power_benchmark_state"] == (
+                "unresolved_nonfinite_revenue_meter_power_residual"
+            )
+            for column in (
+                "active_power_residual_measured_minus_expected_w",
+                "reactive_power_residual_measured_minus_expected_var",
+                "absolute_active_power_residual_w",
+                "absolute_reactive_power_residual_var",
+                "power_residual_vector_magnitude_va",
+            ):
+                assert pd.isna(row[column])
+            assert row["expected_power_resolved"]
+            assert row["measured_power_authority_resolved"]
+            module._validate_result(bounded_parents, result)
+
+
+def test_nonfinite_residual_publication_tampering_is_rejected() -> None:
+    parents = module._parents(_values())
+    bounded_parents, result = _numerical_boundary_result(
+        parents, -1.0e308, 0.0, 1.0e308, 0.0
+    )
+    for value in (math.inf, 1.0):
+        changed = result.states.copy(deep=True)
+        changed.iloc[
+            0,
+            changed.columns.get_loc(
+                "active_power_residual_measured_minus_expected_w"
+            ),
+        ] = value
+        with pytest.raises(RuntimeError, match="independent exact closure"):
+            module._validate_result(bounded_parents, replace(result, states=changed))
+
+
 def test_zero_expected_power_supports_raw_residual_without_percentage() -> None:
     row = _run(
         p=0.0,

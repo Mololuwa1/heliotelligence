@@ -68,6 +68,7 @@ _STATES = (
     "unresolved_expected_revenue_meter_operating_solution",
     "unresolved_missing_measured_revenue_meter_power_state",
     "unresolved_interval_average_measurement_requires_temporal_aggregation",
+    "unresolved_nonfinite_revenue_meter_power_residual",
     "resolved_instantaneous_revenue_meter_power_benchmark",
 )
 _COLUMNS = (
@@ -270,6 +271,24 @@ def _check_static_rows(s13a: Any, s13c: Any, s13d: Any) -> None:
             raise RuntimeError("S13D meter semantics contradict canonical S13A")
 
 
+def _residuals(
+    measured_p: float,
+    expected_p: float,
+    measured_q: float,
+    expected_q: float,
+) -> tuple[bool, float, float, float]:
+    """Return finite float64 residuals, or a controlled unresolved result."""
+
+    dp = measured_p - expected_p
+    dq = measured_q - expected_q
+    if not math.isfinite(dp) or not math.isfinite(dq):
+        return False, math.nan, math.nan, math.nan
+    magnitude = math.hypot(dp, dq)
+    if not math.isfinite(magnitude):
+        return False, math.nan, math.nan, math.nan
+    return True, dp, dq, magnitude
+
+
 def _record(
     s13a: Any,
     s13c: Any,
@@ -309,7 +328,7 @@ def _record(
     if measured_resolved:
         assert measured is not None
         temporal = measured["measurement_time_semantics"] == "instantaneous_snapshot"
-    eligible = expected_resolved and measured_resolved and temporal is True
+    comparison_inputs_ready = expected_resolved and measured_resolved and temporal is True
     if not expected_present:
         primary = _STATES[0]
     elif not expected_resolved:
@@ -319,7 +338,7 @@ def _record(
     elif temporal is False:
         primary = _STATES[3]
     else:
-        primary = _STATES[4]
+        primary = _STATES[5]
     expected_p = (
         float(expected["expected_p_at_revenue_meter_w"])
         if expected is not None
@@ -340,8 +359,14 @@ def _record(
         if measured is not None
         else math.nan
     )
-    dp = measured_p - expected_p if eligible else math.nan
-    dq = measured_q - expected_q if eligible else math.nan
+    eligible = False
+    dp = dq = residual_magnitude = math.nan
+    if comparison_inputs_ready:
+        eligible, dp, dq, residual_magnitude = _residuals(
+            measured_p, expected_p, measured_q, expected_q
+        )
+        if not eligible:
+            primary = _STATES[4]
     return {
         "network_basis_resolved": s13a.network_basis is not None,
         "revenue_meter_node_id": meter.node_id,
@@ -404,7 +429,7 @@ def _record(
         "reactive_power_residual_measured_minus_expected_var": dq,
         "absolute_active_power_residual_w": abs(dp) if eligible else math.nan,
         "absolute_reactive_power_residual_var": abs(dq) if eligible else math.nan,
-        "power_residual_vector_magnitude_va": math.hypot(dp, dq) if eligible else math.nan,
+        "power_residual_vector_magnitude_va": residual_magnitude,
         "residual_sign_semantics": RESIDUAL_SIGN_SEMANTICS,
         "revenue_meter_power_benchmark_state": primary,
         "mv_hv_network_authority_contract": MV_HV_NETWORK_AUTHORITY_CONTRACT_ID,
@@ -532,7 +557,7 @@ def _validator_record(
     if m_resolved:
         assert m is not None
         compatibility = m["measurement_time_semantics"] == "instantaneous_snapshot"
-    eligible = e_resolved and m_resolved and compatibility is True
+    comparison_ready = e_resolved and m_resolved and compatibility is True
     state = (
         _STATES[0]
         if not has_expected
@@ -542,13 +567,24 @@ def _validator_record(
         if not m_resolved
         else _STATES[3]
         if compatibility is False
-        else _STATES[4]
+        else _STATES[5]
     )
     ep = float(e["expected_p_at_revenue_meter_w"]) if e is not None else math.nan
     eq = float(e["expected_q_at_revenue_meter_var"]) if e is not None else math.nan
     mp = float(m["measured_active_power_w"]) if m is not None else math.nan
     mq = float(m["measured_reactive_power_var"]) if m is not None else math.nan
-    dp, dq = (mp - ep, mq - eq) if eligible else (math.nan, math.nan)
+    eligible = False
+    dp = dq = magnitude = math.nan
+    if comparison_ready:
+        candidate_dp = mp - ep
+        candidate_dq = mq - eq
+        if math.isfinite(candidate_dp) and math.isfinite(candidate_dq):
+            candidate_magnitude = math.hypot(candidate_dp, candidate_dq)
+            if math.isfinite(candidate_magnitude):
+                eligible = True
+                dp, dq, magnitude = candidate_dp, candidate_dq, candidate_magnitude
+        if not eligible:
+            state = _STATES[4]
     return {
         "network_basis_resolved": s13a.network_basis is not None,
         "revenue_meter_node_id": meter.node_id,
@@ -597,7 +633,7 @@ def _validator_record(
         "reactive_power_residual_measured_minus_expected_var": dq,
         "absolute_active_power_residual_w": abs(dp) if eligible else math.nan,
         "absolute_reactive_power_residual_var": abs(dq) if eligible else math.nan,
-        "power_residual_vector_magnitude_va": math.hypot(dp, dq) if eligible else math.nan,
+        "power_residual_vector_magnitude_va": magnitude,
         "residual_sign_semantics": RESIDUAL_SIGN_SEMANTICS,
         "revenue_meter_power_benchmark_state": state,
         "mv_hv_network_authority_contract": MV_HV_NETWORK_AUTHORITY_CONTRACT_ID,
