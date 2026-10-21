@@ -245,6 +245,79 @@ def test_public_resolution_preserves_interval_measurement_when_start_is_missing(
     assert pd.isna(row["expected_active_energy_wh"])
 
 
+def test_public_resolution_preserves_measurement_with_zero_s13c_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = _s14a_values(
+        temporal="interval_average_ending_at_timestamp",
+        interval=3600.0,
+        measured_p=50.0,
+        measured_q=10.0,
+    )
+    s13a, s13c, s13d = module._parents(values)
+    empty_expected = s13c.revenue_meter_states.iloc[0:0].copy(deep=True)
+    empty_s13c = replace(s13c, revenue_meter_states=empty_expected)
+    monkeypatch.setattr(module, "_parents", lambda _values: (s13a, empty_s13c, s13d))
+
+    result = calculate_topology_revenue_meter_interval_benchmark(**values)
+    assert len(result.states) == 1
+    row = result.states.iloc[0]
+    assert row["measured_parent_row_present"]
+    assert row["measured_power_state_present"]
+    assert row["measured_power_authority_resolved"]
+    assert row["measured_interval_average_active_power_w"] == 50.0
+    assert row["measured_interval_average_reactive_power_var"] == 10.0
+    assert row["interval_boundary_exactly_representable"]
+    assert row["interval_start_timestamp"] == result.states.index[0][0] - pd.Timedelta(hours=1)
+    assert not row["expected_interval_start_row_present"]
+    assert not row["expected_interval_end_row_present"]
+    assert row["expected_interval_sample_count"] == 0
+    assert row["expected_interval_resolved_sample_count"] == 0
+    assert row["expected_interval_unresolved_sample_count"] == 0
+    assert row["expected_interval_sample_timestamps"] == ()
+    assert row["unresolved_expected_sample_timestamps"] == ()
+    assert row["expected_interval_segment_count"] == 0
+    assert pd.isna(row["maximum_expected_sample_gap_seconds"])
+    assert not row["expected_interval_all_samples_resolved"]
+    assert not row["benchmark_eligible"]
+    assert row["revenue_meter_interval_benchmark_state"] == (
+        "unresolved_missing_expected_interval_boundary_state"
+    )
+    for column in (
+        "expected_active_energy_wh",
+        "expected_reactive_energy_varh",
+        "measured_active_energy_wh",
+        "measured_reactive_energy_varh",
+        "active_power_residual_measured_minus_expected_w",
+        "reactive_power_residual_measured_minus_expected_var",
+        "active_energy_residual_measured_minus_expected_wh",
+        "reactive_energy_residual_measured_minus_expected_varh",
+    ):
+        assert pd.isna(row[column])
+    module._validate_result((s13a, empty_s13c, s13d), result)
+
+
+def test_half_hour_power_and_energy_residual_representations_close() -> None:
+    parents = _parents()
+    bounded, result = _bounded(
+        parents,
+        [(1800.0, 20.0, -10.0, True), (0.0, 60.0, 30.0, True)],
+        duration=1800.0,
+        measured_p=50.0,
+        measured_q=5.0,
+    )
+    row = result.states.iloc[0]
+    hours = 0.5
+    assert row["benchmark_eligible"]
+    assert row["active_energy_residual_measured_minus_expected_wh"] == pytest.approx(
+        row["active_power_residual_measured_minus_expected_w"] * hours
+    )
+    assert row["reactive_energy_residual_measured_minus_expected_varh"] == pytest.approx(
+        row["reactive_power_residual_measured_minus_expected_var"] * hours
+    )
+    module._validate_result(bounded, result)
+
+
 def test_strong_parent_replay_rejects_each_parent() -> None:
     for parent_name in (
         "mv_hv_network_authority",

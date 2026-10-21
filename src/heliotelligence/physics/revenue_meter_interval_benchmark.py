@@ -53,6 +53,8 @@ BOUNDARY_ALIGNMENT_SEMANTICS = (
 )
 RESIDUAL_SIGN_SEMANTICS = "measured_minus_expected_under_positive_plant_to_grid_sign_convention"
 INTERVAL_END_SEMANTICS = "s13d_measurement_interval_end_timestamp"
+RESIDUAL_CONSISTENCY_REL_TOL = 1e-12
+RESIDUAL_CONSISTENCY_ABS_TOL = 1e-12
 
 _STATES = (
     "unresolved_missing_measured_revenue_meter_power_state",
@@ -428,7 +430,12 @@ def _record(
         record["revenue_meter_interval_benchmark_state"] = _STATES[2]
         return record
     assert isinstance(start, pd.Timestamp)
-    meter_frame = s13c.revenue_meter_states.xs(meter_id, level="revenue_meter_id", drop_level=True)
+    if s13c.revenue_meter_states.empty:
+        meter_frame = s13c.revenue_meter_states.droplevel("revenue_meter_id")
+    else:
+        meter_frame = s13c.revenue_meter_states.xs(
+            meter_id, level="revenue_meter_id", drop_level=True
+        )
     selected = meter_frame.loc[
         (meter_frame.index >= start) & (meter_frame.index <= timestamp)
     ].sort_index()
@@ -482,6 +489,18 @@ def _record(
         de_q = measured_varh - expected_varh
         derived = (expected_p, expected_q, measured_wh, measured_varh, dp, dq, de_p, de_q)
         finite = finite and all(math.isfinite(value) for value in derived)
+        finite = finite and math.isclose(
+            de_p,
+            dp * hours,
+            rel_tol=RESIDUAL_CONSISTENCY_REL_TOL,
+            abs_tol=RESIDUAL_CONSISTENCY_ABS_TOL,
+        )
+        finite = finite and math.isclose(
+            de_q,
+            dq * hours,
+            rel_tol=RESIDUAL_CONSISTENCY_REL_TOL,
+            abs_tol=RESIDUAL_CONSISTENCY_ABS_TOL,
+        )
     except (OverflowError, ValueError, ZeroDivisionError):
         finite = False
     if not finite:
@@ -673,7 +692,10 @@ def _validator_record(
         out["revenue_meter_interval_benchmark_state"] = _STATES[2]
         return out
     assert isinstance(start, pd.Timestamp)
-    mf = s13c.revenue_meter_states.xs(meter_id, level="revenue_meter_id", drop_level=True)
+    if s13c.revenue_meter_states.empty:
+        mf = s13c.revenue_meter_states.droplevel("revenue_meter_id")
+    else:
+        mf = s13c.revenue_meter_states.xs(meter_id, level="revenue_meter_id", drop_level=True)
     selected = mf.loc[(mf.index >= start) & (mf.index <= timestamp)].sort_index()
     sp, ep = start in mf.index, timestamp in mf.index
     ready = selected["mv_hv_operating_solution_resolved"].astype(bool) & (
@@ -755,6 +777,18 @@ def _validator_record(
         de = mwh - ewh
         dqe = mqh - eqh
         finite = finite and all(math.isfinite(v) for v in (epa, eqa, mwh, mqh, dp, dq, de, dqe))
+        finite = finite and math.isclose(
+            de,
+            dp * hours,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
+        finite = finite and math.isclose(
+            dqe,
+            dq * hours,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
     except (OverflowError, ValueError, ZeroDivisionError):
         finite = False
     if not finite:
