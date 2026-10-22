@@ -64,6 +64,9 @@ _COLUMNS = (
     "no_load_test_voltage_basis",
     "no_load_test_frequency_hz",
     "rated_load_loss_w",
+    "rated_load_loss_reported_resolution_w",
+    "rated_load_loss_rounding_semantics",
+    "rated_load_loss_source_resolution_present",
     "load_loss_test_current_reference_side",
     "load_loss_test_current_condition",
     "load_loss_reference_temperature_c",
@@ -86,11 +89,13 @@ _BOOL_COLUMNS = {
     "transformer_no_load_loss_authority_present",
     "transformer_rated_load_loss_authority_present",
     "transformer_factory_loss_authority_resolved",
+    "rated_load_loss_source_resolution_present",
 }
 _FLOAT_COLUMNS = {
     "no_load_loss_w",
     "no_load_test_frequency_hz",
     "rated_load_loss_w",
+    "rated_load_loss_reported_resolution_w",
     "load_loss_reference_temperature_c",
     "load_loss_test_frequency_hz",
 }
@@ -178,6 +183,8 @@ class TransformerRatedLoadLossAuthority:
     loss_semantics: Literal["total_rated_load_loss_including_winding_and_stray"]
     parameter_source: str
     confidence: Confidence
+    reported_resolution_w: float | None = None
+    rounding_semantics: Literal["nearest_increment"] | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.transformer_id, "transformer_id")
@@ -193,6 +200,7 @@ class TransformerRatedLoadLossAuthority:
             _finite(self.reference_temperature_c, "reference_temperature_c"),
         )
         object.__setattr__(self, "test_frequency_hz", _positive_frequency(self.test_frequency_hz))
+        _validate_resolution(self.reported_resolution_w, self.rounding_semantics)
 
 
 @dataclass(frozen=True)
@@ -320,6 +328,19 @@ def _validate_rated_load(authority: TransformerRatedLoadLossAuthority) -> None:
         raise ValueError("loss_semantics is unsupported")
     _source(authority.parameter_source)
     _confidence(authority.confidence)
+    _validate_resolution(authority.reported_resolution_w, authority.rounding_semantics)
+
+
+def _validate_resolution(resolution: object, semantics: object) -> None:
+    if resolution is None:
+        if semantics is not None:
+            raise ValueError("rounding_semantics requires reported_resolution_w")
+        return
+    normalized = _finite(resolution, "reported_resolution_w")
+    if normalized <= 0.0:
+        raise ValueError("reported_resolution_w must be strictly positive")
+    if semantics != "nearest_increment":
+        raise ValueError("rounding_semantics must be nearest_increment")
 
 
 def _admit_mapping(
@@ -412,6 +433,17 @@ def _record(
         "no_load_test_voltage_basis": no_load.test_voltage_basis if no_load else "",
         "no_load_test_frequency_hz": no_load.test_frequency_hz if no_load else math.nan,
         "rated_load_loss_w": rated_load.rated_load_loss_w if rated_load else math.nan,
+        "rated_load_loss_reported_resolution_w": (
+            rated_load.reported_resolution_w
+            if rated_load and rated_load.reported_resolution_w is not None
+            else math.nan
+        ),
+        "rated_load_loss_rounding_semantics": (
+            rated_load.rounding_semantics if rated_load and rated_load.rounding_semantics else ""
+        ),
+        "rated_load_loss_source_resolution_present": bool(
+            rated_load and rated_load.reported_resolution_w is not None
+        ),
         "load_loss_test_current_reference_side": (
             rated_load.test_current_reference_side if rated_load else ""
         ),
@@ -585,6 +617,19 @@ def _validate_result(
             "no_load_test_voltage_basis": no_load.test_voltage_basis if no_load else "",
             "no_load_test_frequency_hz": no_load.test_frequency_hz if no_load else math.nan,
             "rated_load_loss_w": rated_load.rated_load_loss_w if rated_load else math.nan,
+            "rated_load_loss_reported_resolution_w": (
+                rated_load.reported_resolution_w
+                if rated_load and rated_load.reported_resolution_w is not None
+                else math.nan
+            ),
+            "rated_load_loss_rounding_semantics": (
+                rated_load.rounding_semantics
+                if rated_load and rated_load.rounding_semantics
+                else ""
+            ),
+            "rated_load_loss_source_resolution_present": bool(
+                rated_load and rated_load.reported_resolution_w is not None
+            ),
             "load_loss_test_current_reference_side": (
                 rated_load.test_current_reference_side if rated_load else ""
             ),

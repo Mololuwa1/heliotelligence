@@ -8,6 +8,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, cast
 
+import pandas as pd  # type: ignore[import-untyped]
 import pytest
 
 from heliotelligence.config.site import ElectricalTopologyConfig
@@ -34,6 +35,7 @@ from heliotelligence.physics.transformer_loss_component_authority import (
     TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID,
     TRANSFORMER_LOSS_COMPONENT_AUTHORITY_SCOPE,
     TransformerAdvancedConstructionAuthority,
+    TransformerRatedLoadLossAggregateStrayAuthority,
     TransformerRatedLoadLossComponentAuthority,
     _validate_result,
     resolve_transformer_loss_component_authority,
@@ -76,6 +78,8 @@ def _rated(
     side: str = "collection_side",
     temperature: float = 75.0,
     frequency: float = 50.0,
+    resolution: float | None = None,
+    rounding: str | None = None,
 ) -> TransformerRatedLoadLossAuthority:
     return TransformerRatedLoadLossAuthority(
         identifier,
@@ -87,6 +91,8 @@ def _rated(
         "total_rated_load_loss_including_winding_and_stray",
         f"factory-total:{identifier}",
         "high",
+        resolution,
+        rounding,  # type: ignore[arg-type]
     )
 
 
@@ -126,6 +132,10 @@ def _component(
     side: str = "collection_side",
     temperature: float = 75.0,
     frequency: float = 50.0,
+    i2r_resolution: float | None = None,
+    eddy_resolution: float | None = None,
+    other_resolution: float | None = None,
+    rounding: str | None = None,
 ) -> TransformerRatedLoadLossComponentAuthority:
     return TransformerRatedLoadLossComponentAuthority(
         identifier,
@@ -140,6 +150,36 @@ def _component(
         "manufacturer_design_data",
         f"component-report:{identifier}",
         "high",
+        i2r_resolution,
+        eddy_resolution,
+        other_resolution,
+        rounding,  # type: ignore[arg-type]
+    )
+
+
+def _aggregate(
+    *,
+    i2r: float = 3_500.0,
+    reported: float | None = None,
+    i2r_resolution: float | None = None,
+    stray_resolution: float | None = None,
+    rounding: str | None = None,
+) -> TransformerRatedLoadLossAggregateStrayAuthority:
+    return TransformerRatedLoadLossAggregateStrayAuthority(
+        "tx-1",
+        i2r,
+        reported,
+        "collection_side",
+        "rated_current",
+        75.0,
+        50.0,
+        "rated_total_load_loss_i2r_and_aggregate_stray_at_factory_reference_condition",
+        "factory_test_report",
+        "aggregate factory evidence",
+        "high",
+        i2r_resolution,
+        stray_resolution,
+        rounding,  # type: ignore[arg-type]
     )
 
 
@@ -149,7 +189,12 @@ def _context(
     rated: dict[str, TransformerRatedLoadLossAuthority] | None = None,
     no_load: dict[str, TransformerNoLoadLossAuthority] | None = None,
     construction: dict[str, TransformerAdvancedConstructionAuthority] | None = None,
-    components: dict[str, TransformerRatedLoadLossComponentAuthority] | None = None,
+    components: dict[
+        str,
+        TransformerRatedLoadLossComponentAuthority
+        | TransformerRatedLoadLossAggregateStrayAuthority,
+    ]
+    | None = None,
     partial: str | None = None,
 ) -> dict[str, Any]:
     topology = ElectricalTopologyConfig(inverters=[])
@@ -198,7 +243,12 @@ def _resolve(
     rated: dict[str, TransformerRatedLoadLossAuthority] | None = None,
     no_load: dict[str, TransformerNoLoadLossAuthority] | None = None,
     construction: dict[str, TransformerAdvancedConstructionAuthority] | None = None,
-    components: dict[str, TransformerRatedLoadLossComponentAuthority] | None = None,
+    components: dict[
+        str,
+        TransformerRatedLoadLossComponentAuthority
+        | TransformerRatedLoadLossAggregateStrayAuthority,
+    ]
+    | None = None,
     partial: str | None = None,
     mutations: dict[str, Any] | None = None,
 ) -> Any:
@@ -597,6 +647,16 @@ def test_validator_rejects_each_contract_family_and_diagnostics_tamper() -> None
         "transformer_construction_basis_resolved",
         "transformer_load_loss_component_basis_resolved",
         "transformer_advanced_loss_basis_resolved",
+        "transformer_factory_load_loss_evidence_resolved",
+        "source_resolution_authority_present",
+        "source_resolution_applied",
+        "strict_point_component_closure_resolved",
+        "resolution_bounded_closure_resolved",
+        "aggregate_stray_basis_resolved",
+        "advanced_component_correction_eligible",
+        "factory_load_loss_evidence_fidelity",
+        "rated_load_loss_lower_bound_w",
+        "derived_other_stray_loss_upper_bound_w",
         "thermal_construction_family",
         "winding_conductor_material",
         "cooling_method_code",
@@ -701,3 +761,141 @@ def test_contract_constants_and_scope_exclusions() -> None:
         "magnetising_current",
     ):
         assert forbidden not in source
+
+
+def test_resolution_bounded_explicit_evidence_does_not_gain_advanced_eligibility() -> None:
+    result = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0, resolution=100.0, rounding="nearest_increment")},
+        construction={"tx-1": _construction()},
+        components={
+            "tx-1": _component(
+                i2r=4_600.0,
+                eddy=450.0,
+                i2r_resolution=100.0,
+                eddy_resolution=100.0,
+                rounding="nearest_increment",
+            )
+        },
+    )
+    row = result.transformer_states.iloc[0]
+    assert row["transformer_factory_load_loss_evidence_resolved"]
+    assert row["factory_load_loss_evidence_fidelity"] == (
+        "explicit_three_component_resolution_bounded"
+    )
+    assert row["source_resolution_applied"]
+    assert not row["transformer_load_loss_component_basis_resolved"]
+    assert not row["transformer_advanced_loss_basis_resolved"]
+    assert not row["advanced_component_correction_eligible"]
+    assert pd.isna(row["canonical_other_stray_loss_reference_w"])
+
+
+def test_aggregate_stray_exact_preserves_unknown_component_split() -> None:
+    result = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0)},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate(reported=1_500.0)},
+    )
+    row = result.transformer_states.iloc[0]
+    assert row["factory_load_loss_evidence_fidelity"] == "aggregate_stray_exact"
+    assert row["derived_aggregate_stray_loss_nominal_w"] == 1_500.0
+    assert row["derived_aggregate_stray_loss_lower_bound_w"] == 1_500.0
+    assert row["derived_aggregate_stray_loss_upper_bound_w"] == 1_500.0
+    assert pd.isna(row["winding_eddy_current_loss_reference_w"])
+    assert pd.isna(row["canonical_other_stray_loss_reference_w"])
+    assert row["aggregate_stray_basis_resolved"]
+    assert not row["transformer_advanced_loss_basis_resolved"]
+    assert not row["advanced_component_correction_eligible"]
+
+
+def test_aggregate_stray_without_report_is_valid_residual_evidence() -> None:
+    row = _resolve(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate()},
+    ).transformer_states.iloc[0]
+    assert row["transformer_factory_load_loss_evidence_resolved"]
+    assert row["derived_aggregate_stray_loss_nominal_w"] == 1_500.0
+
+
+def test_aggregate_stray_resolution_can_admit_nominal_i2r_above_total() -> None:
+    row = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0, resolution=100.0, rounding="nearest_increment")},
+        construction={"tx-1": _construction()},
+        components={
+            "tx-1": _aggregate(
+                i2r=5_050.0,
+                i2r_resolution=100.0,
+                rounding="nearest_increment",
+            )
+        },
+    ).transformer_states.iloc[0]
+    assert row["factory_load_loss_evidence_fidelity"] == ("aggregate_stray_resolution_bounded")
+    assert row["source_resolution_applied"]
+    assert not row["transformer_advanced_loss_basis_resolved"]
+
+
+def test_aggregate_stray_strict_i2r_above_total_is_unresolved() -> None:
+    row = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0)},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate(i2r=5_001.0)},
+    ).transformer_states.iloc[0]
+    assert row["factory_load_loss_evidence_fidelity"] == "unresolved"
+    assert not row["transformer_factory_load_loss_evidence_resolved"]
+
+
+@pytest.mark.parametrize(
+    ("reported", "stray_resolution", "resolved"),
+    [(1_700.0, 100.0, False), (1_550.0, 100.0, True)],
+)
+def test_reported_aggregate_stray_requires_documentary_interval_overlap(
+    reported: float, stray_resolution: float, resolved: bool
+) -> None:
+    row = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0, resolution=100.0, rounding="nearest_increment")},
+        construction={"tx-1": _construction()},
+        components={
+            "tx-1": _aggregate(
+                reported=reported,
+                i2r_resolution=100.0,
+                stray_resolution=stray_resolution,
+                rounding="nearest_increment",
+            )
+        },
+    ).transformer_states.iloc[0]
+    assert bool(row["transformer_factory_load_loss_evidence_resolved"]) is resolved
+
+
+def test_s12h_validator_is_independent_of_production_builders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _context(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate()},
+    )
+    result = _resolve(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate()},
+    )
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production builder used")
+
+    for name in (
+        "_source_interval",
+        "_evidence",
+        "_closure",
+        "_build_record",
+        "_frame",
+        "_diagnostics",
+    ):
+        monkeypatch.setattr(module, name, fail)
+    _validate_result(
+        context["static"],
+        context["loss"],
+        result.construction_by_id,
+        result.rated_load_loss_component_by_id,
+        result,
+    )
