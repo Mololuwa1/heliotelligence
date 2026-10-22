@@ -398,9 +398,13 @@ def _instant_record(parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]) -> 
         missing_component_transformer_ids=missing,
         unresolved_component_transformer_ids=unresolved,
         boundary_mismatch_transformer_ids=mismatch,
-        delivery_component_rows_complete=not missing,
-        delivery_component_operating_states_resolved=(not missing and not unresolved),
-        component_boundary_closure_satisfied=(not missing and not unresolved and not mismatch),
+        delivery_component_rows_complete=bool(txs) and not missing,
+        delivery_component_operating_states_resolved=(
+            bool(txs) and not missing and not unresolved
+        ),
+        component_boundary_closure_satisfied=(
+            bool(txs) and not missing and not unresolved and not mismatch
+        ),
         source_reference_plane=SOURCE_REFERENCE_PLANE,
         meter_reference_plane=METER_REFERENCE_PLANE,
         s14a_contract=REVENUE_METER_POWER_BENCHMARK_CONTRACT_ID,
@@ -676,25 +680,476 @@ def calculate_topology_revenue_meter_delivery_loss_attribution(
     return result
 
 
+def _validator_mapping(
+    s13a: Any, s12a: Any, meter_id: str
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    transformer_ids: list[str] = []
+    collection_exit_ids: list[str] = []
+    for transformer_id, state in s13a.transformer_states.iterrows():
+        if (
+            bool(state["revenue_meter_on_transformer_path"])
+            and state["revenue_meter_id"] == meter_id
+        ):
+            identifier = str(transformer_id)
+            transformer_ids.append(identifier)
+            collection_exit_ids.append(
+                s12a.topology_by_id[identifier].s11_collection_exit_node_id
+            )
+    return tuple(transformer_ids), tuple(collection_exit_ids)
+
+
+def _validator_base(columns: tuple[str, ...], bools: set[str]) -> dict[str, object]:
+    record: dict[str, object] = {column: "" for column in columns}
+    for column in bools:
+        record[column] = False
+    floats = _N_FLOAT if columns == _INTERVAL_COLUMNS else _I_FLOAT
+    for column in floats:
+        record[column] = math.nan
+    record.update(
+        contributing_transformer_count=0,
+        contributing_transformer_ids=(),
+        contributing_collection_exit_ids=(),
+        missing_component_transformer_ids=(),
+        unresolved_component_transformer_ids=(),
+        boundary_mismatch_transformer_ids=(),
+        accounting_attribution_semantics=ACCOUNTING_ATTRIBUTION_SEMANTICS,
+        causal_claim_semantics=CAUSAL_CLAIM_SEMANTICS,
+        mv_hv_active_consumption_semantics=MV_HV_CONSUMPTION_SEMANTICS,
+        s11c_contract=TOPOLOGY_LV_AC_COLLECTION_OPERATING_SOLUTION_CONTRACT_ID,
+        s12a_contract=TRANSFORMER_STATIC_AUTHORITY_CONTRACT_ID,
+        s12m_contract=TRANSFORMER_ADVANCED_OPERATING_SOLUTION_CONTRACT_ID,
+        s13a_contract=MV_HV_NETWORK_AUTHORITY_CONTRACT_ID,
+        s13c_contract=MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
+        revenue_meter_delivery_attribution_contract=(
+            REVENUE_METER_DELIVERY_ATTRIBUTION_CONTRACT_ID
+        ),
+        revenue_meter_delivery_attribution_model=REVENUE_METER_DELIVERY_ATTRIBUTION_MODEL_ID,
+        revenue_meter_delivery_attribution_scope=REVENUE_METER_DELIVERY_ATTRIBUTION_SCOPE,
+        revenue_meter_delivery_attribution_coverage_scope=(
+            REVENUE_METER_DELIVERY_ATTRIBUTION_COVERAGE_SCOPE
+        ),
+    )
+    return record
+
+
+def _validator_point(
+    parents: tuple[Any, ...], timestamp: pd.Timestamp, meter_id: str
+) -> dict[str, object]:
+    s11c, s12a, s12m, s13a, _s13c, _s14a, _s14b = parents
+    transformer_ids, exit_ids = _validator_mapping(s13a, s12a, meter_id)
+    missing: list[str] = []
+    unresolved: list[str] = []
+    mismatched: list[str] = []
+    component_rows: list[tuple[float, ...]] = []
+    for transformer_id, exit_id in zip(transformer_ids, exit_ids, strict=True):
+        lv_key = (timestamp, exit_id)
+        transformer_key = (timestamp, transformer_id)
+        if (
+            lv_key not in s11c.collection_exit_states.index
+            or transformer_key not in s12m.states.index
+        ):
+            missing.append(transformer_id)
+            continue
+        lv_state = s11c.collection_exit_states.loc[lv_key]
+        transformer_state = s12m.states.loc[transformer_key]
+        if (
+            not bool(lv_state["lv_ac_operating_solution_resolved"])
+            or transformer_state["transformer_advanced_operating_solution_state"]
+            not in _S12M_READY
+        ):
+            unresolved.append(transformer_id)
+            continue
+        delivered = float(lv_state["p_delivered_at_collection_exit_w"])
+        collection_input = float(transformer_state["collection_p_w"])
+        if not math.isclose(
+            delivered, collection_input, rel_tol=_REL_TOL, abs_tol=_ABS_TOL
+        ):
+            mismatched.append(transformer_id)
+        component_rows.append(
+            (
+                float(lv_state["selected_p_total_w"]),
+                delivered,
+                float(lv_state["total_active_series_loss_w"]),
+                float(lv_state["active_power_conservation_residual_w"]),
+                collection_input,
+                float(transformer_state["p_network_terminal_w"]),
+                float(transformer_state["p_total_transformer_active_loss_w"]),
+                float(transformer_state["active_power_conservation_residual_w"]),
+            )
+        )
+    result: dict[str, object] = {
+        "transformers": transformer_ids,
+        "exits": exit_ids,
+        "missing": tuple(missing),
+        "unresolved": tuple(unresolved),
+        "mismatch": tuple(mismatched),
+    }
+    if not missing and not unresolved:
+        try:
+            aggregates = tuple(
+                math.fsum(component[position] for component in component_rows)
+                for position in range(8)
+            )
+            if all(math.isfinite(value) for value in aggregates):
+                result["totals"] = aggregates
+        except (OverflowError, ValueError):
+            pass
+    return result
+
+
+def _validator_instant_record(
+    parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]
+) -> dict[str, object]:
+    timestamp, meter_id = key
+    benchmark = parents[5].states.loc[key]
+    point = _validator_point(parents, timestamp, meter_id)
+    transformer_ids = cast(tuple[str, ...], point["transformers"])
+    exit_ids = cast(tuple[str, ...], point["exits"])
+    missing = cast(tuple[str, ...], point["missing"])
+    unresolved = cast(tuple[str, ...], point["unresolved"])
+    mismatched = cast(tuple[str, ...], point["mismatch"])
+    record = _validator_base(_INSTANT_COLUMNS, _I_BOOL)
+    record.update(
+        contributing_transformer_count=len(transformer_ids),
+        contributing_transformer_ids=transformer_ids,
+        contributing_collection_exit_ids=exit_ids,
+        s14a_benchmark_eligible=bool(benchmark["benchmark_eligible"]),
+        s14a_benchmark_state=benchmark["revenue_meter_power_benchmark_state"],
+        expected_revenue_meter_active_power_w=benchmark["expected_active_power_w"],
+        measured_revenue_meter_active_power_w=benchmark["measured_active_power_w"],
+        s14a_active_power_residual_w=(
+            benchmark["active_power_residual_measured_minus_expected_w"]
+        ),
+        delivery_component_rows_complete=bool(transformer_ids) and not missing,
+        delivery_component_operating_states_resolved=(
+            bool(transformer_ids) and not missing and not unresolved
+        ),
+        component_boundary_closure_satisfied=(
+            bool(transformer_ids) and not missing and not unresolved and not mismatched
+        ),
+        missing_component_transformer_ids=missing,
+        unresolved_component_transformer_ids=unresolved,
+        boundary_mismatch_transformer_ids=mismatched,
+        source_reference_plane=SOURCE_REFERENCE_PLANE,
+        meter_reference_plane=METER_REFERENCE_PLANE,
+        s14a_contract=REVENUE_METER_POWER_BENCHMARK_CONTRACT_ID,
+    )
+    if not bool(benchmark["benchmark_eligible"]):
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[0]
+        return record
+    if not transformer_ids:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[1]
+        return record
+    if missing:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[2]
+        return record
+    if unresolved:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[3]
+        return record
+    if mismatched:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[4]
+        return record
+    aggregates = point.get("totals")
+    if aggregates is None:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[5]
+        return record
+    source, delivered, lv_loss, lv_residual, tx_input, tx_network, tx_loss, tx_residual = cast(
+        tuple[float, ...], aggregates
+    )
+    expected = float(benchmark["expected_active_power_w"])
+    measured = float(benchmark["measured_active_power_w"])
+    unexplained = float(benchmark["active_power_residual_measured_minus_expected_w"])
+    try:
+        mv_hv_consumption = tx_network - expected
+        delivery_consumption = math.fsum((lv_loss, tx_loss, mv_hv_consumption))
+        reconstructed_expected = source - delivery_consumption
+        accounting_residual = expected - reconstructed_expected
+        reconstructed_measured = reconstructed_expected + accounting_residual + unexplained
+        derived = (
+            mv_hv_consumption,
+            delivery_consumption,
+            reconstructed_expected,
+            accounting_residual,
+            reconstructed_measured,
+        )
+        valid = all(math.isfinite(value) for value in derived) and math.isclose(
+            measured, reconstructed_measured, rel_tol=_REL_TOL, abs_tol=_ABS_TOL
+        )
+    except (OverflowError, ValueError):
+        valid = False
+    if not valid:
+        record["revenue_meter_delivery_attribution_state"] = _INSTANT_STATES[5]
+        return record
+    record.update(
+        selected_inverter_ac_source_power_w=source,
+        lv_ac_delivered_to_transformer_collection_power_w=delivered,
+        lv_ac_owned_series_loss_w=lv_loss,
+        lv_ac_conservation_residual_w=lv_residual,
+        transformer_collection_input_power_w=tx_input,
+        transformer_network_terminal_power_w=tx_network,
+        transformer_owned_active_loss_w=tx_loss,
+        transformer_conservation_residual_w=tx_residual,
+        mv_hv_active_consumption_to_meter_w=mv_hv_consumption,
+        modeled_delivery_active_consumption_w=delivery_consumption,
+        reconstructed_expected_meter_active_power_w=reconstructed_expected,
+        model_accounting_closure_residual_w=accounting_residual,
+        unexplained_meter_residual_measured_minus_expected_w=unexplained,
+        reconstructed_measured_meter_active_power_w=reconstructed_measured,
+        revenue_meter_delivery_attribution_state=_INSTANT_STATES[6],
+    )
+    return record
+
+
+def _validator_integrate(
+    timestamps: tuple[pd.Timestamp, ...], component_points: list[tuple[float, ...]]
+) -> tuple[float, ...] | None:
+    segment_energies: list[list[float]] = [[], [], [], [], []]
+    try:
+        for index, (left_timestamp, right_timestamp) in enumerate(
+            zip(timestamps, timestamps[1:], strict=False)
+        ):
+            elapsed_hours = (
+                (right_timestamp - left_timestamp).value / 3_600_000_000_000.0
+            )
+            if not math.isfinite(elapsed_hours) or elapsed_hours <= 0.0:
+                return None
+            for position, energy_values in enumerate(segment_energies):
+                contribution = (
+                    component_points[index][position] / 2.0
+                    + component_points[index + 1][position] / 2.0
+                ) * elapsed_hours
+                if not math.isfinite(contribution):
+                    return None
+                energy_values.append(contribution)
+        totals = tuple(math.fsum(values) for values in segment_energies)
+        return totals if all(math.isfinite(value) for value in totals) else None
+    except (OverflowError, TypeError, ValueError):
+        return None
+
+
+def _validator_interval_record(
+    parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]
+) -> dict[str, object]:
+    interval_end, meter_id = key
+    benchmark = parents[6].states.loc[key]
+    timestamps = tuple(benchmark["expected_interval_sample_timestamps"])
+    mapping_point = _validator_point(
+        parents, timestamps[0] if timestamps else interval_end, meter_id
+    )
+    transformer_ids = cast(tuple[str, ...], mapping_point["transformers"])
+    exit_ids = cast(tuple[str, ...], mapping_point["exits"])
+    record = _validator_base(_INTERVAL_COLUMNS, _N_BOOL)
+    record.update(
+        contributing_transformer_count=len(transformer_ids),
+        contributing_transformer_ids=transformer_ids,
+        contributing_collection_exit_ids=exit_ids,
+        s14b_benchmark_eligible=bool(benchmark["benchmark_eligible"]),
+        s14b_benchmark_state=benchmark["revenue_meter_interval_benchmark_state"],
+        interval_start_timestamp=benchmark["interval_start_timestamp"],
+        interval_end_timestamp=interval_end,
+        averaging_interval_seconds=benchmark["averaging_interval_seconds"],
+        expected_interval_sample_timestamps=timestamps,
+        expected_revenue_meter_active_energy_wh=benchmark["expected_active_energy_wh"],
+        measured_revenue_meter_active_energy_wh=benchmark["measured_active_energy_wh"],
+        s14b_active_energy_residual_wh=(
+            benchmark["active_energy_residual_measured_minus_expected_wh"]
+        ),
+        component_integration_semantics=COMPONENT_INTEGRATION_SEMANTICS,
+        s14b_contract=REVENUE_METER_INTERVAL_BENCHMARK_CONTRACT_ID,
+    )
+    if not bool(benchmark["benchmark_eligible"]):
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[0]
+        return record
+    if not transformer_ids:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[1]
+        return record
+    points = [_validator_point(parents, timestamp, meter_id) for timestamp in timestamps]
+    missing = tuple(
+        dict.fromkeys(
+            transformer
+            for point in points
+            for transformer in cast(tuple[str, ...], point["missing"])
+        )
+    )
+    unresolved = tuple(
+        dict.fromkeys(
+            transformer
+            for point in points
+            for transformer in cast(tuple[str, ...], point["unresolved"])
+        )
+    )
+    mismatched = tuple(
+        dict.fromkeys(
+            transformer
+            for point in points
+            for transformer in cast(tuple[str, ...], point["mismatch"])
+        )
+    )
+    record.update(
+        interval_delivery_component_rows_complete=not missing,
+        interval_delivery_component_states_resolved=not missing and not unresolved,
+        interval_component_boundary_closure_satisfied=(
+            not missing and not unresolved and not mismatched
+        ),
+        missing_component_transformer_ids=missing,
+        unresolved_component_transformer_ids=unresolved,
+        boundary_mismatch_transformer_ids=mismatched,
+    )
+    if missing:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[2]
+        return record
+    if unresolved:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[3]
+        return record
+    if mismatched:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[4]
+        return record
+    component_series: list[tuple[float, ...]] = []
+    try:
+        for timestamp, point in zip(timestamps, points, strict=True):
+            aggregates = point.get("totals")
+            if aggregates is None:
+                raise ValueError
+            source, _, lv_loss, _, _, tx_network, tx_loss, _ = cast(
+                tuple[float, ...], aggregates
+            )
+            expected_power = float(
+                parents[4].revenue_meter_states.loc[(timestamp, meter_id)][
+                    "expected_p_at_revenue_meter_w"
+                ]
+            )
+            component_series.append(
+                (source, lv_loss, tx_loss, tx_network, tx_network - expected_power)
+            )
+    except (KeyError, TypeError, ValueError):
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[5]
+        return record
+    energies = _validator_integrate(timestamps, component_series)
+    if energies is None:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[5]
+        return record
+    source, lv_loss, tx_loss, tx_network, mv_hv_consumption = energies
+    expected_energy = float(benchmark["expected_active_energy_wh"])
+    measured_energy = float(benchmark["measured_active_energy_wh"])
+    unexplained = float(benchmark["active_energy_residual_measured_minus_expected_wh"])
+    try:
+        delivery_consumption = math.fsum((lv_loss, tx_loss, mv_hv_consumption))
+        reconstructed_expected = source - delivery_consumption
+        accounting_residual = expected_energy - reconstructed_expected
+        reconstructed_measured = reconstructed_expected + accounting_residual + unexplained
+        derived = (
+            delivery_consumption,
+            reconstructed_expected,
+            accounting_residual,
+            reconstructed_measured,
+        )
+        valid = all(math.isfinite(value) for value in (*energies, *derived)) and math.isclose(
+            measured_energy,
+            reconstructed_measured,
+            rel_tol=_REL_TOL,
+            abs_tol=_ABS_TOL,
+        )
+    except (OverflowError, ValueError):
+        valid = False
+    if not valid:
+        record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[5]
+        return record
+    record.update(
+        selected_inverter_ac_source_energy_wh=source,
+        lv_ac_owned_series_loss_energy_wh=lv_loss,
+        transformer_owned_active_loss_energy_wh=tx_loss,
+        transformer_network_terminal_energy_wh=tx_network,
+        mv_hv_active_consumption_to_meter_energy_wh=mv_hv_consumption,
+        modeled_delivery_active_consumption_energy_wh=delivery_consumption,
+        reconstructed_expected_meter_active_energy_wh=reconstructed_expected,
+        model_accounting_closure_residual_wh=accounting_residual,
+        unexplained_meter_residual_measured_minus_expected_wh=unexplained,
+        reconstructed_measured_meter_active_energy_wh=reconstructed_measured,
+        revenue_meter_interval_delivery_attribution_state=_INTERVAL_STATES[6],
+    )
+    return record
+
+
+def _validator_frame(
+    index: pd.MultiIndex, records: list[dict[str, object]], *, interval: bool
+) -> pd.DataFrame:
+    columns = _INTERVAL_COLUMNS if interval else _INSTANT_COLUMNS
+    booleans = _N_BOOL if interval else _I_BOOL
+    floats = _N_FLOAT if interval else _I_FLOAT
+    expected = pd.DataFrame.from_records(records, columns=columns, index=index)
+    expected.index = index
+    expected["contributing_transformer_count"] = expected[
+        "contributing_transformer_count"
+    ].astype("int64")
+    for column in booleans:
+        expected[column] = expected[column].astype("bool")
+    for column in floats:
+        expected[column] = expected[column].astype("float64")
+    object_columns = (
+        set(columns) - booleans - floats - {"contributing_transformer_count"}
+    )
+    for column in object_columns:
+        expected[column] = expected[column].astype("object")
+    return expected
+
+
+def _validator_diagnostics(
+    s13a: Any, instant: pd.DataFrame, interval: pd.DataFrame
+) -> TopologyRevenueMeterDeliveryLossAttributionDiagnostics:
+    instant_states = instant["revenue_meter_delivery_attribution_state"]
+    interval_states = interval["revenue_meter_interval_delivery_attribution_state"]
+    link_count = 0
+    for _, state in s13a.transformer_states.iterrows():
+        if bool(state["revenue_meter_on_transformer_path"]):
+            link_count += 1
+    return TopologyRevenueMeterDeliveryLossAttributionDiagnostics(
+        revenue_meter_count=len(s13a.revenue_meter_boundary_by_id),
+        instantaneous_row_count=len(instant),
+        instantaneous_benchmark_eligible_count=int(instant["s14a_benchmark_eligible"].sum()),
+        instantaneous_attribution_resolved_count=int(
+            (instant_states == _INSTANT_STATES[-1]).sum()
+        ),
+        instantaneous_attribution_unresolved_count=int(
+            (instant_states != _INSTANT_STATES[-1]).sum()
+        ),
+        interval_row_count=len(interval),
+        interval_benchmark_eligible_count=int(interval["s14b_benchmark_eligible"].sum()),
+        interval_attribution_resolved_count=int(
+            (interval_states == _INTERVAL_STATES[-1]).sum()
+        ),
+        interval_attribution_unresolved_count=int(
+            (interval_states != _INTERVAL_STATES[-1]).sum()
+        ),
+        contributing_transformer_link_count=link_count,
+        instantaneous_state_counts=tuple(
+            (state, int((instant_states == state).sum())) for state in _INSTANT_STATES
+        ),
+        interval_state_counts=tuple(
+            (state, int((interval_states == state).sum())) for state in _INTERVAL_STATES
+        ),
+        model=REVENUE_METER_DELIVERY_ATTRIBUTION_MODEL_ID,
+    )
+
+
 def _validator_build(parents: tuple[Any, ...]) -> TopologyRevenueMeterDeliveryLossAttributionResult:
-    # Validator-only reconstruction. Production builders are resolved dynamically nowhere here;
-    # the locally captured equations are independently re-executed from canonical parent rows.
     s13a, s14a, s14b = parents[3], parents[5], parents[6]
     instant_index = s14a.states.index.copy()
     interval_index = s14b.states.index.copy()
-    instant_records = [_instant_record.__wrapped__(parents, key) for key in instant_index]  # type: ignore[attr-defined]
-    interval_records = [_interval_record.__wrapped__(parents, key) for key in interval_index]  # type: ignore[attr-defined]
-    instant = _frame.__wrapped__(instant_index, instant_records, interval=False)  # type: ignore[attr-defined]
-    interval = _frame.__wrapped__(interval_index, interval_records, interval=True)  # type: ignore[attr-defined]
-    diagnostics = _diagnostics.__wrapped__(s13a, instant, interval)  # type: ignore[attr-defined]
-    return TopologyRevenueMeterDeliveryLossAttributionResult(instant, interval, diagnostics)
-
-
-# Store immutable validator implementations before tests can monkeypatch production names.
-_instant_record.__wrapped__ = _instant_record  # type: ignore[attr-defined]
-_interval_record.__wrapped__ = _interval_record  # type: ignore[attr-defined]
-_frame.__wrapped__ = _frame  # type: ignore[attr-defined]
-_diagnostics.__wrapped__ = _diagnostics  # type: ignore[attr-defined]
+    instant = _validator_frame(
+        instant_index,
+        [_validator_instant_record(parents, key) for key in instant_index],
+        interval=False,
+    )
+    interval = _validator_frame(
+        interval_index,
+        [_validator_interval_record(parents, key) for key in interval_index],
+        interval=True,
+    )
+    return TopologyRevenueMeterDeliveryLossAttributionResult(
+        instant,
+        interval,
+        _validator_diagnostics(s13a, instant, interval),
+    )
 
 
 def _validate_result(

@@ -225,6 +225,104 @@ def test_interval_missing_interior_component_is_not_bridged() -> None:
     )
 
 
+def test_no_contributing_transformer_never_claims_component_readiness() -> None:
+    instant_parents = list(_parents())
+    authority = instant_parents[3]
+    transformer_states = authority.transformer_states.copy(deep=True)
+    transformer_states.loc[:, "revenue_meter_on_transformer_path"] = False
+    instant_parents[3] = replace(authority, transformer_states=transformer_states)
+    instant = _instant_result(tuple(instant_parents)).instantaneous_states.iloc[0]
+    assert instant["revenue_meter_delivery_attribution_state"] == (
+        "unresolved_no_contributing_transformer_path"
+    )
+    assert not instant["delivery_component_rows_complete"]
+    assert not instant["delivery_component_operating_states_resolved"]
+    assert not instant["component_boundary_closure_satisfied"]
+    for column in (
+        "selected_inverter_ac_source_power_w",
+        "lv_ac_owned_series_loss_w",
+        "transformer_owned_active_loss_w",
+        "mv_hv_active_consumption_to_meter_w",
+        "modeled_delivery_active_consumption_w",
+    ):
+        assert pd.isna(instant[column])
+
+    interval_parents = list(_interval_parents())
+    interval_authority = interval_parents[3]
+    interval_transformers = interval_authority.transformer_states.copy(deep=True)
+    interval_transformers.loc[:, "revenue_meter_on_transformer_path"] = False
+    interval_parents[3] = replace(
+        interval_authority, transformer_states=interval_transformers
+    )
+    key = interval_parents[6].states.index[0]
+    interval = module._interval_record(tuple(interval_parents), key)
+    assert interval["revenue_meter_interval_delivery_attribution_state"] == (
+        "unresolved_no_contributing_transformer_path"
+    )
+    assert not interval["interval_delivery_component_rows_complete"]
+    assert not interval["interval_delivery_component_states_resolved"]
+    assert not interval["interval_component_boundary_closure_satisfied"]
+
+
+def test_internal_meter_boundary_delta_excludes_gridward_network_consumption() -> None:
+    values = _s14a_values(
+        measured_p_offset=0.0,
+        measured_q=0.0,
+        meter_node="tx-node",
+        resistance=5.0,
+    )
+    values["revenue_meter_power_benchmark"] = calculate_topology_revenue_meter_power_benchmark(
+        **values
+    )
+    values["revenue_meter_interval_benchmark"] = (
+        calculate_topology_revenue_meter_interval_benchmark(**values)
+    )
+    result = module.calculate_topology_revenue_meter_delivery_loss_attribution(**values)
+    row = result.instantaneous_states.iloc[0]
+    whole_tree_consumption = float(
+        values["mv_hv_operating_solution"].network_exit_states.iloc[0][
+            "net_network_active_consumption_w"
+        ]
+    )
+    expected_boundary_delta = (
+        float(row["transformer_network_terminal_power_w"])
+        - float(row["expected_revenue_meter_active_power_w"])
+    )
+    assert row["mv_hv_active_consumption_to_meter_w"] == pytest.approx(
+        expected_boundary_delta
+    )
+    assert whole_tree_consumption > 0.0
+    assert row["mv_hv_active_consumption_to_meter_w"] != pytest.approx(
+        whole_tree_consumption
+    )
+    assert row["expected_revenue_meter_active_power_w"] == pytest.approx(
+        row["reconstructed_expected_meter_active_power_w"]
+        + row["model_accounting_closure_residual_w"]
+    )
+
+
+def test_validator_is_independent_of_all_production_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parents = _parents()
+    result = _instant_result(parents)
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production helper used by validator")
+
+    for name in (
+        "_mapping",
+        "_point",
+        "_instant_record",
+        "_integrate",
+        "_interval_record",
+        "_frame",
+        "_diagnostics",
+    ):
+        monkeypatch.setattr(module, name, fail)
+    module._validate_result(parents, result)
+
+
 def test_result_tampering_and_diagnostics_are_rejected() -> None:
     parents = _parents()
     result = _instant_result(parents)
@@ -260,6 +358,7 @@ def test_empty_schemas_dtypes_and_source_plane_exclusions() -> None:
     assert instant["selected_inverter_ac_source_power_w"].dtype == "float64"
     assert interval["selected_inverter_ac_source_energy_wh"].dtype == "float64"
     source = Path(module.__file__).read_text()
+    assert "__wrapped__" not in source
     for excluded in (
         "dc_collection",
         "inverter_accounting",
