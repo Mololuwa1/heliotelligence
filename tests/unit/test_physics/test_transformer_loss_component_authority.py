@@ -803,6 +803,10 @@ def test_aggregate_stray_exact_preserves_unknown_component_split() -> None:
     assert pd.isna(row["winding_eddy_current_loss_reference_w"])
     assert pd.isna(row["canonical_other_stray_loss_reference_w"])
     assert row["aggregate_stray_basis_resolved"]
+    assert row["aggregate_stray_math_compatible"]
+    assert row["reported_aggregate_stray_loss_compatible"]
+    assert not row["strict_point_component_closure_resolved"]
+    assert row["strict_point_factory_evidence_closure_resolved"]
     assert not row["transformer_advanced_loss_basis_resolved"]
     assert not row["advanced_component_correction_eligible"]
 
@@ -831,6 +835,9 @@ def test_aggregate_stray_resolution_can_admit_nominal_i2r_above_total() -> None:
     ).transformer_states.iloc[0]
     assert row["factory_load_loss_evidence_fidelity"] == ("aggregate_stray_resolution_bounded")
     assert row["source_resolution_applied"]
+    assert row["aggregate_stray_math_compatible"]
+    assert not row["strict_point_component_closure_resolved"]
+    assert not row["strict_point_factory_evidence_closure_resolved"]
     assert not row["transformer_advanced_loss_basis_resolved"]
 
 
@@ -841,7 +848,32 @@ def test_aggregate_stray_strict_i2r_above_total_is_unresolved() -> None:
         components={"tx-1": _aggregate(i2r=5_001.0)},
     ).transformer_states.iloc[0]
     assert row["factory_load_loss_evidence_fidelity"] == "unresolved"
+    assert row["transformer_loss_component_authority_state"] == (
+        "unresolved_aggregate_i2r_exceeds_s12b_rated_load_loss"
+    )
+    assert not row["aggregate_stray_math_compatible"]
+    assert row["reported_aggregate_stray_loss_compatible"]
     assert not row["transformer_factory_load_loss_evidence_resolved"]
+
+
+def test_incompatible_exact_aggregate_report_has_aggregate_specific_diagnostics() -> None:
+    result = _resolve(
+        rated={"tx-1": _rated(loss=5_000.0)},
+        construction={"tx-1": _construction()},
+        components={"tx-1": _aggregate(i2r=3_500.0, reported=1_700.0)},
+    )
+    row = result.transformer_states.iloc[0]
+    assert row["transformer_loss_component_authority_state"] == (
+        "unresolved_reported_aggregate_stray_loss_inconsistent_with_s12b_residual"
+    )
+    assert row["aggregate_stray_math_compatible"]
+    assert not row["reported_aggregate_stray_loss_compatible"]
+    assert not row["component_math_compatible"]
+    assert not row["reported_other_stray_loss_compatible"]
+    assert result.diagnostics.aggregate_stray_math_incompatible_count == 0
+    assert result.diagnostics.reported_aggregate_stray_incompatible_count == 1
+    assert result.diagnostics.component_math_incompatible_count == 0
+    assert result.diagnostics.reported_other_stray_incompatible_count == 0
 
 
 @pytest.mark.parametrize(

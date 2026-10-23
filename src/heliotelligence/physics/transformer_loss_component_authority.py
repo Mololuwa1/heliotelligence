@@ -1,9 +1,9 @@
-"""Static transformer construction and factory load-loss component authority.
+"""Transformer construction and factory load-loss evidence authority.
 
-S12H decomposes the S12B total rated load loss into factory-reference I2R,
-winding-eddy, and canonical residual other-stray components.  The components
-are the same loss already represented by S12B and S12F, not additional loss.
-No operating, harmonic, thermal, core-loss, or terminal calculation occurs.
+S12H admits either the explicit factory-reference I2R, winding-eddy, and
+other-stray decomposition required by advanced correction, or a lower-fidelity
+I2R plus aggregate-stray factory-evidence basis. Both describe the S12B rated
+load loss rather than additional loss. No operating correction occurs here.
 """
 
 from __future__ import annotations
@@ -51,11 +51,12 @@ TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID = (
     "winding_eddy_other_stray_loss_component_basis_v1"
 )
 TRANSFORMER_LOSS_COMPONENT_AUTHORITY_SCOPE = (
-    "static_transformer_advanced_loss_basis_before_harmonic_thermal_and_core_loss_correction"
+    "static_transformer_advanced_component_or_aggregate_stray_factory_loss_evidence_"
+    "before_harmonic_thermal_and_core_loss_correction"
 )
 TRANSFORMER_LOSS_COMPONENT_AUTHORITY_COVERAGE_SCOPE = (
-    "explicit_transformer_construction_metadata_and_three_component_"
-    "rated_load_loss_decomposition_closing_to_s12b_total_rated_load_loss"
+    "explicit_three_component_advanced_decomposition_and_lower_fidelity_aggregate_stray_"
+    "factory_evidence_closing_to_s12b_total_rated_load_loss"
 )
 REFERENCE_LOAD_LOSS_OWNERSHIP = "decomposition_of_s12b_total_rated_load_loss_not_additional_loss"
 
@@ -119,6 +120,8 @@ _STATES = (
     "unresolved_incompatible_load_loss_component_test_frequency",
     "unresolved_component_i2r_plus_winding_eddy_exceeds_s12b_rated_load_loss",
     "unresolved_reported_other_stray_loss_inconsistent_with_s12b_residual",
+    "unresolved_aggregate_i2r_exceeds_s12b_rated_load_loss",
+    "unresolved_reported_aggregate_stray_loss_inconsistent_with_s12b_residual",
     "resolved_transformer_factory_load_loss_explicit_components_resolution_bounded",
     "resolved_transformer_factory_load_loss_aggregate_stray_basis",
     "resolved_transformer_factory_load_loss_aggregate_stray_resolution_bounded",
@@ -138,13 +141,17 @@ _BOOL_COLUMNS = {
     "component_test_frequency_compatible",
     "component_math_compatible",
     "reported_other_stray_loss_compatible",
+    "aggregate_stray_math_compatible",
+    "reported_aggregate_stray_loss_compatible",
     "reported_other_stray_loss_present",
+    "reported_aggregate_stray_loss_present",
     "other_stray_loss_residual_derived",
     "component_closure_roundoff_adjusted",
     "transformer_factory_load_loss_evidence_resolved",
     "source_resolution_authority_present",
     "source_resolution_applied",
     "strict_point_component_closure_resolved",
+    "strict_point_factory_evidence_closure_resolved",
     "resolution_bounded_closure_resolved",
     "aggregate_stray_basis_resolved",
     "advanced_component_correction_eligible",
@@ -192,6 +199,8 @@ _COLUMNS = (
     "component_test_frequency_compatible",
     "component_math_compatible",
     "reported_other_stray_loss_compatible",
+    "aggregate_stray_math_compatible",
+    "reported_aggregate_stray_loss_compatible",
     "s12b_rated_load_loss_w",
     "s12b_load_loss_test_current_reference_side",
     "s12b_load_loss_reference_temperature_c",
@@ -203,16 +212,19 @@ _COLUMNS = (
     "canonical_component_sum_w",
     "component_closure_residual_w",
     "reported_other_stray_loss_present",
+    "reported_aggregate_stray_loss_present",
     "other_stray_loss_residual_derived",
     "component_closure_roundoff_adjusted",
     "transformer_factory_load_loss_evidence_resolved",
     "source_resolution_authority_present",
     "source_resolution_applied",
     "strict_point_component_closure_resolved",
+    "strict_point_factory_evidence_closure_resolved",
     "resolution_bounded_closure_resolved",
     "aggregate_stray_basis_resolved",
     "advanced_component_correction_eligible",
     "factory_load_loss_evidence_fidelity",
+    "factory_load_loss_evidence_kind",
     "source_rounding_semantics",
     "rated_load_loss_reported_resolution_w",
     "i2r_loss_reported_resolution_w",
@@ -450,6 +462,8 @@ class TopologyTransformerLossComponentAuthorityDiagnostics:
     incompatible_frequency_count: int
     component_math_incompatible_count: int
     reported_other_stray_incompatible_count: int
+    aggregate_stray_math_incompatible_count: int
+    reported_aggregate_stray_incompatible_count: int
     residual_other_stray_derived_count: int
     roundoff_adjusted_count: int
     explicit_three_component_exact_count: int
@@ -678,9 +692,12 @@ def _primary_state(
     frequency: bool,
     math_ok: bool,
     reported_ok: bool,
+    aggregate: bool,
+    aggregate_math_ok: bool,
+    aggregate_reported_ok: bool,
     fidelity: str,
 ) -> str:
-    conditions = (
+    common_conditions = (
         static,
         rated,
         construction,
@@ -688,12 +705,20 @@ def _primary_state(
         side,
         temperature,
         frequency,
-        math_ok,
-        reported_ok,
     )
-    for condition, state in zip(conditions, _STATES[:9], strict=True):
+    for condition, state in zip(common_conditions, _STATES[:7], strict=True):
         if not condition:
             return state
+    if aggregate:
+        if not aggregate_math_ok:
+            return "unresolved_aggregate_i2r_exceeds_s12b_rated_load_loss"
+        if not aggregate_reported_ok:
+            return "unresolved_reported_aggregate_stray_loss_inconsistent_with_s12b_residual"
+    else:
+        if not math_ok:
+            return "unresolved_component_i2r_plus_winding_eddy_exceeds_s12b_rated_load_loss"
+        if not reported_ok:
+            return "unresolved_reported_other_stray_loss_inconsistent_with_s12b_residual"
     return {
         "explicit_three_component_exact": "resolved_transformer_advanced_loss_basis",
         "explicit_three_component_resolution_bounded": (
@@ -731,6 +756,8 @@ def _evidence(
         "resolution_present": False,
         "resolution_applied": False,
         "aggregate": False,
+        "aggregate_math": False,
+        "aggregate_report": False,
         "total_bounds": (nan, nan),
         "i2r_bounds": (nan, nan),
         "eddy_bounds": (nan, nan),
@@ -768,16 +795,20 @@ def _evidence(
             )
             lower = max(0.0, total_bounds[0] - i2r_bounds[1])
             upper = max(0.0, total_bounds[1] - i2r_bounds[0])
-            bounded = i2r_bounds[0] <= total_bounds[1] and lower <= upper
+            bounded_math = i2r_bounds[0] <= total_bounds[1] and lower <= upper
+            bounded_report = component.reported_total_stray_loss_w is None
             if component.reported_total_stray_loss_w is not None:
                 reported_bounds = _source_interval(
                     component.reported_total_stray_loss_w,
                     component.reported_total_stray_loss_reported_resolution_w,
                 )
-                bounded = bounded and max(lower, reported_bounds[0]) <= min(
+                bounded_report = max(lower, reported_bounds[0]) <= min(
                     upper, reported_bounds[1]
                 )
             strict = strict_math and strict_report
+            bounded = bounded_math and bounded_report
+            aggregate_math = strict_math or (resolution_present and bounded_math)
+            aggregate_report = strict_report or (resolution_present and bounded_report)
             resolved = strict or (resolution_present and bounded)
             fidelity = (
                 "aggregate_stray_exact"
@@ -794,6 +825,8 @@ def _evidence(
                 resolution_present=resolution_present,
                 resolution_applied=resolved and not strict,
                 aggregate=resolved,
+                aggregate_math=aggregate_math,
+                aggregate_report=aggregate_report,
                 aggregate_bounds=(lower, upper),
                 aggregate_nominal=nominal if resolved else nan,
             )
@@ -877,13 +910,13 @@ def _record_values(
         frequency = rated.test_frequency_hz == component.test_frequency_hz
     evidence = _evidence(rated, component)
     strict = bool(evidence["strict"])
+    aggregate_authority = type(component) is TransformerRatedLoadLossAggregateStrayAuthority
+    aggregate_math_ok = bool(evidence["aggregate_math"])
+    aggregate_reported_ok = bool(evidence["aggregate_report"])
     evidence_resolved = bool(evidence["resolved"]) and side and temperature and frequency
-    if bool(evidence["resolved"]) and not strict:
+    if bool(evidence["resolved"]) and not strict and not aggregate_authority:
         math_ok = True
         reported_ok = True
-    elif type(component) is TransformerRatedLoadLossAggregateStrayAuthority:
-        math_ok = bool(evidence["strict"] or evidence["bounded"])
-        reported_ok = bool(evidence["resolved"])
     component_resolved = bool(explicit and strict and side and temperature and frequency)
     construction_resolved = construction is not None
     factory_resolved = bool(static and construction_resolved and evidence_resolved)
@@ -897,6 +930,9 @@ def _record_values(
         frequency,
         math_ok,
         reported_ok,
+        aggregate_authority,
+        aggregate_math_ok,
+        aggregate_reported_ok,
         str(evidence["fidelity"]) if evidence_resolved else "unresolved",
     )
     nan = math.nan
@@ -915,6 +951,8 @@ def _record_values(
         "component_test_frequency_compatible": frequency,
         "component_math_compatible": math_ok,
         "reported_other_stray_loss_compatible": reported_ok,
+        "aggregate_stray_math_compatible": aggregate_math_ok,
+        "reported_aggregate_stray_loss_compatible": aggregate_reported_ok,
         "s12b_rated_load_loss_w": rated.rated_load_loss_w if rated else nan,
         "s12b_load_loss_test_current_reference_side": (
             rated.test_current_reference_side if rated else ""
@@ -936,6 +974,10 @@ def _record_values(
         "reported_other_stray_loss_present": bool(
             explicit and explicit.reported_other_stray_loss_w is not None
         ),
+        "reported_aggregate_stray_loss_present": bool(
+            type(component) is TransformerRatedLoadLossAggregateStrayAuthority
+            and component.reported_total_stray_loss_w is not None
+        ),
         "other_stray_loss_residual_derived": bool(
             explicit and explicit.reported_other_stray_loss_w is None and component_resolved
         ),
@@ -943,7 +985,12 @@ def _record_values(
         "transformer_factory_load_loss_evidence_resolved": factory_resolved,
         "source_resolution_authority_present": bool(evidence["resolution_present"]),
         "source_resolution_applied": bool(factory_resolved and evidence["resolution_applied"]),
-        "strict_point_component_closure_resolved": bool(factory_resolved and strict),
+        "strict_point_component_closure_resolved": bool(
+            factory_resolved and explicit and strict
+        ),
+        "strict_point_factory_evidence_closure_resolved": bool(
+            factory_resolved and strict
+        ),
         "resolution_bounded_closure_resolved": bool(
             factory_resolved and evidence["resolution_applied"]
         ),
@@ -953,6 +1000,13 @@ def _record_values(
         ),
         "factory_load_loss_evidence_fidelity": (
             evidence["fidelity"] if factory_resolved else "unresolved"
+        ),
+        "factory_load_loss_evidence_kind": (
+            "explicit_three_component"
+            if explicit
+            else "aggregate_stray"
+            if aggregate_authority
+            else "unresolved"
         ),
         "source_rounding_semantics": (
             component.rounding_semantics
@@ -1081,6 +1135,12 @@ def _diagnostics(frame: pd.DataFrame) -> TopologyTransformerLossComponentAuthori
         (state, int((frame["transformer_loss_component_authority_state"] == state).sum()))
         for state in _STATES
     )
+    explicit = frame["factory_load_loss_evidence_kind"] == "explicit_three_component"
+    aggregate = frame["factory_load_loss_evidence_kind"] == "aggregate_stray"
+    comparable = (
+        frame["s12b_rated_load_loss_authority_present"]
+        & frame["transformer_rated_load_loss_component_authority_present"]
+    )
     return TopologyTransformerLossComponentAuthorityDiagnostics(
         len(frame),
         int(frame["transformer_advanced_construction_authority_present"].sum()),
@@ -1114,16 +1174,24 @@ def _diagnostics(frame: pd.DataFrame) -> TopologyTransformerLossComponentAuthori
         ),
         int(
             (
-                frame["s12b_rated_load_loss_authority_present"]
-                & frame["transformer_rated_load_loss_component_authority_present"]
+                comparable
+                & explicit
                 & ~frame["component_math_compatible"]
             ).sum()
         ),
         int(
             (
-                frame["s12b_rated_load_loss_authority_present"]
-                & frame["transformer_rated_load_loss_component_authority_present"]
+                comparable
+                & explicit
                 & ~frame["reported_other_stray_loss_compatible"]
+            ).sum()
+        ),
+        int((comparable & aggregate & ~frame["aggregate_stray_math_compatible"]).sum()),
+        int(
+            (
+                comparable
+                & aggregate
+                & ~frame["reported_aggregate_stray_loss_compatible"]
             ).sum()
         ),
         int(frame["other_stray_loss_residual_derived"].sum()),
@@ -1243,6 +1311,7 @@ def _validator_record(
     total_bounds = i2r_bounds = eddy_bounds = aggregate_bounds = other_bounds = (nan, nan)
     aggregate_nominal = nan
     resolution_present = resolution_applied = aggregate = False
+    aggregate_math_ok = aggregate_reported_ok = False
     strict = bool(explicit and math_ok and reported_ok)
     bounded = False
     fidelity = "unresolved"
@@ -1265,7 +1334,7 @@ def _validator_record(
                 )
                 aggregate_nominal = max(0.0, rated.rated_load_loss_w - component.i2r_loss_w)
                 strict_math = component.i2r_loss_w <= rated.rated_load_loss_w
-                reported_ok = component.reported_total_stray_loss_w is None or (
+                strict_report = component.reported_total_stray_loss_w is None or (
                     strict_math
                     and math.isclose(
                         component.reported_total_stray_loss_w,
@@ -1274,23 +1343,28 @@ def _validator_record(
                         abs_tol=0.0,
                     )
                 )
-                strict = strict_math and reported_ok
+                strict = strict_math and strict_report
                 aggregate_bounds = (
                     max(0.0, total_bounds[0] - i2r_bounds[1]),
                     max(0.0, total_bounds[1] - i2r_bounds[0]),
                 )
-                bounded = i2r_bounds[0] <= total_bounds[1]
+                bounded_math = i2r_bounds[0] <= total_bounds[1]
+                bounded_reported = True
                 if component.reported_total_stray_loss_w is not None:
                     reported_bounds = _validator_interval(
                         component.reported_total_stray_loss_w,
                         component.reported_total_stray_loss_reported_resolution_w,
                     )
-                    bounded = bounded and max(aggregate_bounds[0], reported_bounds[0]) <= min(
+                    bounded_reported = max(aggregate_bounds[0], reported_bounds[0]) <= min(
                         aggregate_bounds[1], reported_bounds[1]
                     )
+                bounded = bounded_math and bounded_reported
                 resolved = strict or (resolution_present and bounded)
                 resolution_applied, aggregate = resolved and not strict, resolved
-                math_ok, reported_ok = strict or bounded, resolved
+                aggregate_math_ok = strict_math or (resolution_present and bounded_math)
+                aggregate_reported_ok = strict_report or (
+                    resolution_present and bounded_reported
+                )
                 fidelity = (
                     "aggregate_stray_exact"
                     if strict
@@ -1338,7 +1412,7 @@ def _validator_record(
             fidelity = "unresolved"
             eddy_bounds = aggregate_bounds = other_bounds = (nan, nan)
             aggregate_nominal = nan
-    if fidelity.endswith("resolution_bounded"):
+    if fidelity == "explicit_three_component_resolution_bounded":
         math_ok = True
         reported_ok = True
     if fidelity == "unresolved":
@@ -1354,18 +1428,7 @@ def _validator_record(
         and frequency_ok
         and fidelity != "unresolved"
     )
-    conditions = (
-        static_ok,
-        rated is not None,
-        construction is not None,
-        component is not None,
-        side_ok,
-        temperature_ok,
-        frequency_ok,
-        math_ok,
-        reported_ok,
-    )
-    state = {
+    resolved_state = {
         "explicit_three_component_exact": "resolved_transformer_advanced_loss_basis",
         "explicit_three_component_resolution_bounded": (
             "resolved_transformer_factory_load_loss_explicit_components_resolution_bounded"
@@ -1374,11 +1437,33 @@ def _validator_record(
         "aggregate_stray_resolution_bounded": (
             "resolved_transformer_factory_load_loss_aggregate_stray_resolution_bounded"
         ),
-    }.get(fidelity if factory_ok else "unresolved", _STATES[7])
-    for position, condition in enumerate(conditions):
+    }.get(fidelity if factory_ok else "unresolved")
+    common_conditions = (
+        static_ok,
+        rated is not None,
+        construction is not None,
+        component is not None,
+        side_ok,
+        temperature_ok,
+        frequency_ok,
+    )
+    state = resolved_state or _STATES[7]
+    for position, condition in enumerate(common_conditions):
         if not condition:
             state = _STATES[position]
             break
+    else:
+        if type(component) is TransformerRatedLoadLossAggregateStrayAuthority:
+            if not aggregate_math_ok:
+                state = "unresolved_aggregate_i2r_exceeds_s12b_rated_load_loss"
+            elif not aggregate_reported_ok:
+                state = (
+                    "unresolved_reported_aggregate_stray_loss_inconsistent_with_s12b_residual"
+                )
+        elif not math_ok:
+            state = "unresolved_component_i2r_plus_winding_eddy_exceeds_s12b_rated_load_loss"
+        elif not reported_ok:
+            state = "unresolved_reported_other_stray_loss_inconsistent_with_s12b_residual"
     return {
         "transformer_static_authority_resolved": static_ok,
         "s12b_rated_load_loss_authority_present": rated is not None,
@@ -1394,6 +1479,8 @@ def _validator_record(
         "component_test_frequency_compatible": frequency_ok,
         "component_math_compatible": math_ok,
         "reported_other_stray_loss_compatible": reported_ok,
+        "aggregate_stray_math_compatible": aggregate_math_ok,
+        "reported_aggregate_stray_loss_compatible": aggregate_reported_ok,
         "s12b_rated_load_loss_w": rated.rated_load_loss_w if rated else nan,
         "s12b_load_loss_test_current_reference_side": (
             rated.test_current_reference_side if rated else ""
@@ -1415,6 +1502,10 @@ def _validator_record(
         "reported_other_stray_loss_present": bool(
             explicit and explicit.reported_other_stray_loss_w is not None
         ),
+        "reported_aggregate_stray_loss_present": bool(
+            type(component) is TransformerRatedLoadLossAggregateStrayAuthority
+            and component.reported_total_stray_loss_w is not None
+        ),
         "other_stray_loss_residual_derived": bool(
             explicit and explicit.reported_other_stray_loss_w is None and component_ok
         ),
@@ -1422,13 +1513,21 @@ def _validator_record(
         "transformer_factory_load_loss_evidence_resolved": factory_ok,
         "source_resolution_authority_present": resolution_present,
         "source_resolution_applied": factory_ok and resolution_applied,
-        "strict_point_component_closure_resolved": factory_ok and strict,
+        "strict_point_component_closure_resolved": bool(factory_ok and explicit and strict),
+        "strict_point_factory_evidence_closure_resolved": factory_ok and strict,
         "resolution_bounded_closure_resolved": factory_ok and resolution_applied,
         "aggregate_stray_basis_resolved": factory_ok and aggregate,
         "advanced_component_correction_eligible": bool(
             static_ok and construction is not None and component_ok
         ),
         "factory_load_loss_evidence_fidelity": fidelity if factory_ok else "unresolved",
+        "factory_load_loss_evidence_kind": (
+            "explicit_three_component"
+            if explicit is not None
+            else "aggregate_stray"
+            if type(component) is TransformerRatedLoadLossAggregateStrayAuthority
+            else "unresolved"
+        ),
         "source_rounding_semantics": (
             component.rounding_semantics
             if component and component.rounding_semantics is not None
@@ -1554,6 +1653,8 @@ def _validator_diagnostics(
     rated_present = frame["s12b_rated_load_loss_authority_present"]
     component_present = frame["transformer_rated_load_loss_component_authority_present"]
     comparable = rated_present & component_present
+    explicit = frame["factory_load_loss_evidence_kind"].eq("explicit_three_component")
+    aggregate = frame["factory_load_loss_evidence_kind"].eq("aggregate_stray")
     return TopologyTransformerLossComponentAuthorityDiagnostics(
         transformer_count=len(frame),
         construction_authority_count=int(
@@ -1584,10 +1685,20 @@ def _validator_diagnostics(
             (comparable & ~frame["component_test_frequency_compatible"]).sum()
         ),
         component_math_incompatible_count=int(
-            (comparable & ~frame["component_math_compatible"]).sum()
+            (comparable & explicit & ~frame["component_math_compatible"]).sum()
         ),
         reported_other_stray_incompatible_count=int(
-            (comparable & ~frame["reported_other_stray_loss_compatible"]).sum()
+            (comparable & explicit & ~frame["reported_other_stray_loss_compatible"]).sum()
+        ),
+        aggregate_stray_math_incompatible_count=int(
+            (comparable & aggregate & ~frame["aggregate_stray_math_compatible"]).sum()
+        ),
+        reported_aggregate_stray_incompatible_count=int(
+            (
+                comparable
+                & aggregate
+                & ~frame["reported_aggregate_stray_loss_compatible"]
+            ).sum()
         ),
         residual_other_stray_derived_count=int(frame["other_stray_loss_residual_derived"].sum()),
         roundoff_adjusted_count=int(frame["component_closure_roundoff_adjusted"].sum()),

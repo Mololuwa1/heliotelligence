@@ -29,6 +29,7 @@ from heliotelligence.physics.transformer_harmonic_current_authority import (
 )
 from heliotelligence.physics.transformer_loss_component_authority import (
     TransformerAdvancedConstructionAuthority,
+    TransformerRatedLoadLossAggregateStrayAuthority,
     TransformerRatedLoadLossComponentAuthority,
     resolve_transformer_loss_component_authority,
 )
@@ -140,6 +141,7 @@ def _context(
     include_j: bool = True,
     rated_load_w: float = 5000.0,
     extra_thermal_timestamp: pd.Timestamp | None = None,
+    aggregate_evidence: bool = False,
 ) -> dict[str, Any]:
     values, _ = _inputs(
         p=p,
@@ -152,7 +154,7 @@ def _context(
     )
     g = calculate_topology_transformer_operating_solution(**values)
     construction = {"tx-1": _construction(material)} if include_h else {}
-    component = (
+    explicit_component = (
         replace(
             _component(side),
             i2r_loss_w=0.0,
@@ -161,6 +163,23 @@ def _context(
         )
         if rated_load_w == 0.0
         else _component(side)
+    )
+    component = (
+        TransformerRatedLoadLossAggregateStrayAuthority(
+            "tx-1",
+            3_500.0,
+            1_500.0,
+            cast(Any, side),
+            "rated_current",
+            75.0,
+            50.0,
+            "rated_total_load_loss_i2r_and_aggregate_stray_at_factory_reference_condition",
+            "factory_test_report",
+            "aggregate factory evidence",
+            "high",
+        )
+        if aggregate_evidence
+        else explicit_component
     )
     components = {"tx-1": component} if include_h else {}
     h = resolve_transformer_loss_component_authority(
@@ -382,6 +401,21 @@ def test_deenergised_missing_factory_evidence_stays_missing() -> None:
         "other_stray_loss_reference_w",
     ):
         assert math.isnan(row[column])
+
+
+def test_aggregate_factory_evidence_does_not_enter_s12k_component_correction() -> None:
+    values = _context(aggregate_evidence=True)
+    s12h_row = values["transformer_loss_component_authority"].transformer_states.iloc[0]
+    assert s12h_row["transformer_factory_load_loss_evidence_resolved"]
+    assert not s12h_row["transformer_advanced_loss_basis_resolved"]
+
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "unresolved_upstream_s12h_advanced_loss_basis"
+    )
+    assert math.isnan(row["winding_eddy_current_loss_reference_w"])
+    assert math.isnan(row["other_stray_loss_reference_w"])
+    assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
 
 
 def test_nullable_energisation_is_preserved_for_unresolved_s12g_row() -> None:
