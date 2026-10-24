@@ -3,7 +3,10 @@
 S12H admits either the explicit factory-reference I2R, winding-eddy, and
 other-stray decomposition required by advanced correction, or a lower-fidelity
 I2R plus aggregate-stray factory-evidence basis. Both describe the S12B rated
-load loss rather than additional loss. No operating correction occurs here.
+load loss rather than additional loss. Construction may remain explicitly
+homogeneous or declare each winding material, and strict component evidence may
+carry an exact collection/network allocation of I2R and winding-eddy loss. No
+operating correction occurs here.
 """
 
 from __future__ import annotations
@@ -52,11 +55,13 @@ TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID = (
 )
 TRANSFORMER_LOSS_COMPONENT_AUTHORITY_SCOPE = (
     "static_transformer_advanced_component_or_aggregate_stray_factory_loss_evidence_"
-    "before_harmonic_thermal_and_core_loss_correction"
+    "with_optional_exact_winding_resolved_construction_and_allocation_before_"
+    "harmonic_thermal_and_core_loss_correction"
 )
 TRANSFORMER_LOSS_COMPONENT_AUTHORITY_COVERAGE_SCOPE = (
     "explicit_three_component_advanced_decomposition_and_lower_fidelity_aggregate_stray_"
-    "factory_evidence_closing_to_s12b_total_rated_load_loss"
+    "factory_evidence_closing_to_s12b_total_rated_load_loss_with_homogeneous_or_explicit_"
+    "winding_conductors_and_exact_winding_i2r_eddy_allocation"
 )
 REFERENCE_LOAD_LOSS_OWNERSHIP = "decomposition_of_s12b_total_rated_load_loss_not_additional_loss"
 
@@ -155,6 +160,14 @@ _BOOL_COLUMNS = {
     "resolution_bounded_closure_resolved",
     "aggregate_stray_basis_resolved",
     "advanced_component_correction_eligible",
+    "legacy_homogeneous_conductor_basis_resolved",
+    "winding_resolved_conductor_authority_present",
+    "winding_resolved_conductor_authority_resolved",
+    "winding_resolved_i2r_allocation_authority_present",
+    "winding_resolved_i2r_allocation_resolved",
+    "winding_resolved_winding_eddy_allocation_authority_present",
+    "winding_resolved_winding_eddy_allocation_resolved",
+    "winding_resolved_advanced_correction_basis_resolved",
 }
 _FLOAT_COLUMNS = {
     "s12b_rated_load_loss_w",
@@ -185,6 +198,10 @@ _FLOAT_COLUMNS = {
     "derived_aggregate_stray_loss_upper_bound_w",
     "derived_other_stray_loss_lower_bound_w",
     "derived_other_stray_loss_upper_bound_w",
+    "collection_winding_i2r_loss_reference_w",
+    "network_winding_i2r_loss_reference_w",
+    "collection_winding_eddy_current_loss_reference_w",
+    "network_winding_eddy_current_loss_reference_w",
 }
 _COLUMNS = (
     "transformer_static_authority_resolved",
@@ -223,6 +240,15 @@ _COLUMNS = (
     "resolution_bounded_closure_resolved",
     "aggregate_stray_basis_resolved",
     "advanced_component_correction_eligible",
+    "legacy_homogeneous_conductor_basis_resolved",
+    "winding_resolved_conductor_authority_present",
+    "winding_resolved_conductor_authority_resolved",
+    "winding_resolved_i2r_allocation_authority_present",
+    "winding_resolved_i2r_allocation_resolved",
+    "winding_resolved_winding_eddy_allocation_authority_present",
+    "winding_resolved_winding_eddy_allocation_resolved",
+    "winding_resolved_advanced_correction_basis_resolved",
+    "conductor_authority_basis",
     "factory_load_loss_evidence_fidelity",
     "factory_load_loss_evidence_kind",
     "source_rounding_semantics",
@@ -243,9 +269,17 @@ _COLUMNS = (
     "derived_aggregate_stray_loss_upper_bound_w",
     "derived_other_stray_loss_lower_bound_w",
     "derived_other_stray_loss_upper_bound_w",
+    "collection_winding_i2r_loss_reference_w",
+    "network_winding_i2r_loss_reference_w",
+    "collection_winding_eddy_current_loss_reference_w",
+    "network_winding_eddy_current_loss_reference_w",
     "thermal_construction_family",
     "winding_conductor_material",
     "conductor_material_description",
+    "collection_winding_conductor_material",
+    "collection_winding_conductor_description",
+    "network_winding_conductor_material",
+    "network_winding_conductor_description",
     "cooling_method_code",
     "core_material_family",
     "core_material_description",
@@ -304,6 +338,10 @@ class TransformerAdvancedConstructionAuthority:
     core_material_description: str
     parameter_source: str
     confidence: Confidence
+    collection_winding_conductor_material: WindingConductorMaterial | None = None
+    collection_winding_conductor_description: str | None = None
+    network_winding_conductor_material: WindingConductorMaterial | None = None
+    network_winding_conductor_description: str | None = None
 
     def __post_init__(self) -> None:
         _exact_text(self.transformer_id, "transformer_id")
@@ -313,6 +351,73 @@ class TransformerAdvancedConstructionAuthority:
         _exact_text(self.cooling_method_code, "cooling method code")
         _literal(self.core_material_family, _CORE_FAMILIES, "core material family")
         _exact_text(self.core_material_description, "core material description")
+        _exact_text(self.parameter_source, "parameter_source")
+        _literal(self.confidence, _CONFIDENCES, "confidence")
+        winding_values = (
+            self.collection_winding_conductor_material,
+            self.collection_winding_conductor_description,
+            self.network_winding_conductor_material,
+            self.network_winding_conductor_description,
+        )
+        if any(value is not None for value in winding_values):
+            if any(value is None for value in winding_values):
+                raise ValueError("winding-resolved conductor evidence must be complete")
+            collection = cast(str, self.collection_winding_conductor_material)
+            network = cast(str, self.network_winding_conductor_material)
+            _literal(collection, _CONDUCTORS, "collection winding conductor material")
+            _literal(network, _CONDUCTORS, "network winding conductor material")
+            _exact_text(
+                self.collection_winding_conductor_description,
+                "collection winding conductor description",
+            )
+            _exact_text(
+                self.network_winding_conductor_description,
+                "network winding conductor description",
+            )
+            expected_summary = (
+                collection
+                if collection == network and collection != "mixed_or_other_explicit"
+                else "mixed_or_other_explicit"
+            )
+            if self.winding_conductor_material != expected_summary:
+                raise ValueError("transformer conductor summary contradicts winding evidence")
+
+
+@dataclass(frozen=True)
+class TransformerWindingResolvedLoadLossAuthority:
+    transformer_id: str
+    collection_winding_i2r_loss_w: float
+    network_winding_i2r_loss_w: float
+    collection_winding_eddy_current_loss_w: float
+    network_winding_eddy_current_loss_w: float
+    reference_temperature_c: float
+    test_frequency_hz: float
+    evidence_basis_semantics: Literal[
+        "explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation"
+    ]
+    parameter_source: str
+    confidence: Confidence
+
+    def __post_init__(self) -> None:
+        _exact_text(self.transformer_id, "transformer_id")
+        for name in (
+            "collection_winding_i2r_loss_w",
+            "network_winding_i2r_loss_w",
+            "collection_winding_eddy_current_loss_w",
+            "network_winding_eddy_current_loss_w",
+        ):
+            _number(getattr(self, name), name)
+        temperature = self.reference_temperature_c
+        if isinstance(temperature, bool) or not isinstance(temperature, Real):
+            raise ValueError("reference_temperature_c must be a non-Boolean real number")
+        if not math.isfinite(float(temperature)) or float(temperature) <= _ABSOLUTE_ZERO_C:
+            raise ValueError("reference_temperature_c must be finite and above absolute zero")
+        _number(self.test_frequency_hz, "test_frequency_hz", positive=True)
+        _literal(
+            self.evidence_basis_semantics,
+            {"explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation"},
+            "winding allocation evidence semantics",
+        )
         _exact_text(self.parameter_source, "parameter_source")
         _literal(self.confidence, _CONFIDENCES, "confidence")
 
@@ -337,6 +442,7 @@ class TransformerRatedLoadLossComponentAuthority:
     winding_eddy_current_loss_reported_resolution_w: float | None = None
     reported_other_stray_loss_reported_resolution_w: float | None = None
     rounding_semantics: Literal["nearest_increment"] | None = None
+    winding_resolved_load_loss_authority: TransformerWindingResolvedLoadLossAuthority | None = None
 
     def __post_init__(self) -> None:
         _exact_text(self.transformer_id, "transformer_id")
@@ -375,6 +481,12 @@ class TransformerRatedLoadLossComponentAuthority:
             and self.reported_other_stray_loss_w is None
         ):
             raise ValueError("other-stray resolution requires a reported other-stray value")
+        if self.winding_resolved_load_loss_authority is not None:
+            authority = self.winding_resolved_load_loss_authority
+            if type(authority) is not TransformerWindingResolvedLoadLossAuthority:
+                raise ValueError("winding-resolved load-loss authority type is invalid")
+            if authority.transformer_id != self.transformer_id:
+                raise ValueError("winding allocation transformer_id must match component authority")
 
 
 @dataclass(frozen=True)
@@ -471,6 +583,13 @@ class TopologyTransformerLossComponentAuthorityDiagnostics:
     aggregate_stray_exact_count: int
     aggregate_stray_resolution_bounded_count: int
     unresolved_factory_evidence_count: int
+    homogeneous_legacy_conductor_count: int
+    explicit_winding_resolved_conductor_count: int
+    ambiguous_mixed_conductor_basis_count: int
+    winding_allocation_authority_count: int
+    winding_i2r_closure_failure_count: int
+    winding_eddy_closure_failure_count: int
+    winding_resolved_advanced_basis_resolved_count: int
     state_counts: tuple[tuple[str, int], ...]
     model: str
 
@@ -482,6 +601,9 @@ class TopologyTransformerLossComponentAuthorityResult:
         str,
         TransformerRatedLoadLossComponentAuthority
         | TransformerRatedLoadLossAggregateStrayAuthority,
+    ]
+    winding_resolved_load_loss_by_id: Mapping[
+        str, TransformerWindingResolvedLoadLossAuthority
     ]
     transformer_states: pd.DataFrame
     diagnostics: TopologyTransformerLossComponentAuthorityDiagnostics
@@ -559,6 +681,12 @@ def resolve_transformer_loss_component_authority(
             "rated load loss component",
         ),
     )
+    winding_allocations = {
+        identifier: authority.winding_resolved_load_loss_authority
+        for identifier, authority in components.items()
+        if type(authority) is TransformerRatedLoadLossComponentAuthority
+        and authority.winding_resolved_load_loss_authority is not None
+    }
     records = [
         _build_record(
             canonical_static.transformer_states.loc[identifier],
@@ -573,6 +701,7 @@ def resolve_transformer_loss_component_authority(
     result = TopologyTransformerLossComponentAuthorityResult(
         MappingProxyType(dict(construction)),
         MappingProxyType(dict(components)),
+        MappingProxyType(dict(winding_allocations)),
         states.copy(deep=True),
         diagnostics,
     )
@@ -892,6 +1021,69 @@ def _build_record(
     return _record_values(static_row, rated, construction, component)
 
 
+def _winding_evidence(
+    construction: TransformerAdvancedConstructionAuthority | None,
+    component: TransformerRatedLoadLossComponentAuthority | None,
+    component_resolved: bool,
+) -> dict[str, object]:
+    allocation = component.winding_resolved_load_loss_authority if component else None
+    explicit_conductor = bool(
+        construction and construction.collection_winding_conductor_material is not None
+    )
+    legacy_homogeneous = bool(
+        construction
+        and not explicit_conductor
+        and construction.winding_conductor_material in {"copper", "aluminium"}
+    )
+    i2r_ok = eddy_ok = reference_ok = False
+    if allocation is not None and component is not None:
+        reference_ok = (
+            allocation.reference_temperature_c == component.reference_temperature_c
+            and allocation.test_frequency_hz == component.test_frequency_hz
+        )
+        try:
+            i2r_sum = math.fsum(
+                (
+                    allocation.collection_winding_i2r_loss_w,
+                    allocation.network_winding_i2r_loss_w,
+                )
+            )
+            eddy_sum = math.fsum(
+                (
+                    allocation.collection_winding_eddy_current_loss_w,
+                    allocation.network_winding_eddy_current_loss_w,
+                )
+            )
+        except OverflowError:
+            i2r_sum = eddy_sum = math.inf
+        i2r_ok = math.isfinite(i2r_sum) and math.isclose(
+            i2r_sum, component.i2r_loss_w, rel_tol=_REL_TOL, abs_tol=0.0
+        )
+        eddy_ok = math.isfinite(eddy_sum) and math.isclose(
+            eddy_sum,
+            component.winding_eddy_current_loss_w,
+            rel_tol=_REL_TOL,
+            abs_tol=0.0,
+        )
+    resolved = bool(
+        component_resolved
+        and explicit_conductor
+        and allocation is not None
+        and reference_ok
+        and i2r_ok
+        and eddy_ok
+    )
+    return {
+        "allocation": allocation,
+        "explicit_conductor": explicit_conductor,
+        "legacy_homogeneous": legacy_homogeneous,
+        "reference_ok": reference_ok,
+        "i2r_ok": i2r_ok,
+        "eddy_ok": eddy_ok,
+        "resolved": resolved,
+    }
+
+
 def _record_values(
     static_row: pd.Series,
     rated: TransformerRatedLoadLossAuthority | None,
@@ -918,6 +1110,10 @@ def _record_values(
         math_ok = True
         reported_ok = True
     component_resolved = bool(explicit and strict and side and temperature and frequency)
+    winding = _winding_evidence(construction, explicit, component_resolved)
+    allocation = cast(
+        TransformerWindingResolvedLoadLossAuthority | None, winding["allocation"]
+    )
     construction_resolved = construction is not None
     factory_resolved = bool(static and construction_resolved and evidence_resolved)
     state = _primary_state(
@@ -998,6 +1194,27 @@ def _record_values(
         "advanced_component_correction_eligible": bool(
             construction_resolved and component_resolved and static
         ),
+        "legacy_homogeneous_conductor_basis_resolved": winding["legacy_homogeneous"],
+        "winding_resolved_conductor_authority_present": winding["explicit_conductor"],
+        "winding_resolved_conductor_authority_resolved": bool(
+            construction_resolved and winding["explicit_conductor"]
+        ),
+        "winding_resolved_i2r_allocation_authority_present": allocation is not None,
+        "winding_resolved_i2r_allocation_resolved": bool(
+            component_resolved and winding["reference_ok"] and winding["i2r_ok"]
+        ),
+        "winding_resolved_winding_eddy_allocation_authority_present": allocation is not None,
+        "winding_resolved_winding_eddy_allocation_resolved": bool(
+            component_resolved and winding["reference_ok"] and winding["eddy_ok"]
+        ),
+        "winding_resolved_advanced_correction_basis_resolved": winding["resolved"],
+        "conductor_authority_basis": (
+            "explicit_winding_resolved"
+            if winding["explicit_conductor"]
+            else "legacy_homogeneous"
+            if winding["legacy_homogeneous"]
+            else "unresolved_ambiguous"
+        ),
         "factory_load_loss_evidence_fidelity": (
             evidence["fidelity"] if factory_resolved else "unresolved"
         ),
@@ -1066,6 +1283,26 @@ def _record_values(
         "derived_other_stray_loss_upper_bound_w": cast(
             tuple[float, float], evidence["other_bounds"]
         )[1],
+        "collection_winding_i2r_loss_reference_w": (
+            allocation.collection_winding_i2r_loss_w
+            if winding["resolved"] and allocation is not None
+            else nan
+        ),
+        "network_winding_i2r_loss_reference_w": (
+            allocation.network_winding_i2r_loss_w
+            if winding["resolved"] and allocation is not None
+            else nan
+        ),
+        "collection_winding_eddy_current_loss_reference_w": (
+            allocation.collection_winding_eddy_current_loss_w
+            if winding["resolved"] and allocation is not None
+            else nan
+        ),
+        "network_winding_eddy_current_loss_reference_w": (
+            allocation.network_winding_eddy_current_loss_w
+            if winding["resolved"] and allocation is not None
+            else nan
+        ),
         "thermal_construction_family": (
             construction.thermal_construction_family if construction else ""
         ),
@@ -1074,6 +1311,26 @@ def _record_values(
         ),
         "conductor_material_description": (
             construction.conductor_material_description if construction else ""
+        ),
+        "collection_winding_conductor_material": (
+            construction.collection_winding_conductor_material
+            if construction and construction.collection_winding_conductor_material
+            else ""
+        ),
+        "collection_winding_conductor_description": (
+            construction.collection_winding_conductor_description
+            if construction and construction.collection_winding_conductor_description
+            else ""
+        ),
+        "network_winding_conductor_material": (
+            construction.network_winding_conductor_material
+            if construction and construction.network_winding_conductor_material
+            else ""
+        ),
+        "network_winding_conductor_description": (
+            construction.network_winding_conductor_description
+            if construction and construction.network_winding_conductor_description
+            else ""
         ),
         "cooling_method_code": construction.cooling_method_code if construction else "",
         "core_material_family": construction.core_material_family if construction else "",
@@ -1212,6 +1469,23 @@ def _diagnostics(frame: pd.DataFrame) -> TopologyTransformerLossComponentAuthori
             ).sum()
         ),
         int((frame["factory_load_loss_evidence_fidelity"] == "unresolved").sum()),
+        int(frame["legacy_homogeneous_conductor_basis_resolved"].sum()),
+        int(frame["winding_resolved_conductor_authority_resolved"].sum()),
+        int((frame["conductor_authority_basis"] == "unresolved_ambiguous").sum()),
+        int(frame["winding_resolved_i2r_allocation_authority_present"].sum()),
+        int(
+            (
+                frame["winding_resolved_i2r_allocation_authority_present"]
+                & ~frame["winding_resolved_i2r_allocation_resolved"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["winding_resolved_winding_eddy_allocation_authority_present"]
+                & ~frame["winding_resolved_winding_eddy_allocation_resolved"]
+            ).sum()
+        ),
+        int(frame["winding_resolved_advanced_correction_basis_resolved"].sum()),
         states,
         TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID,
     )
@@ -1230,13 +1504,27 @@ def _validate_result(
 ) -> None:
     if type(result) is not TopologyTransformerLossComponentAuthorityResult:
         raise RuntimeError("S12H result type is invalid")
-    for name in ("construction_by_id", "rated_load_loss_component_by_id"):
+    for name in (
+        "construction_by_id",
+        "rated_load_loss_component_by_id",
+        "winding_resolved_load_loss_by_id",
+    ):
         if type(getattr(result, name)) is not MappingProxyType:
             raise RuntimeError(f"S12H {name} must be immutable")
     if tuple(result.construction_by_id.items()) != tuple(expected_construction.items()):
         raise RuntimeError("S12H construction mapping failed independent closure")
     if tuple(result.rated_load_loss_component_by_id.items()) != tuple(expected_components.items()):
         raise RuntimeError("S12H component mapping failed independent closure")
+    expected_winding_allocations = {
+        identifier: authority.winding_resolved_load_loss_authority
+        for identifier, authority in expected_components.items()
+        if type(authority) is TransformerRatedLoadLossComponentAuthority
+        and authority.winding_resolved_load_loss_authority is not None
+    }
+    if tuple(result.winding_resolved_load_loss_by_id.items()) != tuple(
+        expected_winding_allocations.items()
+    ):
+        raise RuntimeError("S12H winding allocation mapping failed independent closure")
     ids = static.transformer_states.index.tolist()
     expected_records = [
         _validator_record(
@@ -1420,6 +1708,53 @@ def _validator_record(
     component_ok = bool(
         rated and explicit and side_ok and temperature_ok and frequency_ok and strict
     )
+    validator_allocation = explicit.winding_resolved_load_loss_authority if explicit else None
+    validator_explicit_conductor = bool(
+        construction and construction.collection_winding_conductor_material is not None
+    )
+    validator_legacy_homogeneous = bool(
+        construction
+        and not validator_explicit_conductor
+        and construction.winding_conductor_material in {"copper", "aluminium"}
+    )
+    validator_reference_ok = validator_i2r_ok = validator_eddy_ok = False
+    if validator_allocation is not None and explicit is not None:
+        validator_reference_ok = (
+            validator_allocation.reference_temperature_c == explicit.reference_temperature_c
+            and validator_allocation.test_frequency_hz == explicit.test_frequency_hz
+        )
+        try:
+            validator_i2r_sum = math.fsum(
+                (
+                    validator_allocation.collection_winding_i2r_loss_w,
+                    validator_allocation.network_winding_i2r_loss_w,
+                )
+            )
+            validator_eddy_sum = math.fsum(
+                (
+                    validator_allocation.collection_winding_eddy_current_loss_w,
+                    validator_allocation.network_winding_eddy_current_loss_w,
+                )
+            )
+        except OverflowError:
+            validator_i2r_sum = validator_eddy_sum = math.inf
+        validator_i2r_ok = math.isfinite(validator_i2r_sum) and math.isclose(
+            validator_i2r_sum, explicit.i2r_loss_w, rel_tol=_REL_TOL, abs_tol=0.0
+        )
+        validator_eddy_ok = math.isfinite(validator_eddy_sum) and math.isclose(
+            validator_eddy_sum,
+            explicit.winding_eddy_current_loss_w,
+            rel_tol=_REL_TOL,
+            abs_tol=0.0,
+        )
+    validator_winding_resolved = bool(
+        component_ok
+        and validator_explicit_conductor
+        and validator_allocation is not None
+        and validator_reference_ok
+        and validator_i2r_ok
+        and validator_eddy_ok
+    )
     factory_ok = bool(
         static_ok
         and construction
@@ -1520,6 +1855,29 @@ def _validator_record(
         "advanced_component_correction_eligible": bool(
             static_ok and construction is not None and component_ok
         ),
+        "legacy_homogeneous_conductor_basis_resolved": validator_legacy_homogeneous,
+        "winding_resolved_conductor_authority_present": validator_explicit_conductor,
+        "winding_resolved_conductor_authority_resolved": bool(
+            construction is not None and validator_explicit_conductor
+        ),
+        "winding_resolved_i2r_allocation_authority_present": validator_allocation is not None,
+        "winding_resolved_i2r_allocation_resolved": bool(
+            component_ok and validator_reference_ok and validator_i2r_ok
+        ),
+        "winding_resolved_winding_eddy_allocation_authority_present": (
+            validator_allocation is not None
+        ),
+        "winding_resolved_winding_eddy_allocation_resolved": bool(
+            component_ok and validator_reference_ok and validator_eddy_ok
+        ),
+        "winding_resolved_advanced_correction_basis_resolved": validator_winding_resolved,
+        "conductor_authority_basis": (
+            "explicit_winding_resolved"
+            if validator_explicit_conductor
+            else "legacy_homogeneous"
+            if validator_legacy_homogeneous
+            else "unresolved_ambiguous"
+        ),
         "factory_load_loss_evidence_fidelity": fidelity if factory_ok else "unresolved",
         "factory_load_loss_evidence_kind": (
             "explicit_three_component"
@@ -1578,6 +1936,26 @@ def _validator_record(
         "derived_aggregate_stray_loss_upper_bound_w": aggregate_bounds[1],
         "derived_other_stray_loss_lower_bound_w": other_bounds[0],
         "derived_other_stray_loss_upper_bound_w": other_bounds[1],
+        "collection_winding_i2r_loss_reference_w": (
+            validator_allocation.collection_winding_i2r_loss_w
+            if validator_winding_resolved and validator_allocation is not None
+            else nan
+        ),
+        "network_winding_i2r_loss_reference_w": (
+            validator_allocation.network_winding_i2r_loss_w
+            if validator_winding_resolved and validator_allocation is not None
+            else nan
+        ),
+        "collection_winding_eddy_current_loss_reference_w": (
+            validator_allocation.collection_winding_eddy_current_loss_w
+            if validator_winding_resolved and validator_allocation is not None
+            else nan
+        ),
+        "network_winding_eddy_current_loss_reference_w": (
+            validator_allocation.network_winding_eddy_current_loss_w
+            if validator_winding_resolved and validator_allocation is not None
+            else nan
+        ),
         "thermal_construction_family": (
             construction.thermal_construction_family if construction else ""
         ),
@@ -1586,6 +1964,26 @@ def _validator_record(
         ),
         "conductor_material_description": (
             construction.conductor_material_description if construction else ""
+        ),
+        "collection_winding_conductor_material": (
+            construction.collection_winding_conductor_material
+            if construction and construction.collection_winding_conductor_material
+            else ""
+        ),
+        "collection_winding_conductor_description": (
+            construction.collection_winding_conductor_description
+            if construction and construction.collection_winding_conductor_description
+            else ""
+        ),
+        "network_winding_conductor_material": (
+            construction.network_winding_conductor_material
+            if construction and construction.network_winding_conductor_material
+            else ""
+        ),
+        "network_winding_conductor_description": (
+            construction.network_winding_conductor_description
+            if construction and construction.network_winding_conductor_description
+            else ""
         ),
         "cooling_method_code": construction.cooling_method_code if construction else "",
         "core_material_family": construction.core_material_family if construction else "",
@@ -1720,6 +2118,33 @@ def _validator_diagnostics(
         ),
         unresolved_factory_evidence_count=int(
             frame["factory_load_loss_evidence_fidelity"].eq("unresolved").sum()
+        ),
+        homogeneous_legacy_conductor_count=int(
+            frame["legacy_homogeneous_conductor_basis_resolved"].sum()
+        ),
+        explicit_winding_resolved_conductor_count=int(
+            frame["winding_resolved_conductor_authority_resolved"].sum()
+        ),
+        ambiguous_mixed_conductor_basis_count=int(
+            frame["conductor_authority_basis"].eq("unresolved_ambiguous").sum()
+        ),
+        winding_allocation_authority_count=int(
+            frame["winding_resolved_i2r_allocation_authority_present"].sum()
+        ),
+        winding_i2r_closure_failure_count=int(
+            (
+                frame["winding_resolved_i2r_allocation_authority_present"]
+                & ~frame["winding_resolved_i2r_allocation_resolved"]
+            ).sum()
+        ),
+        winding_eddy_closure_failure_count=int(
+            (
+                frame["winding_resolved_winding_eddy_allocation_authority_present"]
+                & ~frame["winding_resolved_winding_eddy_allocation_resolved"]
+            ).sum()
+        ),
+        winding_resolved_advanced_basis_resolved_count=int(
+            frame["winding_resolved_advanced_correction_basis_resolved"].sum()
         ),
         state_counts=state_counts,
         model=TRANSFORMER_LOSS_COMPONENT_AUTHORITY_MODEL_ID,

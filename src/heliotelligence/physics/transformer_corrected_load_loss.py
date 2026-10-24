@@ -100,6 +100,7 @@ _STATES = (
     "unresolved_s12g_reference_load_loss_closure_mismatch",
     "unresolved_nonfinite_corrected_transformer_load_loss",
     "resolved_harmonic_and_temperature_corrected_transformer_load_loss",
+    "unresolved_winding_resolved_temperature_correction_basis_required",
 )
 
 
@@ -222,6 +223,7 @@ _BOOL_COLUMNS = {
     "terminal_voltage_recalculated",
     "series_equivalent_modified",
     "coupled_thermal_iteration_applied",
+    "heterogeneous_winding_conductor_construction",
 }
 _NULLABLE_BOOL_COLUMNS = {"transformer_energised"}
 _FLOAT_COLUMNS = {
@@ -327,6 +329,9 @@ _COLUMNS = (
     "winding_eddy_harmonic_loss_factor",
     "other_stray_harmonic_loss_factor",
     "winding_conductor_material",
+    "collection_winding_conductor_material",
+    "network_winding_conductor_material",
+    "heterogeneous_winding_conductor_construction",
     "component_reference_temperature_c",
     "average_winding_temperature_c",
     "resistance_temperature_constant_c",
@@ -624,6 +629,22 @@ def _record(
             "winding_conductor_material": construction.winding_conductor_material
             if construction
             else "",
+            "collection_winding_conductor_material": (
+                construction.collection_winding_conductor_material
+                if construction and construction.collection_winding_conductor_material
+                else ""
+            ),
+            "network_winding_conductor_material": (
+                construction.network_winding_conductor_material
+                if construction and construction.network_winding_conductor_material
+                else ""
+            ),
+            "heterogeneous_winding_conductor_construction": bool(
+                construction
+                and construction.collection_winding_conductor_material is not None
+                and construction.collection_winding_conductor_material
+                != construction.network_winding_conductor_material
+            ),
             "component_reference_temperature_c": float(hrow["component_reference_temperature_c"]),
             "average_winding_temperature_c": float(jrow["average_winding_temperature_c"])
             if jrow is not None
@@ -692,6 +713,11 @@ def _record(
         state = _STATES[10]
     else:
         material = construction.winding_conductor_material
+        heterogeneous = bool(
+            construction.collection_winding_conductor_material is not None
+            and construction.collection_winding_conductor_material
+            != construction.network_winding_conductor_material
+        )
         tref = float(hrow["component_reference_temperature_c"])
         tw = float(jrow["average_winding_temperature_c"])
         tk: float | None
@@ -699,6 +725,8 @@ def _record(
         if tw == tref:
             tk, mode = None, "not_required_equal_reference_temperature"
             kr = 1.0
+        elif heterogeneous:
+            tk, mode, kr = None, "winding_resolved_basis_required", math.nan
         elif custom is not None:
             if custom.applicable_conductor_material != material:
                 raise ValueError("temperature constant material does not match S12H construction")
@@ -715,7 +743,9 @@ def _record(
         record["resistance_temperature_constant_source_mode"] = mode
         if tk is not None:
             record["resistance_temperature_constant_c"] = tk
-        if material == "mixed_or_other_explicit" and tk is None and tw != tref:
+        if heterogeneous and tw != tref:
+            state = "unresolved_winding_resolved_temperature_correction_basis_required"
+        elif material == "mixed_or_other_explicit" and tk is None and tw != tref:
             state = _STATES[11]
         elif not math.isfinite(kr) or kr <= 0.0:
             state = _STATES[12]
@@ -1079,6 +1109,22 @@ def _validator_record(
             "winding_conductor_material": (
                 construction.winding_conductor_material if construction else ""
             ),
+            "collection_winding_conductor_material": (
+                construction.collection_winding_conductor_material
+                if construction and construction.collection_winding_conductor_material
+                else ""
+            ),
+            "network_winding_conductor_material": (
+                construction.network_winding_conductor_material
+                if construction and construction.network_winding_conductor_material
+                else ""
+            ),
+            "heterogeneous_winding_conductor_construction": bool(
+                construction
+                and construction.collection_winding_conductor_material is not None
+                and construction.collection_winding_conductor_material
+                != construction.network_winding_conductor_material
+            ),
             "component_reference_temperature_c": float(h_row["component_reference_temperature_c"]),
             "average_winding_temperature_c": (
                 float(j_row["average_winding_temperature_c"]) if j_row is not None else math.nan
@@ -1135,6 +1181,11 @@ def _validator_record(
         primary = _STATES[10]
     else:
         material = construction.winding_conductor_material
+        heterogeneous = bool(
+            construction.collection_winding_conductor_material is not None
+            and construction.collection_winding_conductor_material
+            != construction.network_winding_conductor_material
+        )
         reference_temperature = float(h_row["component_reference_temperature_c"])
         winding_temperature = float(j_row["average_winding_temperature_c"])
         constant: float | None
@@ -1142,6 +1193,10 @@ def _validator_record(
             constant = None
             source_mode = "not_required_equal_reference_temperature"
             resistance_factor = 1.0
+        elif heterogeneous:
+            constant = None
+            source_mode = "winding_resolved_basis_required"
+            resistance_factor = math.nan
         elif custom is not None:
             constant = custom.resistance_temperature_constant_c
             source_mode = "explicit_authority"
@@ -1174,7 +1229,9 @@ def _validator_record(
         if constant is not None:
             expected["resistance_temperature_constant_c"] = constant
 
-        if (
+        if heterogeneous and winding_temperature != reference_temperature:
+            primary = "unresolved_winding_resolved_temperature_correction_basis_required"
+        elif (
             material == "mixed_or_other_explicit"
             and constant is None
             and (winding_temperature != reference_temperature)
