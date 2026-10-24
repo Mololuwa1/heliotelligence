@@ -56,7 +56,9 @@ def fake_cec_database(monkeypatch: pytest.MonkeyPatch) -> None:
 T1 = pd.Timestamp("2025-01-01T00:00:00")
 
 
-def _construction(material: str = "copper") -> TransformerAdvancedConstructionAuthority:
+def _construction(
+    material: str = "copper", *, winding_materials: tuple[str, str] | None = None
+) -> TransformerAdvancedConstructionAuthority:
     return TransformerAdvancedConstructionAuthority(
         "tx-1",
         "mineral_oil_immersed",
@@ -67,6 +69,10 @@ def _construction(material: str = "copper") -> TransformerAdvancedConstructionAu
         "CRGO",
         "design",
         "high",
+        winding_materials[0] if winding_materials else None,  # type: ignore[arg-type]
+        "collection winding" if winding_materials else None,
+        winding_materials[1] if winding_materials else None,  # type: ignore[arg-type]
+        "network winding" if winding_materials else None,
     )
 
 
@@ -142,6 +148,7 @@ def _context(
     rated_load_w: float = 5000.0,
     extra_thermal_timestamp: pd.Timestamp | None = None,
     aggregate_evidence: bool = False,
+    winding_materials: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     values, _ = _inputs(
         p=p,
@@ -153,7 +160,11 @@ def _context(
         energised=energised,
     )
     g = calculate_topology_transformer_operating_solution(**values)
-    construction = {"tx-1": _construction(material)} if include_h else {}
+    construction = (
+        {"tx-1": _construction(material, winding_materials=winding_materials)}
+        if include_h
+        else {}
+    )
     explicit_component = (
         replace(
             _component(side),
@@ -340,6 +351,67 @@ def test_mixed_requires_constant_except_equal_temperature() -> None:
     assert row["resistance_temperature_constant_source_mode"] == (
         "not_required_equal_reference_temperature"
     )
+
+
+@pytest.mark.parametrize("material", ["copper", "aluminium"])
+def test_explicit_same_material_windings_match_legacy_result(material: str) -> None:
+    legacy = _run(material=material, winding_temperature=100.0).states.iloc[0]
+    explicit = _run(
+        material=material,
+        winding_materials=(material, material),
+        winding_temperature=100.0,
+    ).states.iloc[0]
+    assert explicit["harmonic_and_temperature_corrected_load_loss_w"] == legacy[
+        "harmonic_and_temperature_corrected_load_loss_w"
+    ]
+    assert not explicit["heterogeneous_winding_conductor_construction"]
+
+
+def test_heterogeneous_windings_require_future_temperature_correction_basis() -> None:
+    row = _run(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=100.0,
+    ).states.iloc[0]
+    assert row["heterogeneous_winding_conductor_construction"]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "unresolved_winding_resolved_temperature_correction_basis_required"
+    )
+    assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
+
+
+def test_scalar_custom_constant_cannot_bypass_heterogeneous_winding_gate() -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=100.0,
+    )
+    values["winding_temperature_constant_by_transformer_id"] = {
+        "tx-1": TransformerWindingResistanceTemperatureConstantAuthority(
+            "tx-1",
+            "mixed_or_other_explicit",
+            230.0,
+            "linear_winding_resistance_temperature_constant_c",
+            "certificate",
+            "high",
+        )
+    }
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "unresolved_winding_resolved_temperature_correction_basis_required"
+    )
+
+
+def test_heterogeneous_windings_resolve_at_equal_reference_temperature() -> None:
+    row = _run(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=75.0,
+    ).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
+    )
+    assert row["i2r_temperature_correction_factor"] == 1.0
 
 
 def test_side_and_frequency_mismatch_states() -> None:
