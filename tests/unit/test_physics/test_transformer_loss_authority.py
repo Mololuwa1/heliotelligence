@@ -96,6 +96,8 @@ def _rated_load(
     frequency: float = 50.0,
     temperature: float = 75.0,
     side: str = "network_side",
+    resolution: float | None = None,
+    rounding: str | None = None,
 ) -> TransformerRatedLoadLossAuthority:
     return TransformerRatedLoadLossAuthority(
         transformer_id,
@@ -107,6 +109,8 @@ def _rated_load(
         "total_rated_load_loss_including_winding_and_stray",
         f"load-loss-report:{transformer_id}",
         "medium",
+        resolution,
+        rounding,  # type: ignore[arg-type]
     )
 
 
@@ -407,6 +411,9 @@ def test_strong_static_replay_rejects_mutable_equal_mappings(field: str) -> None
     [
         ("no_load_loss_w", 1.0),
         ("rated_load_loss_w", 1.0),
+        ("rated_load_loss_reported_resolution_w", 1.0),
+        ("rated_load_loss_rounding_semantics", "tampered"),
+        ("rated_load_loss_source_resolution_present", True),
         ("no_load_test_frequency_hz", 60.0),
         ("load_loss_test_frequency_hz", 60.0),
         ("load_loss_reference_temperature_c", 20.0),
@@ -482,3 +489,52 @@ def test_no_superseded_or_future_operating_assumptions_and_diagnostics_type() ->
     diagnostics = _complete().diagnostics
     assert type(diagnostics) is TopologyTransformerLossAuthorityDiagnostics
     assert diagnostics.model == TRANSFORMER_LOSS_AUTHORITY_MODEL_ID
+
+
+def test_rated_load_resolution_is_explicit_and_backward_compatible() -> None:
+    old = _rated_load()
+    assert old.reported_resolution_w is None
+    assert old.rounding_semantics is None
+    old_row = _resolve(rated_load={"tx-1": old}).transformer_states.iloc[0]
+    assert not old_row["rated_load_loss_source_resolution_present"]
+    assert pd.isna(old_row["rated_load_loss_reported_resolution_w"])
+    assert old_row["rated_load_loss_rounding_semantics"] == ""
+
+    resolved = _resolve(
+        rated_load={"tx-1": _rated_load(resolution=10.0, rounding="nearest_increment")}
+    )
+    row = resolved.transformer_states.iloc[0]
+    assert row["rated_load_loss_source_resolution_present"]
+    assert row["rated_load_loss_reported_resolution_w"] == 10.0
+    assert row["rated_load_loss_rounding_semantics"] == "nearest_increment"
+
+
+@pytest.mark.parametrize("resolution", [0.0, -1.0, float("nan"), float("inf")])
+def test_invalid_rated_load_resolution_is_rejected(resolution: float) -> None:
+    with pytest.raises(ValueError):
+        _rated_load(resolution=resolution, rounding="nearest_increment")
+
+
+def test_rated_load_resolution_semantics_must_close_exactly() -> None:
+    with pytest.raises(ValueError):
+        _rated_load(resolution=10.0)
+    with pytest.raises(ValueError):
+        _rated_load(rounding="nearest_increment")
+    with pytest.raises(ValueError):
+        _rated_load(resolution=10.0, rounding="unsupported")
+
+
+def test_s12b_validator_is_independent_of_production_builders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _resolve(
+        rated_load={"tx-1": _rated_load(resolution=10.0, rounding="nearest_increment")}
+    )
+    static = _static()
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production builder used")
+
+    for name in ("_record", "_state_frame", "_diagnostics"):
+        monkeypatch.setattr(authority_module, name, fail)
+    _validate_result(static, result)
