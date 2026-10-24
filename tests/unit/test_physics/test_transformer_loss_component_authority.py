@@ -140,6 +140,8 @@ def _winding_allocation(
     network_i2r: float = 1_500.0,
     collection_eddy: float = 400.0,
     network_eddy: float = 300.0,
+    temperature: float = 75.0,
+    frequency: float = 50.0,
 ) -> TransformerWindingResolvedLoadLossAuthority:
     return TransformerWindingResolvedLoadLossAuthority(
         "tx-1",
@@ -147,8 +149,8 @@ def _winding_allocation(
         network_i2r,
         collection_eddy,
         network_eddy,
-        75.0,
-        50.0,
+        temperature,
+        frequency,
         "explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation",
         "factory winding loss schedule",
         "high",
@@ -429,6 +431,32 @@ def test_unresolved_static_precedes_preserved_complete_s12h_evidence() -> None:
     assert row["s12b_rated_load_loss_w"] == 5_000.0
 
 
+def test_unresolved_static_gates_winding_advanced_basis_and_reference_values() -> None:
+    row = _resolve(
+        partial="topology-only",
+        rated={"tx-1": _rated()},
+        construction={
+            "tx-1": _construction(
+                summary="mixed_or_other_explicit", collection="copper", network="aluminium"
+            )
+        },
+        components={"tx-1": _component(winding=_winding_allocation())},
+    ).transformer_states.iloc[0]
+    assert row["transformer_loss_component_authority_state"] == (
+        "unresolved_upstream_transformer_static_authority"
+    )
+    assert not row["transformer_advanced_loss_basis_resolved"]
+    assert not row["advanced_component_correction_eligible"]
+    assert not row["winding_resolved_advanced_correction_basis_resolved"]
+    for column in (
+        "collection_winding_i2r_loss_reference_w",
+        "network_winding_i2r_loss_reference_w",
+        "collection_winding_eddy_current_loss_reference_w",
+        "network_winding_eddy_current_loss_reference_w",
+    ):
+        assert pd.isna(row[column])
+
+
 @pytest.mark.parametrize(
     ("rated", "construction", "components", "state"),
     [
@@ -687,20 +715,31 @@ def test_validator_rejects_each_contract_family_and_diagnostics_tamper() -> None
         "strict_point_component_closure_resolved",
         "resolution_bounded_closure_resolved",
         "aggregate_stray_basis_resolved",
-            "advanced_component_correction_eligible",
-            "legacy_homogeneous_conductor_basis_resolved",
-            "winding_resolved_conductor_authority_present",
-            "winding_resolved_i2r_allocation_resolved",
-            "winding_resolved_winding_eddy_allocation_resolved",
-            "winding_resolved_advanced_correction_basis_resolved",
-            "conductor_authority_basis",
+        "advanced_component_correction_eligible",
+        "legacy_homogeneous_conductor_basis_resolved",
+        "winding_resolved_conductor_authority_present",
+        "winding_resolved_conductor_authority_resolved",
+        "winding_resolved_i2r_allocation_authority_present",
+        "winding_resolved_i2r_allocation_resolved",
+        "winding_i2r_allocation_closure_satisfied",
+        "winding_resolved_winding_eddy_allocation_authority_present",
+        "winding_resolved_winding_eddy_allocation_resolved",
+        "winding_eddy_allocation_closure_satisfied",
+        "winding_resolved_advanced_correction_basis_resolved",
+        "conductor_authority_basis",
         "factory_load_loss_evidence_fidelity",
         "rated_load_loss_lower_bound_w",
         "derived_other_stray_loss_upper_bound_w",
         "thermal_construction_family",
-            "winding_conductor_material",
-            "collection_winding_conductor_material",
-            "network_winding_conductor_material",
+        "winding_conductor_material",
+        "collection_winding_conductor_material",
+        "collection_winding_conductor_description",
+        "network_winding_conductor_material",
+        "network_winding_conductor_description",
+        "collection_winding_i2r_loss_reference_w",
+        "network_winding_i2r_loss_reference_w",
+        "collection_winding_eddy_current_loss_reference_w",
+        "network_winding_eddy_current_loss_reference_w",
         "cooling_method_code",
         "core_material_family",
         "construction_parameter_source",
@@ -735,14 +774,24 @@ def test_validator_rejects_each_contract_family_and_diagnostics_tamper() -> None
                 result.rated_load_loss_component_by_id,
                 replace(result, transformer_states=frame),
             )
-    with pytest.raises(RuntimeError):
-        _validate_result(
-            context["static"],
-            context["loss"],
-            result.construction_by_id,
-            result.rated_load_loss_component_by_id,
-            replace(result, diagnostics=replace(result.diagnostics, transformer_count=99)),
-        )
+    for field in (
+        "transformer_count",
+        "ambiguous_mixed_conductor_basis_count",
+        "winding_i2r_closure_failure_count",
+        "winding_eddy_closure_failure_count",
+        "winding_resolved_advanced_basis_resolved_count",
+    ):
+        with pytest.raises(RuntimeError):
+            _validate_result(
+                context["static"],
+                context["loss"],
+                result.construction_by_id,
+                result.rated_load_loss_component_by_id,
+                replace(
+                    result,
+                    diagnostics=replace(result.diagnostics, **{field: 99}),
+                ),
+            )
     with pytest.raises(RuntimeError, match="immutable"):
         _validate_result(
             context["static"],
@@ -963,6 +1012,32 @@ def test_legacy_mixed_conductor_does_not_invent_winding_split() -> None:
     assert row["network_winding_conductor_material"] == ""
 
 
+def test_conductor_diagnostics_distinguish_missing_ambiguous_and_resolved() -> None:
+    missing = _resolve(
+        rated={"tx-1": _rated()}, construction={}, components={"tx-1": _component()}
+    )
+    assert missing.transformer_states.iloc[0]["conductor_authority_basis"] == "missing"
+    assert missing.diagnostics.ambiguous_mixed_conductor_basis_count == 0
+
+    mixed = _resolve(
+        rated={"tx-1": _rated()},
+        construction={"tx-1": _construction(summary="mixed_or_other_explicit")},
+        components={"tx-1": _component()},
+    )
+    assert mixed.diagnostics.ambiguous_mixed_conductor_basis_count == 1
+
+    legacy = _complete()
+    explicit = _resolve(
+        rated={"tx-1": _rated()},
+        construction={
+            "tx-1": _construction(summary="copper", collection="copper", network="copper")
+        },
+        components={"tx-1": _component(winding=_winding_allocation())},
+    )
+    assert legacy.diagnostics.ambiguous_mixed_conductor_basis_count == 0
+    assert explicit.diagnostics.ambiguous_mixed_conductor_basis_count == 0
+
+
 @pytest.mark.parametrize(
     ("summary", "collection", "network"),
     [("copper", "copper", "copper"), ("aluminium", "aluminium", "aluminium")],
@@ -1072,6 +1147,62 @@ def test_winding_allocation_requires_independent_exact_component_closure(
     assert pd.isna(row["collection_winding_i2r_loss_reference_w"])
 
 
+def test_reference_mismatch_does_not_masquerade_as_winding_closure_failure() -> None:
+    result = _resolve(
+        rated={"tx-1": _rated()},
+        construction={
+            "tx-1": _construction(summary="copper", collection="copper", network="copper")
+        },
+        components={
+            "tx-1": _component(winding=_winding_allocation(temperature=80.0))
+        },
+    )
+    row = result.transformer_states.iloc[0]
+    assert row["winding_i2r_allocation_closure_satisfied"]
+    assert row["winding_eddy_allocation_closure_satisfied"]
+    assert not row["winding_resolved_i2r_allocation_resolved"]
+    assert result.diagnostics.winding_i2r_closure_failure_count == 0
+    assert result.diagnostics.winding_eddy_closure_failure_count == 0
+
+
+@pytest.mark.parametrize(
+    ("winding", "i2r_failures", "eddy_failures"),
+    [
+        (_winding_allocation(collection_i2r=2_001.0), 1, 0),
+        (_winding_allocation(collection_eddy=401.0), 0, 1),
+    ],
+)
+def test_winding_closure_diagnostics_measure_only_numerical_sum_failure(
+    winding: TransformerWindingResolvedLoadLossAuthority,
+    i2r_failures: int,
+    eddy_failures: int,
+) -> None:
+    result = _resolve(
+        rated={"tx-1": _rated()},
+        construction={
+            "tx-1": _construction(summary="copper", collection="copper", network="copper")
+        },
+        components={"tx-1": _component(winding=winding)},
+    )
+    assert result.diagnostics.winding_i2r_closure_failure_count == i2r_failures
+    assert result.diagnostics.winding_eddy_closure_failure_count == eddy_failures
+
+
+def test_unresolved_parent_with_exact_winding_sums_has_no_closure_failure() -> None:
+    result = _resolve(
+        rated={"tx-1": _rated()},
+        construction={
+            "tx-1": _construction(summary="copper", collection="copper", network="copper")
+        },
+        components={
+            "tx-1": _component(reported=900.0, winding=_winding_allocation())
+        },
+    )
+    assert not result.transformer_states.iloc[0]["transformer_advanced_loss_basis_resolved"]
+    assert result.diagnostics.winding_i2r_closure_failure_count == 0
+    assert result.diagnostics.winding_eddy_closure_failure_count == 0
+
+
 def test_s12h_validator_is_independent_of_production_builders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1084,6 +1215,44 @@ def test_s12h_validator_is_independent_of_production_builders(
         rated={"tx-1": _rated()},
         construction={"tx-1": _construction()},
         components={"tx-1": _aggregate()},
+    )
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production builder used")
+
+    for name in (
+        "_source_interval",
+        "_evidence",
+        "_winding_evidence",
+        "_closure",
+        "_build_record",
+        "_frame",
+        "_diagnostics",
+    ):
+        monkeypatch.setattr(module, name, fail)
+    _validate_result(
+        context["static"],
+        context["loss"],
+        result.construction_by_id,
+        result.rated_load_loss_component_by_id,
+        result,
+    )
+
+
+def test_winding_validator_is_independent_of_production_builders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construction = {
+        "tx-1": _construction(
+            summary="mixed_or_other_explicit", collection="copper", network="aluminium"
+        )
+    }
+    components = {"tx-1": _component(winding=_winding_allocation())}
+    context = _context(
+        rated={"tx-1": _rated()}, construction=construction, components=components
+    )
+    result = _resolve(
+        rated={"tx-1": _rated()}, construction=construction, components=components
     )
 
     def fail(*_args: object, **_kwargs: object) -> None:

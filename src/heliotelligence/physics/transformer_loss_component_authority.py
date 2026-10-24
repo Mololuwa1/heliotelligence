@@ -165,8 +165,10 @@ _BOOL_COLUMNS = {
     "winding_resolved_conductor_authority_resolved",
     "winding_resolved_i2r_allocation_authority_present",
     "winding_resolved_i2r_allocation_resolved",
+    "winding_i2r_allocation_closure_satisfied",
     "winding_resolved_winding_eddy_allocation_authority_present",
     "winding_resolved_winding_eddy_allocation_resolved",
+    "winding_eddy_allocation_closure_satisfied",
     "winding_resolved_advanced_correction_basis_resolved",
 }
 _FLOAT_COLUMNS = {
@@ -245,8 +247,10 @@ _COLUMNS = (
     "winding_resolved_conductor_authority_resolved",
     "winding_resolved_i2r_allocation_authority_present",
     "winding_resolved_i2r_allocation_resolved",
+    "winding_i2r_allocation_closure_satisfied",
     "winding_resolved_winding_eddy_allocation_authority_present",
     "winding_resolved_winding_eddy_allocation_resolved",
+    "winding_eddy_allocation_closure_satisfied",
     "winding_resolved_advanced_correction_basis_resolved",
     "conductor_authority_basis",
     "factory_load_loss_evidence_fidelity",
@@ -1024,7 +1028,7 @@ def _build_record(
 def _winding_evidence(
     construction: TransformerAdvancedConstructionAuthority | None,
     component: TransformerRatedLoadLossComponentAuthority | None,
-    component_resolved: bool,
+    advanced_basis_resolved: bool,
 ) -> dict[str, object]:
     allocation = component.winding_resolved_load_loss_authority if component else None
     explicit_conductor = bool(
@@ -1066,7 +1070,7 @@ def _winding_evidence(
             abs_tol=0.0,
         )
     resolved = bool(
-        component_resolved
+        advanced_basis_resolved
         and explicit_conductor
         and allocation is not None
         and reference_ok
@@ -1110,7 +1114,8 @@ def _record_values(
         math_ok = True
         reported_ok = True
     component_resolved = bool(explicit and strict and side and temperature and frequency)
-    winding = _winding_evidence(construction, explicit, component_resolved)
+    advanced_basis_resolved = bool(static and construction is not None and component_resolved)
+    winding = _winding_evidence(construction, explicit, advanced_basis_resolved)
     allocation = cast(
         TransformerWindingResolvedLoadLossAuthority | None, winding["allocation"]
     )
@@ -1203,16 +1208,20 @@ def _record_values(
         "winding_resolved_i2r_allocation_resolved": bool(
             component_resolved and winding["reference_ok"] and winding["i2r_ok"]
         ),
+        "winding_i2r_allocation_closure_satisfied": winding["i2r_ok"],
         "winding_resolved_winding_eddy_allocation_authority_present": allocation is not None,
         "winding_resolved_winding_eddy_allocation_resolved": bool(
             component_resolved and winding["reference_ok"] and winding["eddy_ok"]
         ),
+        "winding_eddy_allocation_closure_satisfied": winding["eddy_ok"],
         "winding_resolved_advanced_correction_basis_resolved": winding["resolved"],
         "conductor_authority_basis": (
             "explicit_winding_resolved"
             if winding["explicit_conductor"]
             else "legacy_homogeneous"
             if winding["legacy_homogeneous"]
+            else "missing"
+            if construction is None
             else "unresolved_ambiguous"
         ),
         "factory_load_loss_evidence_fidelity": (
@@ -1476,13 +1485,13 @@ def _diagnostics(frame: pd.DataFrame) -> TopologyTransformerLossComponentAuthori
         int(
             (
                 frame["winding_resolved_i2r_allocation_authority_present"]
-                & ~frame["winding_resolved_i2r_allocation_resolved"]
+                & ~frame["winding_i2r_allocation_closure_satisfied"]
             ).sum()
         ),
         int(
             (
                 frame["winding_resolved_winding_eddy_allocation_authority_present"]
-                & ~frame["winding_resolved_winding_eddy_allocation_resolved"]
+                & ~frame["winding_eddy_allocation_closure_satisfied"]
             ).sum()
         ),
         int(frame["winding_resolved_advanced_correction_basis_resolved"].sum()),
@@ -1748,7 +1757,9 @@ def _validator_record(
             abs_tol=0.0,
         )
     validator_winding_resolved = bool(
-        component_ok
+        static_ok
+        and construction is not None
+        and component_ok
         and validator_explicit_conductor
         and validator_allocation is not None
         and validator_reference_ok
@@ -1864,18 +1875,22 @@ def _validator_record(
         "winding_resolved_i2r_allocation_resolved": bool(
             component_ok and validator_reference_ok and validator_i2r_ok
         ),
+        "winding_i2r_allocation_closure_satisfied": validator_i2r_ok,
         "winding_resolved_winding_eddy_allocation_authority_present": (
             validator_allocation is not None
         ),
         "winding_resolved_winding_eddy_allocation_resolved": bool(
             component_ok and validator_reference_ok and validator_eddy_ok
         ),
+        "winding_eddy_allocation_closure_satisfied": validator_eddy_ok,
         "winding_resolved_advanced_correction_basis_resolved": validator_winding_resolved,
         "conductor_authority_basis": (
             "explicit_winding_resolved"
             if validator_explicit_conductor
             else "legacy_homogeneous"
             if validator_legacy_homogeneous
+            else "missing"
+            if construction is None
             else "unresolved_ambiguous"
         ),
         "factory_load_loss_evidence_fidelity": fidelity if factory_ok else "unresolved",
@@ -2134,13 +2149,13 @@ def _validator_diagnostics(
         winding_i2r_closure_failure_count=int(
             (
                 frame["winding_resolved_i2r_allocation_authority_present"]
-                & ~frame["winding_resolved_i2r_allocation_resolved"]
+                & ~frame["winding_i2r_allocation_closure_satisfied"]
             ).sum()
         ),
         winding_eddy_closure_failure_count=int(
             (
                 frame["winding_resolved_winding_eddy_allocation_authority_present"]
-                & ~frame["winding_resolved_winding_eddy_allocation_resolved"]
+                & ~frame["winding_eddy_allocation_closure_satisfied"]
             ).sum()
         ),
         winding_resolved_advanced_basis_resolved_count=int(
