@@ -490,6 +490,50 @@ def test_aggregate_factory_evidence_does_not_enter_s12k_component_correction() -
     assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "fidelity"),
+    [
+        ({"include_h": False}, "unresolved"),
+        ({"aggregate_evidence": True}, "aggregate_stray_exact"),
+    ],
+)
+def test_valid_s12g_baseline_is_selected_when_advanced_basis_is_unavailable(
+    kwargs: dict[str, Any], fidelity: str
+) -> None:
+    values = _context(**kwargs)
+    result = calculate_topology_transformer_corrected_load_loss(**values)
+    row = result.states.iloc[0]
+    baseline = values["transformer_operating_solution"].transformer_operating_states.iloc[0][
+        "p_series_active_loss_w"
+    ]
+    assert row["transformer_load_loss_output_resolved"]
+    assert not row["advanced_load_loss_correction_resolved"]
+    assert row["s12g_load_loss_fallback_applied"]
+    assert row["load_loss_output_fidelity"] == "s12g_positive_sequence_series_loss_baseline"
+    assert row["load_loss_fallback_reason"] == row["transformer_corrected_load_loss_state"]
+    assert row["selected_fundamental_load_loss_w"] == pytest.approx(baseline)
+    assert row["selected_harmonic_incremental_load_loss_w"] == 0.0
+    assert row["selected_total_load_loss_w"] == pytest.approx(baseline)
+    assert row["s12h_factory_load_loss_evidence_fidelity"] == fidelity
+    assert result.diagnostics.s12g_load_loss_fallback_count == 1
+
+
+def test_advanced_selected_output_is_an_exact_alias_of_existing_advanced_values() -> None:
+    result = _run(ratios={1: 1.0, 5: 0.1}, winding_temperature=100.0)
+    row = result.states.iloc[0]
+    assert row["advanced_load_loss_correction_resolved"]
+    assert not row["s12g_load_loss_fallback_applied"]
+    assert row["selected_fundamental_load_loss_w"] == row[
+        "temperature_corrected_sinusoidal_load_loss_w"
+    ]
+    assert row["selected_harmonic_incremental_load_loss_w"] == row[
+        "harmonic_incremental_load_loss_w"
+    ]
+    assert row["selected_total_load_loss_w"] == row[
+        "harmonic_and_temperature_corrected_load_loss_w"
+    ]
+
+
 def test_nullable_energisation_is_preserved_for_unresolved_s12g_row() -> None:
     result = _run(energised=None)
     row = result.states.iloc[0]
@@ -776,6 +820,9 @@ def test_independent_validator_rejects_every_output_family_tamper() -> None:
         "s12g_reference_load_loss_closure_residual_w",
         "advanced_correction_vs_s12g_w",
         "advanced_correction_decomposition_residual_w",
+        "selected_fundamental_load_loss_w",
+        "selected_harmonic_incremental_load_loss_w",
+        "selected_total_load_loss_w",
     )
     text_columns = (
         "harmonic_other_stray_semantics",
@@ -786,6 +833,10 @@ def test_independent_validator_rejects_every_output_family_tamper() -> None:
         "transformer_corrected_load_loss_contract",
         "transformer_corrected_load_loss_model",
         "transformer_corrected_load_loss_scope",
+        "load_loss_output_fidelity",
+        "load_loss_fallback_reason",
+        "s12h_factory_load_loss_evidence_fidelity",
+        "s12h_factory_load_loss_evidence_kind",
     )
     for column in numeric_columns:
         changed = result.states.copy(deep=True)
@@ -802,6 +853,22 @@ def test_independent_validator_rejects_every_output_family_tamper() -> None:
     for column in text_columns:
         changed = result.states.copy(deep=True)
         changed.iloc[0, changed.columns.get_loc(column)] = "tampered"
+        with pytest.raises(ValueError, match="frame"):
+            _validate_result(
+                parents,
+                values["transformer_equipment_by_id"],
+                {},
+                {},
+                timestamps,
+                replace(result, states=changed),
+            )
+    for column in (
+        "transformer_load_loss_output_resolved",
+        "advanced_load_loss_correction_resolved",
+        "s12g_load_loss_fallback_applied",
+    ):
+        changed = result.states.copy(deep=True)
+        changed.iloc[0, changed.columns.get_loc(column)] = not bool(changed.iloc[0][column])
         with pytest.raises(ValueError, match="frame"):
             _validate_result(
                 parents,

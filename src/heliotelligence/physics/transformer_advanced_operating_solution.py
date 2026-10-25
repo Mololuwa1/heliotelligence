@@ -1,7 +1,9 @@
-"""Coupled advanced transformer terminal and loss-accounting solution.
+"""Coupled transformer terminal and explicit load-loss-fidelity solution.
 
 S12M replaces (never adds to) S12G's baseline load and no-load losses.  S12K
 supplies corrected load-loss physics; S12L supplies selected no-load physics.
+S12K may instead select S12G's positive-sequence series-loss baseline without
+inventing harmonic or temperature correction; that lower fidelity remains explicit.
 Fundamental eddy/stray loss is represented in an effective positive-sequence
 R, while harmonic increment remains a separate active sink.  Leakage X is
 retained.  Temperature is fixed timestamp evidence: no thermal iteration,
@@ -48,7 +50,8 @@ TRANSFORMER_ADVANCED_OPERATING_SOLUTION_SCOPE = (
     "timestamped_advanced_transformer_terminal_reconciliation_before_mv_hv_collection_network"
 )
 TRANSFORMER_ADVANCED_OPERATING_SOLUTION_COVERAGE_SCOPE = (
-    "resolved_energised_transformers_with_s12k_advanced_load_loss_and_s12l_selected_no_load_loss"
+    "resolved_energised_transformers_with_s12k_selected_advanced_or_s12g_baseline_"
+    "load_loss_and_s12l_selected_no_load_loss"
 )
 ADVANCED_FUNDAMENTAL_SERIES_RESISTANCE_SEMANTICS = (
     "effective_positive_sequence_series_resistance_reproducing_"
@@ -85,6 +88,7 @@ _STATES = (
     "unresolved_advanced_transformer_fixed_point_nonconvergence",
     "unresolved_advanced_transformer_power_conservation_mismatch",
     "resolved_coupled_advanced_transformer_terminal_solution",
+    "resolved_coupled_transformer_terminal_solution_with_s12g_load_loss_fallback",
 )
 
 
@@ -96,6 +100,9 @@ class TopologyTransformerAdvancedOperatingSolutionDiagnostics:
     resolved_count: int
     deenergised_count: int
     nonconverged_count: int
+    terminal_output_resolved_count: int
+    advanced_load_loss_terminal_count: int
+    s12g_load_loss_fallback_terminal_count: int
     state_counts: tuple[tuple[str, int], ...]
     model: str
 
@@ -121,6 +128,11 @@ _BOOL = {
     "excitation_no_load_q_modeled",
     "coupled_thermal_iteration_applied",
     "upstream_collection_recalculated",
+    "s12k_load_loss_output_resolved",
+    "s12k_advanced_load_loss_correction_resolved",
+    "s12k_load_loss_fallback_applied",
+    "transformer_terminal_output_resolved",
+    "load_loss_fallback_applied",
 }
 _NULLABLE = {"transformer_energised"}
 _FLOAT = {
@@ -180,6 +192,10 @@ _FLOAT = {
     "coupled_core_loss_scaling_multiplier",
     "active_power_conservation_residual_w",
     "reactive_power_conservation_residual_var",
+    "s12k_selected_load_loss_w",
+    "p_selected_load_loss_w",
+    "coupled_selected_load_loss_w",
+    "coupled_load_loss_adjustment_vs_s12k_selected_w",
 }
 _INT = {"fixed_point_iterations", "fixed_point_maximum_iterations"}
 _COLUMNS = (
@@ -187,6 +203,9 @@ _COLUMNS = (
     "s12g_terminal_operating_solution_resolved",
     "s12k_corrected_load_loss_row_present",
     "s12k_corrected_load_loss_resolved",
+    "s12k_load_loss_output_resolved",
+    "s12k_advanced_load_loss_correction_resolved",
+    "s12k_load_loss_fallback_applied",
     "s12l_core_no_load_loss_row_present",
     "s12l_no_load_loss_output_resolved",
     "s12l_advanced_core_loss_scaling_resolved",
@@ -232,6 +251,10 @@ _COLUMNS = (
     "coupled_total_transformer_active_loss_w",
     "s12g_baseline_load_loss_w",
     "s12k_baseline_advanced_load_loss_w",
+    "s12k_selected_load_loss_w",
+    "p_selected_load_loss_w",
+    "coupled_selected_load_loss_w",
+    "coupled_load_loss_adjustment_vs_s12k_selected_w",
     "coupled_load_loss_adjustment_vs_s12k_w",
     "s12g_baseline_no_load_loss_w",
     "s12l_selected_no_load_loss_w",
@@ -257,6 +280,10 @@ _COLUMNS = (
     "excitation_no_load_q_modeled",
     "coupled_thermal_iteration_applied",
     "upstream_collection_recalculated",
+    "transformer_terminal_output_resolved",
+    "load_loss_fallback_applied",
+    "s12k_load_loss_output_fidelity",
+    "terminal_solution_fidelity",
     "advanced_fundamental_series_resistance_semantics",
     "advanced_series_reactance_treatment",
     "harmonic_increment_treatment",
@@ -437,6 +464,8 @@ def _record(
         and kr["transformer_corrected_load_loss_state"]
         == "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
     )
+    kout = bool(kr is not None and kr["transformer_load_loss_output_resolved"])
+    kfallback = bool(kr is not None and kr["s12g_load_loss_fallback_applied"])
     lres = bool(lr is not None and lr["transformer_no_load_loss_output_resolved"])
     de = bool(
         gr is not None
@@ -449,6 +478,12 @@ def _record(
             "s12g_terminal_operating_solution_resolved": gres,
             "s12k_corrected_load_loss_row_present": kr is not None,
             "s12k_corrected_load_loss_resolved": kres,
+            "s12k_load_loss_output_resolved": kout,
+            "s12k_advanced_load_loss_correction_resolved": kres,
+            "s12k_load_loss_fallback_applied": kfallback,
+            "s12k_load_loss_output_fidelity": (
+                str(kr["load_loss_output_fidelity"]) if kr is not None else ""
+            ),
             "s12l_core_no_load_loss_row_present": lr is not None,
             "s12l_no_load_loss_output_resolved": lres,
             "s12l_advanced_core_loss_scaling_resolved": bool(
@@ -489,6 +524,7 @@ def _record(
         r["s12k_baseline_advanced_load_loss_w"] = float(
             kr["harmonic_and_temperature_corrected_load_loss_w"]
         )
+        r["s12k_selected_load_loss_w"] = float(kr["selected_total_load_loss_w"])
     if lr is not None:
         r["s12l_selected_no_load_loss_w"] = float(lr["corrected_no_load_loss_w"])
     if gr is None:
@@ -524,13 +560,18 @@ def _record(
             "harmonic_fixed_point_residual_w",
             "active_power_conservation_residual_w",
             "reactive_power_conservation_residual_var",
+            "p_selected_load_loss_w",
+            "coupled_selected_load_loss_w",
+            "coupled_load_loss_adjustment_vs_s12k_selected_w",
         ):
             r[name] = 0.0
         r["fixed_point_converged"] = True
+        r["transformer_terminal_output_resolved"] = True
+        r["terminal_solution_fidelity"] = "deenergised_zero"
         state = _STATES[2]
     elif kr is None:
         state = _STATES[3]
-    elif not kres:
+    elif not kout:
         state = _STATES[4]
     elif lr is None:
         state = _STATES[5]
@@ -538,35 +579,54 @@ def _record(
         state = _STATES[6]
     else:
         try:
-            ir = float(kr["rated_reference_side_current_a"])
-            i0 = float(kr["fundamental_operating_current_a"])
-            pr = float(kr["i2r_loss_reference_w"])
-            pec = float(kr["winding_eddy_current_loss_reference_w"])
-            posl = float(kr["other_stray_loss_reference_w"])
-            kt = float(kr["i2r_temperature_correction_factor"])
-            kec = float(kr["winding_eddy_temperature_correction_factor"])
-            kosl = float(kr["other_stray_temperature_correction_factor"])
-            s2 = float(kr["sum_current_ratio_squared"])
-            fec = float(kr["winding_eddy_harmonic_loss_factor"])
-            fosl = float(kr["other_stray_harmonic_loss_factor"])
-            pf = math.fsum([pr * kt, pec * kec, posl * kosl])
-            phb = math.fsum(
-                [
-                    pr * kt * (s2 - 1.0),
-                    pec * kec * (s2 * fec - 1.0),
-                    posl * kosl * (s2 * fosl - 1.0),
-                ]
-            )
-            adjusted = phb < 0 and math.isclose(phb, 0.0, rel_tol=0.0, abs_tol=1e-12 * max(1.0, pf))
-            phb = 0.0 if adjusted else phb
-            rf = pf / (3 * ir * ir)
-            rh = phb / (3 * ir * ir)
             x = float(gr["effective_series_reactance_ohm_per_phase"])
-            fclosure = 3 * rf * i0 * i0 - float(kr["temperature_corrected_sinusoidal_load_loss_w"])
-            hclosure = 3 * rh * i0 * i0 - float(kr["harmonic_incremental_load_loss_w"])
-            total_closure = 3 * (rf + rh) * i0 * i0 - float(
-                kr["harmonic_and_temperature_corrected_load_loss_w"]
-            )
+            if kfallback:
+                rf = float(gr["effective_series_resistance_ohm_per_phase"])
+                rh = 0.0
+                side = str(gr["series_equivalent_reference_side"])
+                i0 = float(
+                    gr["collection_series_current_magnitude_a"]
+                    if side == "collection_side"
+                    else gr["network_series_current_magnitude_a"]
+                )
+                pf = float(kr["selected_fundamental_load_loss_w"])
+                phb = float(kr["selected_harmonic_incremental_load_loss_w"])
+                selected = float(kr["selected_total_load_loss_w"])
+                fundamental_target = pf
+                harmonic_target = phb
+                adjusted = False
+            else:
+                ir = float(kr["rated_reference_side_current_a"])
+                i0 = float(kr["fundamental_operating_current_a"])
+                pr = float(kr["i2r_loss_reference_w"])
+                pec = float(kr["winding_eddy_current_loss_reference_w"])
+                posl = float(kr["other_stray_loss_reference_w"])
+                kt = float(kr["i2r_temperature_correction_factor"])
+                kec = float(kr["winding_eddy_temperature_correction_factor"])
+                kosl = float(kr["other_stray_temperature_correction_factor"])
+                s2 = float(kr["sum_current_ratio_squared"])
+                fec = float(kr["winding_eddy_harmonic_loss_factor"])
+                fosl = float(kr["other_stray_harmonic_loss_factor"])
+                pf = math.fsum([pr * kt, pec * kec, posl * kosl])
+                phb = math.fsum(
+                    [
+                        pr * kt * (s2 - 1.0),
+                        pec * kec * (s2 * fec - 1.0),
+                        posl * kosl * (s2 * fosl - 1.0),
+                    ]
+                )
+                adjusted = phb < 0 and math.isclose(
+                    phb, 0.0, rel_tol=0.0, abs_tol=1e-12 * max(1.0, pf)
+                )
+                phb = 0.0 if adjusted else phb
+                rf = pf / (3 * ir * ir)
+                rh = phb / (3 * ir * ir)
+                selected = float(kr["harmonic_and_temperature_corrected_load_loss_w"])
+                fundamental_target = float(kr["temperature_corrected_sinusoidal_load_loss_w"])
+                harmonic_target = float(kr["harmonic_incremental_load_loss_w"])
+            fclosure = 3 * rf * i0 * i0 - fundamental_target
+            hclosure = 3 * rh * i0 * i0 - harmonic_target
+            total_closure = 3 * (rf + rh) * i0 * i0 - selected
             r.update(
                 {
                     "s12g_reference_effective_series_resistance_ohm_per_phase": float(
@@ -581,6 +641,9 @@ def _record(
                     "series_reference_side": gr["series_equivalent_reference_side"],
                 }
             )
+            if kfallback:
+                r["advanced_fundamental_effective_series_resistance_ohm_per_phase"] = math.nan
+                r["advanced_fundamental_series_resistance_delta_ohm_per_phase"] = math.nan
             if not math.isclose(fclosure, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CLOSURE_ABS_TOL_W):
                 state = _STATES[7]
             elif not math.isclose(
@@ -593,7 +656,7 @@ def _record(
                 state = _STATES[9]
             else:
                 pnl = float(lr["corrected_no_load_loss_w"])
-                ph = float(kr["harmonic_incremental_load_loss_w"])
+                ph = phb
                 solved = None
                 domain = True
                 converged = False
@@ -740,6 +803,8 @@ def _record(
                                 "q_fundamental_series_consumption_var": qfs,
                                 "p_advanced_load_loss_w": pl,
                                 "coupled_advanced_load_loss_w": pl,
+                                "p_selected_load_loss_w": pl,
+                                "coupled_selected_load_loss_w": pl,
                                 "p_total_transformer_active_loss_w": total,
                                 "coupled_no_load_loss_w": pnl,
                                 "coupled_total_transformer_active_loss_w": total,
@@ -749,6 +814,8 @@ def _record(
                                 ),
                                 "coupled_load_loss_adjustment_vs_s12k_w": pl
                                 - float(kr["harmonic_and_temperature_corrected_load_loss_w"]),
+                                "coupled_load_loss_adjustment_vs_s12k_selected_w": pl
+                                - float(kr["selected_total_load_loss_w"]),
                                 "s12g_baseline_no_load_loss_w": float(
                                     gr["p_no_load_active_sink_w"]
                                 ),
@@ -781,10 +848,20 @@ def _record(
                                 "s12l_core_loss_re_evaluated_in_coupled_iteration": bool(
                                     lr["advanced_core_loss_scaling_resolved"]
                                 ),
+                                "transformer_terminal_output_resolved": True,
+                                "load_loss_fallback_applied": kfallback,
+                                "terminal_solution_fidelity": (
+                                    "coupled_s12g_load_loss_fallback"
+                                    if kfallback
+                                    else "coupled_advanced_load_loss"
+                                ),
                             }
                         )
+                        if kfallback:
+                            r["p_advanced_load_loss_w"] = math.nan
+                            r["coupled_advanced_load_loss_w"] = math.nan
                         state = (
-                            _STATES[14]
+                            (_STATES[15] if kfallback else _STATES[14])
                             if math.isclose(
                                 ar, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CONSERVATION_ABS_TOL
                             )
@@ -828,6 +905,9 @@ def _diagnostics(
         int((s == _STATES[14]).sum()),
         int((s == _STATES[2]).sum()),
         int((s == _STATES[12]).sum()),
+        int(frame["transformer_terminal_output_resolved"].sum()),
+        int((s == _STATES[14]).sum()),
+        int((s == _STATES[15]).sum()),
         tuple((x, int((s == x).sum())) for x in _STATES),
         TRANSFORMER_ADVANCED_OPERATING_SOLUTION_MODEL_ID,
     )
@@ -987,6 +1067,8 @@ def _validator_record(
         and kr["transformer_corrected_load_loss_state"]
         == "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
     )
+    kout = bool(kr is not None and kr["transformer_load_loss_output_resolved"])
+    kfallback = bool(kr is not None and kr["s12g_load_loss_fallback_applied"])
     lres = bool(lr is not None and lr["transformer_no_load_loss_output_resolved"])
     de = bool(
         gr is not None
@@ -999,6 +1081,12 @@ def _validator_record(
             "s12g_terminal_operating_solution_resolved": gres,
             "s12k_corrected_load_loss_row_present": kr is not None,
             "s12k_corrected_load_loss_resolved": kres,
+            "s12k_load_loss_output_resolved": kout,
+            "s12k_advanced_load_loss_correction_resolved": kres,
+            "s12k_load_loss_fallback_applied": kfallback,
+            "s12k_load_loss_output_fidelity": (
+                str(kr["load_loss_output_fidelity"]) if kr is not None else ""
+            ),
             "s12l_core_no_load_loss_row_present": lr is not None,
             "s12l_no_load_loss_output_resolved": lres,
             "s12l_advanced_core_loss_scaling_resolved": bool(
@@ -1039,6 +1127,7 @@ def _validator_record(
         r["s12k_baseline_advanced_load_loss_w"] = float(
             kr["harmonic_and_temperature_corrected_load_loss_w"]
         )
+        r["s12k_selected_load_loss_w"] = float(kr["selected_total_load_loss_w"])
     if lr is not None:
         r["s12l_selected_no_load_loss_w"] = float(lr["corrected_no_load_loss_w"])
     if gr is None:
@@ -1074,13 +1163,18 @@ def _validator_record(
             "harmonic_fixed_point_residual_w",
             "active_power_conservation_residual_w",
             "reactive_power_conservation_residual_var",
+            "p_selected_load_loss_w",
+            "coupled_selected_load_loss_w",
+            "coupled_load_loss_adjustment_vs_s12k_selected_w",
         ):
             r[name] = 0.0
         r["fixed_point_converged"] = True
+        r["transformer_terminal_output_resolved"] = True
+        r["terminal_solution_fidelity"] = "deenergised_zero"
         state = _STATES[2]
     elif kr is None:
         state = _STATES[3]
-    elif not kres:
+    elif not kout:
         state = _STATES[4]
     elif lr is None:
         state = _STATES[5]
@@ -1088,35 +1182,54 @@ def _validator_record(
         state = _STATES[6]
     else:
         try:
-            ir = float(kr["rated_reference_side_current_a"])
-            i0 = float(kr["fundamental_operating_current_a"])
-            pr = float(kr["i2r_loss_reference_w"])
-            pec = float(kr["winding_eddy_current_loss_reference_w"])
-            posl = float(kr["other_stray_loss_reference_w"])
-            kt = float(kr["i2r_temperature_correction_factor"])
-            kec = float(kr["winding_eddy_temperature_correction_factor"])
-            kosl = float(kr["other_stray_temperature_correction_factor"])
-            s2 = float(kr["sum_current_ratio_squared"])
-            fec = float(kr["winding_eddy_harmonic_loss_factor"])
-            fosl = float(kr["other_stray_harmonic_loss_factor"])
-            pf = math.fsum([pr * kt, pec * kec, posl * kosl])
-            phb = math.fsum(
-                [
-                    pr * kt * (s2 - 1.0),
-                    pec * kec * (s2 * fec - 1.0),
-                    posl * kosl * (s2 * fosl - 1.0),
-                ]
-            )
-            adjusted = phb < 0 and math.isclose(phb, 0.0, rel_tol=0.0, abs_tol=1e-12 * max(1.0, pf))
-            phb = 0.0 if adjusted else phb
-            rf = pf / (3 * ir * ir)
-            rh = phb / (3 * ir * ir)
             x = float(gr["effective_series_reactance_ohm_per_phase"])
-            fclosure = 3 * rf * i0 * i0 - float(kr["temperature_corrected_sinusoidal_load_loss_w"])
-            hclosure = 3 * rh * i0 * i0 - float(kr["harmonic_incremental_load_loss_w"])
-            total_closure = 3 * (rf + rh) * i0 * i0 - float(
-                kr["harmonic_and_temperature_corrected_load_loss_w"]
-            )
+            if kfallback:
+                rf = float(gr["effective_series_resistance_ohm_per_phase"])
+                rh = 0.0
+                side = str(gr["series_equivalent_reference_side"])
+                i0 = float(
+                    gr["collection_series_current_magnitude_a"]
+                    if side == "collection_side"
+                    else gr["network_series_current_magnitude_a"]
+                )
+                pf = float(kr["selected_fundamental_load_loss_w"])
+                phb = float(kr["selected_harmonic_incremental_load_loss_w"])
+                selected = float(kr["selected_total_load_loss_w"])
+                fundamental_target = pf
+                harmonic_target = phb
+                adjusted = False
+            else:
+                ir = float(kr["rated_reference_side_current_a"])
+                i0 = float(kr["fundamental_operating_current_a"])
+                pr = float(kr["i2r_loss_reference_w"])
+                pec = float(kr["winding_eddy_current_loss_reference_w"])
+                posl = float(kr["other_stray_loss_reference_w"])
+                kt = float(kr["i2r_temperature_correction_factor"])
+                kec = float(kr["winding_eddy_temperature_correction_factor"])
+                kosl = float(kr["other_stray_temperature_correction_factor"])
+                s2 = float(kr["sum_current_ratio_squared"])
+                fec = float(kr["winding_eddy_harmonic_loss_factor"])
+                fosl = float(kr["other_stray_harmonic_loss_factor"])
+                pf = math.fsum([pr * kt, pec * kec, posl * kosl])
+                phb = math.fsum(
+                    [
+                        pr * kt * (s2 - 1.0),
+                        pec * kec * (s2 * fec - 1.0),
+                        posl * kosl * (s2 * fosl - 1.0),
+                    ]
+                )
+                adjusted = phb < 0 and math.isclose(
+                    phb, 0.0, rel_tol=0.0, abs_tol=1e-12 * max(1.0, pf)
+                )
+                phb = 0.0 if adjusted else phb
+                rf = pf / (3 * ir * ir)
+                rh = phb / (3 * ir * ir)
+                selected = float(kr["harmonic_and_temperature_corrected_load_loss_w"])
+                fundamental_target = float(kr["temperature_corrected_sinusoidal_load_loss_w"])
+                harmonic_target = float(kr["harmonic_incremental_load_loss_w"])
+            fclosure = 3 * rf * i0 * i0 - fundamental_target
+            hclosure = 3 * rh * i0 * i0 - harmonic_target
+            total_closure = 3 * (rf + rh) * i0 * i0 - selected
             r.update(
                 {
                     "s12g_reference_effective_series_resistance_ohm_per_phase": float(
@@ -1131,6 +1244,9 @@ def _validator_record(
                     "series_reference_side": gr["series_equivalent_reference_side"],
                 }
             )
+            if kfallback:
+                r["advanced_fundamental_effective_series_resistance_ohm_per_phase"] = math.nan
+                r["advanced_fundamental_series_resistance_delta_ohm_per_phase"] = math.nan
             if not math.isclose(fclosure, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CLOSURE_ABS_TOL_W):
                 state = _STATES[7]
             elif not math.isclose(
@@ -1143,7 +1259,7 @@ def _validator_record(
                 state = _STATES[9]
             else:
                 pnl = float(lr["corrected_no_load_loss_w"])
-                ph = float(kr["harmonic_incremental_load_loss_w"])
+                ph = phb
                 solved = None
                 domain = True
                 converged = False
@@ -1290,6 +1406,8 @@ def _validator_record(
                                 "q_fundamental_series_consumption_var": qfs,
                                 "p_advanced_load_loss_w": pl,
                                 "coupled_advanced_load_loss_w": pl,
+                                "p_selected_load_loss_w": pl,
+                                "coupled_selected_load_loss_w": pl,
                                 "p_total_transformer_active_loss_w": total,
                                 "coupled_no_load_loss_w": pnl,
                                 "coupled_total_transformer_active_loss_w": total,
@@ -1299,6 +1417,8 @@ def _validator_record(
                                 ),
                                 "coupled_load_loss_adjustment_vs_s12k_w": pl
                                 - float(kr["harmonic_and_temperature_corrected_load_loss_w"]),
+                                "coupled_load_loss_adjustment_vs_s12k_selected_w": pl
+                                - float(kr["selected_total_load_loss_w"]),
                                 "s12g_baseline_no_load_loss_w": float(
                                     gr["p_no_load_active_sink_w"]
                                 ),
@@ -1331,10 +1451,20 @@ def _validator_record(
                                 "s12l_core_loss_re_evaluated_in_coupled_iteration": bool(
                                     lr["advanced_core_loss_scaling_resolved"]
                                 ),
+                                "transformer_terminal_output_resolved": True,
+                                "load_loss_fallback_applied": kfallback,
+                                "terminal_solution_fidelity": (
+                                    "coupled_s12g_load_loss_fallback"
+                                    if kfallback
+                                    else "coupled_advanced_load_loss"
+                                ),
                             }
                         )
+                        if kfallback:
+                            r["p_advanced_load_loss_w"] = math.nan
+                            r["coupled_advanced_load_loss_w"] = math.nan
                         state = (
-                            _STATES[14]
+                            (_STATES[15] if kfallback else _STATES[14])
                             if math.isclose(
                                 ar, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CONSERVATION_ABS_TOL
                             )
@@ -1380,6 +1510,9 @@ def _validator_diagnostics(
         int((s == _STATES[14]).sum()),
         int((s == _STATES[2]).sum()),
         int((s == _STATES[12]).sum()),
+        int(frame["transformer_terminal_output_resolved"].sum()),
+        int((s == _STATES[14]).sum()),
+        int((s == _STATES[15]).sum()),
         tuple((x, int((s == x).sum())) for x in _STATES),
         TRANSFORMER_ADVANCED_OPERATING_SOLUTION_MODEL_ID,
     )
