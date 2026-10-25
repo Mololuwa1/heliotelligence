@@ -341,7 +341,11 @@ def _validate_s12h_replay(
 ) -> None:
     if type(supplied) is not TopologyTransformerLossComponentAuthorityResult:
         raise ValueError("supplied S12H result type is invalid")
-    for name in ("construction_by_id", "rated_load_loss_component_by_id"):
+    for name in (
+        "construction_by_id",
+        "rated_load_loss_component_by_id",
+        "winding_resolved_load_loss_by_id",
+    ):
         actual = getattr(supplied, name)
         expected = getattr(canonical, name)
         if type(actual) is not MappingProxyType or tuple(actual.items()) != tuple(expected.items()):

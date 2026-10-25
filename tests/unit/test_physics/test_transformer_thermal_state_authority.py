@@ -29,6 +29,7 @@ from heliotelligence.physics.transformer_loss_authority import resolve_transform
 from heliotelligence.physics.transformer_loss_component_authority import (
     TransformerAdvancedConstructionAuthority,
     TransformerRatedLoadLossComponentAuthority,
+    TransformerWindingResolvedLoadLossAuthority,
     resolve_transformer_loss_component_authority,
 )
 from heliotelligence.physics.transformer_thermal_state_authority import (
@@ -103,8 +104,10 @@ def _construction(
     )
 
 
-def _component(identifier: str = "tx-1") -> TransformerRatedLoadLossComponentAuthority:
-    return TransformerRatedLoadLossComponentAuthority(
+def _component(
+    identifier: str = "tx-1", *, with_winding_allocation: bool = False
+) -> TransformerRatedLoadLossComponentAuthority:
+    component = TransformerRatedLoadLossComponentAuthority(
         identifier,
         1.0,
         0.0,
@@ -117,6 +120,23 @@ def _component(identifier: str = "tx-1") -> TransformerRatedLoadLossComponentAut
         "manufacturer_design_data",
         "component report",
         "high",
+    )
+    if not with_winding_allocation:
+        return component
+    return replace(
+        component,
+        winding_resolved_load_loss_authority=TransformerWindingResolvedLoadLossAuthority(
+            identifier,
+            0.4,
+            0.6,
+            0.0,
+            0.0,
+            75.0,
+            50.0,
+            "explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation",
+            "factory winding allocation",
+            "high",
+        ),
     )
 
 
@@ -161,6 +181,7 @@ def _context(
     missing_construction: set[str] | None = None,
     partial: str | None = None,
     with_components: bool = False,
+    with_winding_allocation: bool = False,
     winding_materials: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     topology = ElectricalTopologyConfig(inverters=[])
@@ -199,7 +220,14 @@ def _context(
         if identifier not in missing
     }
     components = (
-        {identifier: _component(identifier) for identifier in ids} if with_components else {}
+        {
+            identifier: _component(
+                identifier, with_winding_allocation=with_winding_allocation
+            )
+            for identifier in ids
+        }
+        if with_components
+        else {}
     )
     s12h = resolve_transformer_loss_component_authority(
         topology,
@@ -228,6 +256,7 @@ def _resolve(
     missing_construction: set[str] | None = None,
     partial: str | None = None,
     with_components: bool = False,
+    with_winding_allocation: bool = False,
     winding_materials: tuple[str, str] | None = None,
     mutations: dict[str, Any] | None = None,
 ) -> TopologyTransformerThermalStateAuthorityResult:
@@ -237,6 +266,7 @@ def _resolve(
         missing_construction=missing_construction,
         partial=partial,
         with_components=with_components,
+        with_winding_allocation=with_winding_allocation,
         winding_materials=winding_materials,
     )
     inputs = {
@@ -427,6 +457,44 @@ def test_explicit_winding_pair_resolves_independently_of_material_homogeneity(
     assert result.diagnostics.winding_resolved_temperature_basis_resolved_count == 1
 
 
+def test_legacy_and_winding_resolved_temperature_bases_resolve_independently() -> None:
+    state = _state(
+        average=_evidence(80.0, "direct_sensor_measurement", "transformer-average-sensor"),
+        collection=_evidence(
+            92.0,
+            "resistance_based_winding_temperature_estimate",
+            "collection-resistance-test",
+        ),
+        network=_evidence(
+            74.0,
+            "scada_condition_monitoring_estimate",
+            "network-condition-monitor",
+        ),
+    )
+    row = _resolve(
+        states={(T1, "tx-1"): state}, winding_materials=("copper", "aluminium")
+    ).states.iloc[0]
+    assert row["transformer_load_loss_temperature_basis_resolved"]
+    assert row["winding_resolved_temperature_basis_resolved"]
+    assert row["average_winding_temperature_c"] == 80.0
+    assert row["collection_winding_average_temperature_c"] == 92.0
+    assert row["network_winding_average_temperature_c"] == 74.0
+    assert row["average_winding_temperature_parameter_source"] == "transformer-average-sensor"
+    assert row["collection_winding_average_temperature_parameter_source"] == (
+        "collection-resistance-test"
+    )
+    assert row["network_winding_average_temperature_parameter_source"] == (
+        "network-condition-monitor"
+    )
+    assert len(
+        {
+            row["average_winding_temperature_c"],
+            row["collection_winding_average_temperature_c"],
+            row["network_winding_average_temperature_c"],
+        }
+    ) == 3
+
+
 def test_winding_pair_without_explicit_conductor_authority_remains_evidence_only() -> None:
     result = _resolve(
         states={(T1, "tx-1"): _state(collection=_evidence(80), network=_evidence(80))}
@@ -574,6 +642,29 @@ def test_strong_s12h_replay_rejects_tampering() -> None:
     for mutation in mutations:
         with pytest.raises(ValueError):
             _resolve(ids=("tx-b", "tx-a"), mutations=mutation)
+
+
+def test_s12h_winding_allocation_mapping_is_strictly_replay_protected() -> None:
+    context = _context(
+        with_components=True,
+        with_winding_allocation=True,
+        winding_materials=("copper", "aluminium"),
+    )
+    parent = context["s12h"]
+    assert tuple(parent.winding_resolved_load_loss_by_id) == ("tx-1",)
+    mutable_mapping = dict(parent.winding_resolved_load_loss_by_id)
+    tampered_results = (
+        replace(parent, winding_resolved_load_loss_by_id=mutable_mapping),
+        replace(parent, winding_resolved_load_loss_by_id=MappingProxyType({})),
+    )
+    for tampered in tampered_results:
+        with pytest.raises(ValueError, match="winding_resolved_load_loss_by_id"):
+            _resolve(
+                with_components=True,
+                with_winding_allocation=True,
+                winding_materials=("copper", "aluminium"),
+                mutations={"transformer_loss_component_authority": tampered},
+            )
 
 
 def test_result_validator_rejects_frame_diagnostics_and_mapping_tamper() -> None:
