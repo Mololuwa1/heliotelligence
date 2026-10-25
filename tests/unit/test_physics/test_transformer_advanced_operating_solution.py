@@ -50,6 +50,7 @@ def _context(
     no_load_w: float = 600.0,
     advanced_core: bool = False,
     energised: bool | None = True,
+    aggregate_evidence: bool = False,
 ) -> dict[str, Any]:
     """Build replay-consistent G/K/L parents while retaining upstream helpers."""
     original_inputs = ksupport._inputs  # type: ignore[attr-defined]
@@ -67,6 +68,7 @@ def _context(
             winding_temperature=winding_temperature,
             ratios=ratios,
             energised=energised,
+            aggregate_evidence=aggregate_evidence,
         )
     finally:
         ksupport._inputs = original_inputs  # type: ignore[attr-defined]
@@ -114,6 +116,36 @@ def test_factory_reference_identity_reproduces_s12g_without_double_counting() ->
     assert row["p_network_terminal_w"] == pytest.approx(baseline["p_network_terminal_w"])
     assert row["advanced_load_loss_ownership"] == ADVANCED_LOAD_LOSS_OWNERSHIP
     assert row["advanced_no_load_loss_ownership"] == ADVANCED_NO_LOAD_LOSS_OWNERSHIP
+
+
+@pytest.mark.parametrize("advanced_core", [False, True])
+def test_s12g_load_loss_fallback_resolves_with_independent_s12l_fidelity(
+    advanced_core: bool,
+) -> None:
+    values = _context(aggregate_evidence=True, advanced_core=advanced_core)
+    result = calculate_topology_transformer_advanced_operating_solution(**values)
+    row = result.states.iloc[0]
+    s12g = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
+    assert row["transformer_advanced_operating_solution_state"] == (
+        "resolved_coupled_transformer_terminal_solution_with_s12g_load_loss_fallback"
+    )
+    assert row["s12k_load_loss_output_resolved"]
+    assert not row["s12k_advanced_load_loss_correction_resolved"]
+    assert row["s12k_load_loss_fallback_applied"]
+    assert row["transformer_terminal_output_resolved"]
+    assert row["terminal_solution_fidelity"] == "coupled_s12g_load_loss_fallback"
+    assert row["advanced_fundamental_effective_series_resistance_ohm_per_phase"] == pytest.approx(
+        s12g["effective_series_resistance_ohm_per_phase"]
+    )
+    assert row["harmonic_increment_accounting_resistance_ohm_per_phase"] == 0.0
+    assert row["retained_series_reactance_ohm_per_phase"] == pytest.approx(
+        s12g["effective_series_reactance_ohm_per_phase"]
+    )
+    assert row["s12k_selected_load_loss_w"] == pytest.approx(s12g["p_series_active_loss_w"])
+    assert row["coupled_selected_load_loss_w"] == pytest.approx(
+        row["p_fundamental_series_active_loss_w"]
+    )
+    assert result.diagnostics.s12g_load_loss_fallback_terminal_count == 1
 
 
 def test_temperature_only_changes_fundamental_resistance_without_harmonic_sink() -> None:
@@ -369,6 +401,12 @@ def test_validator_is_independent_of_production_builders_and_solver(
         ("active_power_conservation_residual_w", 999.0),
         ("advanced_load_loss_ownership", "additive"),
         ("fixed_point_converged", False),
+        ("s12k_load_loss_output_resolved", False),
+        ("s12k_load_loss_fallback_applied", True),
+        ("s12k_selected_load_loss_w", 999.0),
+        ("p_selected_load_loss_w", 999.0),
+        ("terminal_solution_fidelity", "tampered"),
+        ("transformer_terminal_output_resolved", False),
         ("transformer_advanced_operating_solution_state", "tampered"),
         ("transformer_advanced_operating_solution_contract", "tampered"),
     ],

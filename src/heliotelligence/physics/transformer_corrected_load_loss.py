@@ -1,4 +1,4 @@
-"""Harmonic- and temperature-corrected transformer load-loss physics.
+"""Transformer load-loss fidelity selection and advanced correction physics.
 
 S12K uses current loading, never real-power loading.  S12G supplies fundamental
 RMS current, S12I supplies total-RMS and harmonic multipliers, S12H decomposes
@@ -7,6 +7,8 @@ winding temperature.  The full S12K result replaces the S12G reference series
 active loss; it is never additive.  The h**0.8 rule is harmonic-order weighting,
 not a temperature exponent.  Other-stray structural temperature is explicitly
 proxied by average winding temperature.  S12M owns later terminal reconciliation.
+When that advanced correction cannot be admitted, a separately labelled selected
+output preserves S12G's resolved positive-sequence series-loss baseline.
 """
 
 from __future__ import annotations
@@ -55,9 +57,8 @@ TRANSFORMER_CORRECTED_LOAD_LOSS_SCOPE = (
     "advanced_terminal_reconciliation_and_core_loss_correction"
 )
 TRANSFORMER_CORRECTED_LOAD_LOSS_COVERAGE_SCOPE = (
-    "resolved_energised_two_winding_transformers_with_side_compatible_"
-    "operating_current_factory_components_harmonic_spectrum_and_"
-    "average_winding_temperature"
+    "resolved_s12g_transformers_with_explicit_advanced_or_positive_sequence_"
+    "series_loss_baseline_output_fidelity"
 )
 
 CURRENT_LOADING_SEMANTICS = "fundamental_and_total_rms_current_loading_not_real_power_loading"
@@ -190,6 +191,10 @@ class TopologyTransformerCorrectedLoadLossDiagnostics:
     positive_temperature_correction_effect_count: int
     negative_temperature_correction_effect_count: int
     positive_harmonic_increment_count: int
+    load_loss_output_resolved_count: int
+    advanced_load_loss_correction_resolved_count: int
+    s12g_load_loss_fallback_count: int
+    deenergised_zero_output_count: int
     state_counts: tuple[tuple[str, int], ...]
     model: str
 
@@ -224,6 +229,9 @@ _BOOL_COLUMNS = {
     "series_equivalent_modified",
     "coupled_thermal_iteration_applied",
     "heterogeneous_winding_conductor_construction",
+    "transformer_load_loss_output_resolved",
+    "advanced_load_loss_correction_resolved",
+    "s12g_load_loss_fallback_applied",
 }
 _NULLABLE_BOOL_COLUMNS = {"transformer_energised"}
 _FLOAT_COLUMNS = {
@@ -270,6 +278,9 @@ _FLOAT_COLUMNS = {
     "harmonic_and_temperature_corrected_load_loss_w",
     "advanced_correction_vs_s12g_w",
     "advanced_correction_decomposition_residual_w",
+    "selected_fundamental_load_loss_w",
+    "selected_harmonic_incremental_load_loss_w",
+    "selected_total_load_loss_w",
 }
 _DEENERGISED_ZERO_COLUMNS = {
     "fundamental_operating_current_a",
@@ -299,6 +310,9 @@ _COLUMNS = (
     "s12g_operating_row_present",
     "s12g_terminal_operating_solution_resolved",
     "transformer_energised",
+    "transformer_load_loss_output_resolved",
+    "advanced_load_loss_correction_resolved",
+    "s12g_load_loss_fallback_applied",
     "s12h_advanced_loss_basis_resolved",
     "s12i_harmonic_characterisation_resolved",
     "s12j_thermal_row_present",
@@ -371,6 +385,9 @@ _COLUMNS = (
     "harmonic_and_temperature_corrected_load_loss_w",
     "advanced_correction_vs_s12g_w",
     "advanced_correction_decomposition_residual_w",
+    "selected_fundamental_load_loss_w",
+    "selected_harmonic_incremental_load_loss_w",
+    "selected_total_load_loss_w",
     "current_loading_semantics",
     "advanced_load_loss_ownership",
     "s12d_operating_loss_treatment",
@@ -379,6 +396,10 @@ _COLUMNS = (
     "series_equivalent_modified",
     "coupled_thermal_iteration_applied",
     "transformer_corrected_load_loss_state",
+    "load_loss_output_fidelity",
+    "load_loss_fallback_reason",
+    "s12h_factory_load_loss_evidence_fidelity",
+    "s12h_factory_load_loss_evidence_kind",
     "transformer_operating_solution_contract",
     "transformer_operating_solution_model",
     "transformer_loss_component_authority_contract",
@@ -663,6 +684,12 @@ def _record(
             "current_thd_percent": float(irow["current_thd_percent"]),
             "winding_eddy_harmonic_loss_factor": float(irow["winding_eddy_harmonic_loss_factor"]),
             "other_stray_harmonic_loss_factor": float(irow["other_stray_harmonic_loss_factor"]),
+            "s12h_factory_load_loss_evidence_fidelity": str(
+                hrow["factory_load_loss_evidence_fidelity"]
+            ),
+            "s12h_factory_load_loss_evidence_kind": str(
+                hrow["factory_load_loss_evidence_kind"]
+            ),
         }
     )
     evidence_side = (
@@ -869,6 +896,53 @@ def _record(
                     else _STATES[15]
                 )
     record["transformer_corrected_load_loss_state"] = state
+    if state == _STATES[2]:
+        record.update(
+            {
+                "transformer_load_loss_output_resolved": True,
+                "advanced_load_loss_correction_resolved": False,
+                "s12g_load_loss_fallback_applied": False,
+                "load_loss_output_fidelity": "deenergised_zero",
+                "load_loss_fallback_reason": "not_applicable_deenergised",
+                "selected_fundamental_load_loss_w": 0.0,
+                "selected_harmonic_incremental_load_loss_w": 0.0,
+                "selected_total_load_loss_w": 0.0,
+            }
+        )
+    elif state == _STATES[15]:
+        record.update(
+            {
+                "transformer_load_loss_output_resolved": True,
+                "advanced_load_loss_correction_resolved": True,
+                "s12g_load_loss_fallback_applied": False,
+                "load_loss_output_fidelity": "advanced_harmonic_and_temperature_corrected",
+                "load_loss_fallback_reason": "none",
+                "selected_fundamental_load_loss_w": record[
+                    "temperature_corrected_sinusoidal_load_loss_w"
+                ],
+                "selected_harmonic_incremental_load_loss_w": record[
+                    "harmonic_incremental_load_loss_w"
+                ],
+                "selected_total_load_loss_w": record[
+                    "harmonic_and_temperature_corrected_load_loss_w"
+                ],
+            }
+        )
+    elif grow is not None and g_ok and bool(grow["transformer_energised"]):
+        baseline = float(grow["p_series_active_loss_w"])
+        if math.isfinite(baseline):
+            record.update(
+                {
+                    "transformer_load_loss_output_resolved": True,
+                    "advanced_load_loss_correction_resolved": False,
+                    "s12g_load_loss_fallback_applied": True,
+                    "load_loss_output_fidelity": "s12g_positive_sequence_series_loss_baseline",
+                    "load_loss_fallback_reason": state,
+                    "selected_fundamental_load_loss_w": baseline,
+                    "selected_harmonic_incremental_load_loss_w": 0.0,
+                    "selected_total_load_loss_w": baseline,
+                }
+            )
     return record
 
 
@@ -952,6 +1026,10 @@ def _diagnostics(
         int((frame["temperature_correction_effect_w"] > 0).sum()),
         int((frame["temperature_correction_effect_w"] < 0).sum()),
         int((frame["harmonic_incremental_load_loss_w"] > 0).sum()),
+        count("transformer_load_loss_output_resolved"),
+        count("advanced_load_loss_correction_resolved"),
+        count("s12g_load_loss_fallback_applied"),
+        int((frame["load_loss_output_fidelity"] == "deenergised_zero").sum()),
         tuple((name, int((state == name).sum())) for name in _STATES),
         TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,
     )
@@ -1143,6 +1221,12 @@ def _validator_record(
             "current_thd_percent": float(i_row["current_thd_percent"]),
             "winding_eddy_harmonic_loss_factor": float(i_row["winding_eddy_harmonic_loss_factor"]),
             "other_stray_harmonic_loss_factor": float(i_row["other_stray_harmonic_loss_factor"]),
+            "s12h_factory_load_loss_evidence_fidelity": str(
+                h_row["factory_load_loss_evidence_fidelity"]
+            ),
+            "s12h_factory_load_loss_evidence_kind": str(
+                h_row["factory_load_loss_evidence_kind"]
+            ),
         }
     )
     if custom is not None:
@@ -1371,6 +1455,53 @@ def _validator_record(
                     else _STATES[15]
                 )
     expected["transformer_corrected_load_loss_state"] = primary
+    if primary == _STATES[2]:
+        expected.update(
+            {
+                "transformer_load_loss_output_resolved": True,
+                "advanced_load_loss_correction_resolved": False,
+                "s12g_load_loss_fallback_applied": False,
+                "load_loss_output_fidelity": "deenergised_zero",
+                "load_loss_fallback_reason": "not_applicable_deenergised",
+                "selected_fundamental_load_loss_w": 0.0,
+                "selected_harmonic_incremental_load_loss_w": 0.0,
+                "selected_total_load_loss_w": 0.0,
+            }
+        )
+    elif primary == _STATES[15]:
+        expected.update(
+            {
+                "transformer_load_loss_output_resolved": True,
+                "advanced_load_loss_correction_resolved": True,
+                "s12g_load_loss_fallback_applied": False,
+                "load_loss_output_fidelity": "advanced_harmonic_and_temperature_corrected",
+                "load_loss_fallback_reason": "none",
+                "selected_fundamental_load_loss_w": expected[
+                    "temperature_corrected_sinusoidal_load_loss_w"
+                ],
+                "selected_harmonic_incremental_load_loss_w": expected[
+                    "harmonic_incremental_load_loss_w"
+                ],
+                "selected_total_load_loss_w": expected[
+                    "harmonic_and_temperature_corrected_load_loss_w"
+                ],
+            }
+        )
+    elif g_row is not None and g_resolved and bool(g_row["transformer_energised"]):
+        baseline = float(g_row["p_series_active_loss_w"])
+        if math.isfinite(baseline):
+            expected.update(
+                {
+                    "transformer_load_loss_output_resolved": True,
+                    "advanced_load_loss_correction_resolved": False,
+                    "s12g_load_loss_fallback_applied": True,
+                    "load_loss_output_fidelity": "s12g_positive_sequence_series_loss_baseline",
+                    "load_loss_fallback_reason": primary,
+                    "selected_fundamental_load_loss_w": baseline,
+                    "selected_harmonic_incremental_load_loss_w": 0.0,
+                    "selected_total_load_loss_w": baseline,
+                }
+            )
     return expected
 
 
@@ -1462,6 +1593,14 @@ def _validator_diagnostics(
         ),
         positive_harmonic_increment_count=int(
             (frame["harmonic_incremental_load_loss_w"] > 0).sum()
+        ),
+        load_loss_output_resolved_count=true_count("transformer_load_loss_output_resolved"),
+        advanced_load_loss_correction_resolved_count=true_count(
+            "advanced_load_loss_correction_resolved"
+        ),
+        s12g_load_loss_fallback_count=true_count("s12g_load_loss_fallback_applied"),
+        deenergised_zero_output_count=int(
+            (frame["load_loss_output_fidelity"] == "deenergised_zero").sum()
         ),
         state_counts=tuple((name, int((states == name).sum())) for name in _STATES),
         model=TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,
