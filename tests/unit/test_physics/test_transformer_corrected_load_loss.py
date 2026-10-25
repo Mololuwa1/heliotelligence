@@ -31,6 +31,7 @@ from heliotelligence.physics.transformer_loss_component_authority import (
     TransformerAdvancedConstructionAuthority,
     TransformerRatedLoadLossAggregateStrayAuthority,
     TransformerRatedLoadLossComponentAuthority,
+    TransformerWindingResolvedLoadLossAuthority,
     resolve_transformer_loss_component_authority,
 )
 from heliotelligence.physics.transformer_operating_solution import (
@@ -122,11 +123,29 @@ def _spectrum(
     )
 
 
-def _thermal(value: float = 75.0) -> TransformerThermalState:
+def _thermal(
+    value: float = 75.0, *, winding_values: tuple[float, float] | None = None
+) -> TransformerThermalState:
     evidence = TransformerTemperatureEvidence(
         value, "direct_sensor_measurement", "winding sensor", "SCADA", "high"
     )
-    return TransformerThermalState(None, evidence, None, None, "operating state")
+    collection = (
+        TransformerTemperatureEvidence(
+            winding_values[0], "direct_sensor_measurement", "collection sensor", "SCADA-C", "high"
+        )
+        if winding_values
+        else None
+    )
+    network = (
+        TransformerTemperatureEvidence(
+            winding_values[1], "direct_sensor_measurement", "network sensor", "SCADA-N", "high"
+        )
+        if winding_values
+        else None
+    )
+    return TransformerThermalState(
+        None, evidence, None, None, "operating state", collection, network
+    )
 
 
 def _context(
@@ -149,6 +168,7 @@ def _context(
     extra_thermal_timestamp: pd.Timestamp | None = None,
     aggregate_evidence: bool = False,
     winding_materials: tuple[str, str] | None = None,
+    winding_temperatures: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     values, _ = _inputs(
         p=p,
@@ -175,6 +195,22 @@ def _context(
         if rated_load_w == 0.0
         else _component(side)
     )
+    if winding_materials is not None:
+        explicit_component = replace(
+            explicit_component,
+            winding_resolved_load_loss_authority=TransformerWindingResolvedLoadLossAuthority(
+                "tx-1",
+                1_500.0,
+                1_500.0,
+                250.0,
+                250.0,
+                75.0,
+                50.0,
+                "explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation",
+                "factory design",
+                "high",
+            ),
+        )
     component = (
         TransformerRatedLoadLossAggregateStrayAuthority(
             "tx-1",
@@ -235,7 +271,13 @@ def _context(
     )
     timestamps = list(g.transformer_operating_states.index.get_level_values("timestamp"))
     thermal: dict[tuple[pd.Timestamp, str], TransformerThermalState] = (
-        {(timestamps[0], "tx-1"): _thermal(winding_temperature)} if include_j and timestamps else {}
+        {
+            (timestamps[0], "tx-1"): _thermal(
+                winding_temperature, winding_values=winding_temperatures
+            )
+        }
+        if include_j and timestamps
+        else {}
     )
     if include_j and extra_thermal_timestamp is not None:
         thermal[(extra_thermal_timestamp, "tx-1")] = _thermal(winding_temperature)
@@ -377,6 +419,29 @@ def test_heterogeneous_windings_require_future_temperature_correction_basis() ->
     assert row["transformer_corrected_load_loss_state"] == (
         "unresolved_winding_resolved_temperature_correction_basis_required"
     )
+    assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
+
+
+def test_winding_resolved_s12j_evidence_does_not_prematurely_activate_s12k() -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=100.0,
+        winding_temperatures=(105.0, 92.0),
+    )
+    thermal = values["transformer_thermal_state_authority"].states.iloc[0]
+    assert thermal["winding_resolved_temperature_basis_resolved"]
+    result = calculate_topology_transformer_corrected_load_loss(**values)
+    row = result.states.iloc[0]
+    baseline = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "unresolved_winding_resolved_temperature_correction_basis_required"
+    )
+    assert row["transformer_load_loss_output_resolved"]
+    assert not row["advanced_load_loss_correction_resolved"]
+    assert row["s12g_load_loss_fallback_applied"]
+    assert row["load_loss_output_fidelity"] == "s12g_positive_sequence_series_loss_baseline"
+    assert row["selected_total_load_loss_w"] == baseline["p_series_active_loss_w"]
     assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
 
 

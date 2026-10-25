@@ -75,18 +75,31 @@ def _boundary(identifier: str, exit_id: str) -> TransformerBoundaryTopologyAutho
 
 
 def _construction(
-    identifier: str = "tx-1", family: str = "mineral_oil_immersed"
+    identifier: str = "tx-1",
+    family: str = "mineral_oil_immersed",
+    winding_materials: tuple[str, str] | None = None,
 ) -> TransformerAdvancedConstructionAuthority:
+    summary = (
+        "mixed_or_other_explicit"
+        if winding_materials and winding_materials[0] != winding_materials[1]
+        else winding_materials[0]
+        if winding_materials
+        else "copper"
+    )
     return TransformerAdvancedConstructionAuthority(
         identifier,
         cast(Any, family),
-        "copper",
+        cast(Any, summary),
         "copper winding",
         "ONAN",
         "crgo_silicon_steel",
         "CRGO core",
         f"design:{identifier}",
         "high",
+        cast(Any, winding_materials[0]) if winding_materials else None,
+        "collection winding" if winding_materials else None,
+        cast(Any, winding_materials[1]) if winding_materials else None,
+        "network winding" if winding_materials else None,
     )
 
 
@@ -127,9 +140,17 @@ def _state(
     average: TransformerTemperatureEvidence | None = None,
     hot_spot: TransformerTemperatureEvidence | None = None,
     top_oil: TransformerTemperatureEvidence | None = None,
+    collection: TransformerTemperatureEvidence | None = None,
+    network: TransformerTemperatureEvidence | None = None,
 ) -> TransformerThermalState:
     return TransformerThermalState(
-        ambient, average, hot_spot, top_oil, "declared operating condition"
+        ambient,
+        average,
+        hot_spot,
+        top_oil,
+        "declared operating condition",
+        collection,
+        network,
     )
 
 
@@ -140,6 +161,7 @@ def _context(
     missing_construction: set[str] | None = None,
     partial: str | None = None,
     with_components: bool = False,
+    winding_materials: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     topology = ElectricalTopologyConfig(inverters=[])
     basis = LvAcCollectionNetworkBasisAuthority(
@@ -169,7 +191,9 @@ def _context(
     missing = missing_construction or set()
     constructions = {
         identifier: _construction(
-            identifier, (families or {}).get(identifier, "mineral_oil_immersed")
+            identifier,
+            (families or {}).get(identifier, "mineral_oil_immersed"),
+            winding_materials,
         )
         for identifier in ids
         if identifier not in missing
@@ -204,6 +228,7 @@ def _resolve(
     missing_construction: set[str] | None = None,
     partial: str | None = None,
     with_components: bool = False,
+    winding_materials: tuple[str, str] | None = None,
     mutations: dict[str, Any] | None = None,
 ) -> TopologyTransformerThermalStateAuthorityResult:
     c = _context(
@@ -212,6 +237,7 @@ def _resolve(
         missing_construction=missing_construction,
         partial=partial,
         with_components=with_components,
+        winding_materials=winding_materials,
     )
     inputs = {
         "topology": c["topology"],
@@ -335,6 +361,111 @@ def test_resistance_based_evidence_rejected_outside_average(channel: str) -> Non
 def test_resistance_based_average_is_accepted() -> None:
     evidence = _evidence(kind="resistance_based_winding_temperature_estimate")
     assert _state(average=evidence).average_winding_temperature == evidence
+
+
+def test_existing_positional_thermal_state_constructor_remains_backward_compatible() -> None:
+    state = TransformerThermalState(None, _evidence(), None, None, "legacy positional")
+    assert state.collection_winding_average_temperature is None
+    assert state.network_winding_average_temperature is None
+
+
+def test_resistance_based_winding_evidence_is_accepted_for_both_explicit_sides() -> None:
+    collection = _evidence(81.0, "resistance_based_winding_temperature_estimate", "dc-test:c")
+    network = _evidence(77.0, "resistance_based_winding_temperature_estimate", "dc-test:n")
+    state = _state(collection=collection, network=network)
+    assert state.collection_winding_average_temperature == collection
+    assert state.network_winding_average_temperature == network
+
+
+@pytest.mark.parametrize(
+    ("side", "present_column", "missing_column"),
+    [
+        (
+            "collection",
+            "collection_winding_average_temperature_c",
+            "network_winding_average_temperature_c",
+        ),
+        (
+            "network",
+            "network_winding_average_temperature_c",
+            "collection_winding_average_temperature_c",
+        ),
+    ],
+)
+def test_single_winding_channel_is_preserved_without_cross_side_inference(
+    side: str, present_column: str, missing_column: str
+) -> None:
+    row = _resolve(states={(T1, "tx-1"): _state(**{side: _evidence(82.0)})}).states.iloc[0]
+    assert row[present_column] == 82.0
+    assert math.isnan(row[missing_column])
+    assert row["winding_resolved_temperature_evidence_present"]
+    assert not row["winding_resolved_temperature_pair_complete"]
+    assert not row["winding_resolved_temperature_basis_resolved"]
+
+
+@pytest.mark.parametrize("materials", [("copper", "copper"), ("copper", "aluminium")])
+def test_explicit_winding_pair_resolves_independently_of_material_homogeneity(
+    materials: tuple[str, str],
+) -> None:
+    state = _state(
+        collection=_evidence(83.0, source="collection-sensor"),
+        network=_evidence(74.0, "scada_condition_monitoring_estimate", "network-model"),
+    )
+    result = _resolve(states={(T1, "tx-1"): state}, winding_materials=materials)
+    row = result.states.iloc[0]
+    assert not row["transformer_load_loss_temperature_basis_resolved"]
+    assert math.isnan(row["average_winding_temperature_c"])
+    assert row["winding_resolved_temperature_pair_complete"]
+    assert row["winding_resolved_temperature_basis_resolved"]
+    assert row["collection_winding_average_temperature_c"] == 83.0
+    assert row["network_winding_average_temperature_c"] == 74.0
+    assert row["collection_winding_average_temperature_parameter_source"] == "collection-sensor"
+    assert row["network_winding_average_temperature_parameter_source"] == "network-model"
+    assert row["collection_winding_conductor_material"] == materials[0]
+    assert row["network_winding_conductor_material"] == materials[1]
+    assert row["conductor_authority_basis"] == "explicit_winding_resolved"
+    assert result.diagnostics.winding_resolved_temperature_basis_resolved_count == 1
+
+
+def test_winding_pair_without_explicit_conductor_authority_remains_evidence_only() -> None:
+    result = _resolve(
+        states={(T1, "tx-1"): _state(collection=_evidence(80), network=_evidence(80))}
+    )
+    row = result.states.iloc[0]
+    assert row["winding_resolved_temperature_pair_complete"]
+    assert not row["winding_resolved_temperature_basis_resolved"]
+    assert result.diagnostics.winding_resolved_temperature_pair_complete_count == 1
+
+
+def test_side_evidence_survives_unresolved_static_and_missing_construction() -> None:
+    states = {(T1, "tx-1"): _state(collection=_evidence(80), network=_evidence(75))}
+    upstream = _resolve(
+        states=states, partial="topology-only", winding_materials=("copper", "aluminium")
+    ).states.iloc[0]
+    missing = _resolve(states=states, missing_construction={"tx-1"}).states.iloc[0]
+    for row in (upstream, missing):
+        assert row["collection_winding_average_temperature_c"] == 80.0
+        assert row["network_winding_average_temperature_c"] == 75.0
+        assert not row["winding_resolved_temperature_basis_resolved"]
+
+
+def test_side_evidence_diagnostics_distinguish_none_incomplete_and_complete() -> None:
+    result = _resolve(
+        ids=("tx-a", "tx-b", "tx-c"),
+        states={
+            (T1, "tx-a"): _state(average=_evidence()),
+            (T1, "tx-b"): _state(collection=_evidence(81)),
+            (T1, "tx-c"): _state(collection=_evidence(82), network=_evidence(73)),
+        },
+        winding_materials=("copper", "copper"),
+    )
+    diagnostics = result.diagnostics
+    assert diagnostics.collection_winding_average_temperature_present_count == 2
+    assert diagnostics.network_winding_average_temperature_present_count == 1
+    assert diagnostics.winding_resolved_temperature_evidence_present_count == 2
+    assert diagnostics.winding_resolved_temperature_pair_complete_count == 1
+    assert diagnostics.winding_resolved_temperature_pair_incomplete_count == 1
+    assert diagnostics.winding_resolved_temperature_basis_resolved_count == 1
 
 
 @pytest.mark.parametrize("value", [True, math.nan, math.inf, -math.inf, -273.15, -300.0])
@@ -475,6 +606,89 @@ def test_result_validator_rejects_frame_diagnostics_and_mapping_tamper() -> None
             result.thermal_state_by_key,
             [T1],
             replace(result, thermal_state_by_key=dict(result.thermal_state_by_key)),
+        )
+
+
+def test_winding_resolved_validator_is_independent_of_production_builders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    states = {(T1, "tx-1"): _state(collection=_evidence(82), network=_evidence(74))}
+    context = _context(winding_materials=("copper", "aluminium"))
+    result = _resolve(states=states, winding_materials=("copper", "aluminium"))
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production S12J builder invoked")
+
+    for name in ("_record", "_record_values", "_frame", "_diagnostics", "_top_oil"):
+        monkeypatch.setattr(module, name, fail)
+    _validate_result(context["s12h"], result.thermal_state_by_key, [T1], result)
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "collection_winding_average_temperature_present",
+        "network_winding_average_temperature_present",
+        "winding_resolved_temperature_evidence_present",
+        "winding_resolved_temperature_pair_complete",
+        "winding_resolved_temperature_basis_resolved",
+        "winding_resolved_conductor_authority_resolved",
+        "collection_winding_average_temperature_c",
+        "network_winding_average_temperature_c",
+        "collection_winding_average_temperature_evidence_kind",
+        "network_winding_average_temperature_method_reference",
+        "collection_winding_conductor_material",
+        "network_winding_conductor_material",
+        "conductor_authority_basis",
+        "winding_resolved_temperature_basis_semantics",
+    ],
+)
+def test_winding_resolved_validator_rejects_new_contract_tampering(column: str) -> None:
+    materials = ("copper", "aluminium")
+    states = {(T1, "tx-1"): _state(collection=_evidence(82), network=_evidence(74))}
+    context = _context(winding_materials=materials)
+    result = _resolve(states=states, winding_materials=materials)
+    frame = result.states.copy(deep=True)
+    value = frame.iloc[0][column]
+    if frame[column].dtype == bool:
+        replacement: object = not bool(value)
+    elif isinstance(value, str):
+        replacement = "tampered"
+    else:
+        replacement = 999.0
+    frame.loc[(T1, "tx-1"), column] = replacement
+    with pytest.raises(RuntimeError, match="independent closure"):
+        _validate_result(
+            context["s12h"],
+            result.thermal_state_by_key,
+            [T1],
+            replace(result, states=frame),
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "collection_winding_average_temperature_present_count",
+        "network_winding_average_temperature_present_count",
+        "winding_resolved_temperature_evidence_present_count",
+        "winding_resolved_temperature_pair_complete_count",
+        "winding_resolved_temperature_pair_incomplete_count",
+        "winding_resolved_temperature_basis_resolved_count",
+    ],
+)
+def test_winding_resolved_validator_rejects_new_diagnostics_tampering(field: str) -> None:
+    materials = ("copper", "aluminium")
+    states = {(T1, "tx-1"): _state(collection=_evidence(82), network=_evidence(74))}
+    context = _context(winding_materials=materials)
+    result = _resolve(states=states, winding_materials=materials)
+    diagnostics = replace(result.diagnostics, **{field: 99})
+    with pytest.raises(RuntimeError, match="diagnostics failed independent closure"):
+        _validate_result(
+            context["s12h"],
+            result.thermal_state_by_key,
+            [T1],
+            replace(result, diagnostics=diagnostics),
         )
 
 

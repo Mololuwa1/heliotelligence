@@ -56,12 +56,16 @@ TRANSFORMER_THERMAL_STATE_AUTHORITY_SCOPE = (
     "temperature_and_harmonic_corrected_load_loss_evaluation"
 )
 TRANSFORMER_THERMAL_STATE_AUTHORITY_COVERAGE_SCOPE = (
-    "explicit_timestamped_temperature_evidence_with_average_winding_"
-    "temperature_basis_for_load_loss_correction"
+    "explicit_timestamped_transformer_wide_and_optional_winding_resolved_"
+    "temperature_evidence_before_load_loss_correction"
 )
 LOAD_LOSS_TEMPERATURE_QUANTITY = "average_winding_temperature"
 LOAD_LOSS_TEMPERATURE_BASIS_SEMANTICS = (
     "explicit_average_winding_temperature_for_component_loss_temperature_correction"
+)
+WINDING_RESOLVED_TEMPERATURE_BASIS_SEMANTICS = (
+    "explicit_collection_and_network_average_winding_temperature_evidence_"
+    "without_cross_side_or_transformer_average_inference"
 )
 
 Confidence = Literal["high", "medium", "low", "unknown"]
@@ -87,6 +91,8 @@ _CHANNELS = (
     "average_winding_temperature",
     "winding_hot_spot_temperature",
     "top_oil_temperature",
+    "collection_winding_average_temperature",
+    "network_winding_average_temperature",
 )
 _STATES = (
     "unresolved_upstream_transformer_static_authority",
@@ -106,6 +112,10 @@ _BOOL_COLUMNS = {
     "temperature_interpolation_applied",
     "temperature_extrapolation_applied",
     "temperature_loss_correction_applied",
+    "winding_resolved_conductor_authority_resolved",
+    "winding_resolved_temperature_evidence_present",
+    "winding_resolved_temperature_pair_complete",
+    "winding_resolved_temperature_basis_resolved",
 }
 _FLOAT_COLUMNS = {f"{channel}_c" for channel in _CHANNELS}
 _BASE_COLUMNS = (
@@ -114,18 +124,30 @@ _BASE_COLUMNS = (
     "thermal_construction_family",
     "winding_conductor_material",
     "cooling_method_code",
+    "winding_resolved_conductor_authority_resolved",
+    "collection_winding_conductor_material",
+    "network_winding_conductor_material",
+    "conductor_authority_basis",
     "transformer_thermal_state_present",
     "ambient_air_temperature_present",
     "average_winding_temperature_present",
     "winding_hot_spot_temperature_present",
     "top_oil_temperature_present",
+    "collection_winding_average_temperature_present",
+    "network_winding_average_temperature_present",
     "transformer_load_loss_temperature_basis_resolved",
+    "winding_resolved_temperature_evidence_present",
+    "winding_resolved_temperature_pair_complete",
+    "winding_resolved_temperature_basis_resolved",
     "load_loss_temperature_quantity",
     "load_loss_temperature_basis_semantics",
+    "winding_resolved_temperature_basis_semantics",
     "ambient_air_temperature_c",
     "average_winding_temperature_c",
     "winding_hot_spot_temperature_c",
     "top_oil_temperature_c",
+    "collection_winding_average_temperature_c",
+    "network_winding_average_temperature_c",
 )
 _METADATA_COLUMNS = tuple(
     f"{channel}_{suffix}"
@@ -186,6 +208,8 @@ class TransformerThermalState:
     winding_hot_spot_temperature: TransformerTemperatureEvidence | None
     top_oil_temperature: TransformerTemperatureEvidence | None
     state_context_description: str
+    collection_winding_average_temperature: TransformerTemperatureEvidence | None = None
+    network_winding_average_temperature: TransformerTemperatureEvidence | None = None
 
     def __post_init__(self) -> None:
         supplied = False
@@ -195,7 +219,12 @@ class TransformerThermalState:
                 raise TypeError(f"{channel} must be exact TransformerTemperatureEvidence")
             supplied = supplied or evidence is not None
             if (
-                channel != "average_winding_temperature"
+                channel
+                not in {
+                    "average_winding_temperature",
+                    "collection_winding_average_temperature",
+                    "network_winding_average_temperature",
+                }
                 and evidence is not None
                 and evidence.evidence_kind == "resistance_based_winding_temperature_estimate"
             ):
@@ -231,6 +260,12 @@ class TopologyTransformerThermalStateAuthorityDiagnostics:
     resistance_based_winding_temperature_evidence_count: int
     manufacturer_model_evidence_count: int
     external_engineering_model_evidence_count: int
+    collection_winding_average_temperature_present_count: int
+    network_winding_average_temperature_present_count: int
+    winding_resolved_temperature_evidence_present_count: int
+    winding_resolved_temperature_pair_complete_count: int
+    winding_resolved_temperature_pair_incomplete_count: int
+    winding_resolved_temperature_basis_resolved_count: int
     state_counts: tuple[tuple[str, int], ...]
     model: str
 
@@ -374,6 +409,7 @@ def _record(
     state: TransformerThermalState | None,
 ) -> dict[str, object]:
     static_ok = bool(parent_row["transformer_static_authority_resolved"])
+    winding_conductor_ok = bool(parent_row["winding_resolved_conductor_authority_resolved"])
     average = state.average_winding_temperature if state else None
     if not static_ok:
         primary = _STATES[0]
@@ -385,11 +421,24 @@ def _record(
         primary = _STATES[3]
     else:
         primary = _STATES[4]
-    return _record_values(static_ok, construction, state, primary)
+    return _record_values(
+        static_ok,
+        winding_conductor_ok,
+        str(parent_row["collection_winding_conductor_material"]),
+        str(parent_row["network_winding_conductor_material"]),
+        str(parent_row["conductor_authority_basis"]),
+        construction,
+        state,
+        primary,
+    )
 
 
 def _record_values(
     static_ok: bool,
+    winding_conductor_ok: bool,
+    collection_material: str,
+    network_material: str,
+    conductor_basis: str,
     construction: TransformerAdvancedConstructionAuthority | None,
     state: TransformerThermalState | None,
     primary: str,
@@ -398,6 +447,13 @@ def _record_values(
     present = {channel: getattr(state, channel) if state else None for channel in _CHANNELS}
     applicability, conflict = _top_oil(family, present["top_oil_temperature"] is not None)
     resolved = bool(static_ok and construction and state and present["average_winding_temperature"])
+    collection_present = present["collection_winding_average_temperature"] is not None
+    network_present = present["network_winding_average_temperature"] is not None
+    winding_evidence_present = collection_present or network_present
+    pair_complete = collection_present and network_present
+    winding_resolved = bool(
+        static_ok and construction is not None and winding_conductor_ok and pair_complete
+    )
     record: dict[str, object] = {
         "transformer_static_authority_resolved": static_ok,
         "transformer_construction_authority_present": construction is not None,
@@ -406,10 +462,20 @@ def _record_values(
         if construction
         else "",
         "cooling_method_code": construction.cooling_method_code if construction else "",
+        "winding_resolved_conductor_authority_resolved": winding_conductor_ok,
+        "collection_winding_conductor_material": collection_material,
+        "network_winding_conductor_material": network_material,
+        "conductor_authority_basis": conductor_basis,
         "transformer_thermal_state_present": state is not None,
         "transformer_load_loss_temperature_basis_resolved": resolved,
+        "winding_resolved_temperature_evidence_present": winding_evidence_present,
+        "winding_resolved_temperature_pair_complete": pair_complete,
+        "winding_resolved_temperature_basis_resolved": winding_resolved,
         "load_loss_temperature_quantity": LOAD_LOSS_TEMPERATURE_QUANTITY,
         "load_loss_temperature_basis_semantics": LOAD_LOSS_TEMPERATURE_BASIS_SEMANTICS,
+        "winding_resolved_temperature_basis_semantics": (
+            WINDING_RESOLVED_TEMPERATURE_BASIS_SEMANTICS
+        ),
         "state_context_description": state.state_context_description if state else "",
         "top_oil_temperature_applicability": applicability,
         "incompatible_supplementary_top_oil_evidence": conflict,
@@ -467,6 +533,11 @@ def _diagnostics(
     construction = frame["transformer_construction_authority_present"]
     average = frame["average_winding_temperature_present"]
     resolved = frame["transformer_load_loss_temperature_basis_resolved"]
+    collection = frame["collection_winding_average_temperature_present"]
+    network = frame["network_winding_average_temperature_present"]
+    winding_present = frame["winding_resolved_temperature_evidence_present"]
+    pair = frame["winding_resolved_temperature_pair_complete"]
+    winding_resolved = frame["winding_resolved_temperature_basis_resolved"]
     kinds = [frame[f"{channel}_evidence_kind"] for channel in _CHANNELS]
 
     def count_kind(kind: str) -> int:
@@ -499,6 +570,12 @@ def _diagnostics(
         count_kind("resistance_based_winding_temperature_estimate"),
         count_kind("manufacturer_thermal_model_estimate"),
         count_kind("documented_external_engineering_model_estimate"),
+        int(collection.sum()),
+        int(network.sum()),
+        int(winding_present.sum()),
+        int(pair.sum()),
+        int((collection ^ network).sum()),
+        int(winding_resolved.sum()),
         state_counts,
         TRANSFORMER_THERMAL_STATE_AUTHORITY_MODEL_ID,
     )
@@ -520,9 +597,7 @@ def _validate_result(
     keys = [(timestamp, identifier) for timestamp in timestamps for identifier in ids]
     records = [
         _validator_record(
-            bool(
-                parent.transformer_states.loc[identifier, "transformer_static_authority_resolved"]
-            ),
+            parent.transformer_states.loc[identifier],
             parent.construction_by_id.get(identifier),
             admitted.get((timestamp, identifier)),
         )
@@ -539,10 +614,12 @@ def _validate_result(
 
 
 def _validator_record(
-    static_ok: bool,
+    parent_row: pd.Series,
     construction: TransformerAdvancedConstructionAuthority | None,
     state: TransformerThermalState | None,
 ) -> dict[str, object]:
+    static_ok = bool(parent_row["transformer_static_authority_resolved"])
+    winding_conductor_ok = bool(parent_row["winding_resolved_conductor_authority_resolved"])
     average = state.average_winding_temperature if state else None
     conditions = (static_ok, construction is not None, state is not None, average is not None)
     primary = _STATES[4]
@@ -554,6 +631,16 @@ def _validator_record(
     evidence_by_channel = {
         channel: getattr(state, channel) if state else None for channel in _CHANNELS
     }
+    collection_present = evidence_by_channel["collection_winding_average_temperature"] is not None
+    network_present = evidence_by_channel["network_winding_average_temperature"] is not None
+    side_evidence_present = collection_present or network_present
+    side_pair_complete = collection_present and network_present
+    side_basis_resolved = bool(
+        static_ok
+        and construction is not None
+        and winding_conductor_ok
+        and side_pair_complete
+    )
     top_oil_present = evidence_by_channel["top_oil_temperature"] is not None
     if not top_oil_present:
         applicability, conflict = "not_supplied", False
@@ -571,10 +658,24 @@ def _validator_record(
         if construction
         else "",
         "cooling_method_code": construction.cooling_method_code if construction else "",
+        "winding_resolved_conductor_authority_resolved": winding_conductor_ok,
+        "collection_winding_conductor_material": str(
+            parent_row["collection_winding_conductor_material"]
+        ),
+        "network_winding_conductor_material": str(
+            parent_row["network_winding_conductor_material"]
+        ),
+        "conductor_authority_basis": str(parent_row["conductor_authority_basis"]),
         "transformer_thermal_state_present": state is not None,
         "transformer_load_loss_temperature_basis_resolved": all(conditions),
+        "winding_resolved_temperature_evidence_present": side_evidence_present,
+        "winding_resolved_temperature_pair_complete": side_pair_complete,
+        "winding_resolved_temperature_basis_resolved": side_basis_resolved,
         "load_loss_temperature_quantity": LOAD_LOSS_TEMPERATURE_QUANTITY,
         "load_loss_temperature_basis_semantics": LOAD_LOSS_TEMPERATURE_BASIS_SEMANTICS,
+        "winding_resolved_temperature_basis_semantics": (
+            WINDING_RESOLVED_TEMPERATURE_BASIS_SEMANTICS
+        ),
         "state_context_description": state.state_context_description if state else "",
         "top_oil_temperature_applicability": applicability,
         "incompatible_supplementary_top_oil_evidence": conflict,
@@ -635,6 +736,8 @@ def _validator_diagnostics(
     construction = frame["transformer_construction_authority_present"]
     average = frame["average_winding_temperature_present"]
     resolved = frame["transformer_load_loss_temperature_basis_resolved"]
+    collection = frame["collection_winding_average_temperature_present"]
+    network = frame["network_winding_average_temperature_present"]
 
     def evidence_count(kind: str) -> int:
         return sum(int(frame[f"{channel}_evidence_kind"].eq(kind).sum()) for channel in _CHANNELS)
@@ -666,6 +769,12 @@ def _validator_diagnostics(
         evidence_count("resistance_based_winding_temperature_estimate"),
         evidence_count("manufacturer_thermal_model_estimate"),
         evidence_count("documented_external_engineering_model_estimate"),
+        int(collection.sum()),
+        int(network.sum()),
+        int(frame["winding_resolved_temperature_evidence_present"].sum()),
+        int(frame["winding_resolved_temperature_pair_complete"].sum()),
+        int((collection ^ network).sum()),
+        int(frame["winding_resolved_temperature_basis_resolved"].sum()),
         counts,
         TRANSFORMER_THERMAL_STATE_AUTHORITY_MODEL_ID,
     )
