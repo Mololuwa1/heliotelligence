@@ -641,6 +641,9 @@ def _record(
                     "series_reference_side": gr["series_equivalent_reference_side"],
                 }
             )
+            if kfallback:
+                r["advanced_fundamental_effective_series_resistance_ohm_per_phase"] = math.nan
+                r["advanced_fundamental_series_resistance_delta_ohm_per_phase"] = math.nan
             if not math.isclose(fclosure, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CLOSURE_ABS_TOL_W):
                 state = _STATES[7]
             elif not math.isclose(
@@ -854,6 +857,9 @@ def _record(
                                 ),
                             }
                         )
+                        if kfallback:
+                            r["p_advanced_load_loss_w"] = math.nan
+                            r["coupled_advanced_load_loss_w"] = math.nan
                         state = (
                             (_STATES[15] if kfallback else _STATES[14])
                             if math.isclose(
@@ -1238,6 +1244,9 @@ def _validator_record(
                     "series_reference_side": gr["series_equivalent_reference_side"],
                 }
             )
+            if kfallback:
+                r["advanced_fundamental_effective_series_resistance_ohm_per_phase"] = math.nan
+                r["advanced_fundamental_series_resistance_delta_ohm_per_phase"] = math.nan
             if not math.isclose(fclosure, 0, rel_tol=_CLOSURE_REL_TOL, abs_tol=_CLOSURE_ABS_TOL_W):
                 state = _STATES[7]
             elif not math.isclose(
@@ -1451,6 +1460,9 @@ def _validator_record(
                                 ),
                             }
                         )
+                        if kfallback:
+                            r["p_advanced_load_loss_w"] = math.nan
+                            r["coupled_advanced_load_loss_w"] = math.nan
                         state = (
                             (_STATES[15] if kfallback else _STATES[14])
                             if math.isclose(
