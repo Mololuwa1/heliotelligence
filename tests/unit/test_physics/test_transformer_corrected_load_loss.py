@@ -78,13 +78,13 @@ def _construction(
 
 
 def _component(
-    side: str = "collection_side", frequency: float = 50.0
+    side: str = "collection_side", frequency: float = 50.0, other_stray_w: float = 1500.0
 ) -> TransformerRatedLoadLossComponentAuthority:
     return TransformerRatedLoadLossComponentAuthority(
         "tx-1",
         3000.0,
         500.0,
-        1500.0,
+        other_stray_w,
         cast(Any, side),
         "rated_current",
         75.0,
@@ -124,10 +124,14 @@ def _spectrum(
 
 
 def _thermal(
-    value: float = 75.0, *, winding_values: tuple[float, float] | None = None
+    value: float | None = 75.0, *, winding_values: tuple[float, float] | None = None
 ) -> TransformerThermalState:
-    evidence = TransformerTemperatureEvidence(
-        value, "direct_sensor_measurement", "winding sensor", "SCADA", "high"
+    evidence = (
+        TransformerTemperatureEvidence(
+            value, "direct_sensor_measurement", "winding sensor", "SCADA", "high"
+        )
+        if value is not None
+        else None
     )
     collection = (
         TransformerTemperatureEvidence(
@@ -155,7 +159,7 @@ def _context(
     voltage: float = 400.0,
     side: str = "collection_side",
     material: str = "copper",
-    winding_temperature: float = 75.0,
+    winding_temperature: float | None = 75.0,
     ratios: dict[int, float] | None = None,
     applicability: str = "declared_representative_normalized_spectrum",
     harmonic_side: str | None = None,
@@ -169,6 +173,8 @@ def _context(
     aggregate_evidence: bool = False,
     winding_materials: tuple[str, str] | None = None,
     winding_temperatures: tuple[float, float] | None = None,
+    other_stray_w: float = 1500.0,
+    winding_allocations: tuple[float, float, float, float] = (1500.0, 1500.0, 250.0, 250.0),
 ) -> dict[str, Any]:
     values, _ = _inputs(
         p=p,
@@ -181,9 +187,7 @@ def _context(
     )
     g = calculate_topology_transformer_operating_solution(**values)
     construction = (
-        {"tx-1": _construction(material, winding_materials=winding_materials)}
-        if include_h
-        else {}
+        {"tx-1": _construction(material, winding_materials=winding_materials)} if include_h else {}
     )
     explicit_component = (
         replace(
@@ -193,17 +197,14 @@ def _context(
             reported_other_stray_loss_w=0.0,
         )
         if rated_load_w == 0.0
-        else _component(side)
+        else _component(side, other_stray_w=other_stray_w)
     )
     if winding_materials is not None:
         explicit_component = replace(
             explicit_component,
             winding_resolved_load_loss_authority=TransformerWindingResolvedLoadLossAuthority(
                 "tx-1",
-                1_500.0,
-                1_500.0,
-                250.0,
-                250.0,
+                *winding_allocations,
                 75.0,
                 50.0,
                 "explicit_collection_and_network_winding_i2r_and_eddy_factory_loss_allocation",
@@ -403,9 +404,10 @@ def test_explicit_same_material_windings_match_legacy_result(material: str) -> N
         winding_materials=(material, material),
         winding_temperature=100.0,
     ).states.iloc[0]
-    assert explicit["harmonic_and_temperature_corrected_load_loss_w"] == legacy[
-        "harmonic_and_temperature_corrected_load_loss_w"
-    ]
+    assert (
+        explicit["harmonic_and_temperature_corrected_load_loss_w"]
+        == legacy["harmonic_and_temperature_corrected_load_loss_w"]
+    )
     assert not explicit["heterogeneous_winding_conductor_construction"]
 
 
@@ -422,7 +424,7 @@ def test_heterogeneous_windings_require_future_temperature_correction_basis() ->
     assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
 
 
-def test_winding_resolved_s12j_evidence_does_not_prematurely_activate_s12k() -> None:
+def test_winding_resolved_side_correction_requires_separate_other_stray_proxy() -> None:
     values = _context(
         material="mixed_or_other_explicit",
         winding_materials=("copper", "aluminium"),
@@ -435,14 +437,170 @@ def test_winding_resolved_s12j_evidence_does_not_prematurely_activate_s12k() -> 
     row = result.states.iloc[0]
     baseline = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
     assert row["transformer_corrected_load_loss_state"] == (
-        "unresolved_winding_resolved_temperature_correction_basis_required"
+        "unresolved_missing_other_stray_temperature_proxy_basis"
     )
+    assert row["temperature_correction_basis"] == "winding_resolved"
+    assert not row["winding_resolved_temperature_correction_applied"]
+    assert not row["other_stray_temperature_basis_resolved"]
     assert row["transformer_load_loss_output_resolved"]
     assert not row["advanced_load_loss_correction_resolved"]
     assert row["s12g_load_loss_fallback_applied"]
     assert row["load_loss_output_fidelity"] == "s12g_positive_sequence_series_loss_baseline"
     assert row["selected_total_load_loss_w"] == baseline["p_series_active_loss_w"]
     assert math.isnan(row["harmonic_and_temperature_corrected_load_loss_w"])
+
+
+@pytest.mark.parametrize(
+    ("materials", "temperatures", "expected_constants"),
+    [
+        (("copper", "aluminium"), (95.0, 85.0), (234.5, 225.0)),
+        (("aluminium", "copper"), (95.0, 85.0), (225.0, 234.5)),
+        (("copper", "copper"), (95.0, 85.0), (234.5, 234.5)),
+        (("aluminium", "aluminium"), (95.0, 85.0), (225.0, 225.0)),
+    ],
+)
+def test_winding_resolved_zero_osl_side_equations_and_effective_factors(
+    materials: tuple[str, str],
+    temperatures: tuple[float, float],
+    expected_constants: tuple[float, float],
+) -> None:
+    values = _context(
+        material=materials[0] if materials[0] == materials[1] else "mixed_or_other_explicit",
+        winding_materials=materials,
+        winding_temperature=None,
+        winding_temperatures=temperatures,
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+        winding_allocations=(1200.0, 1800.0, 200.0, 300.0),
+    )
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
+    )
+    assert row["temperature_correction_basis"] == "winding_resolved"
+    assert row["winding_resolved_temperature_correction_applied"]
+    assert row["other_stray_temperature_basis_mode"] == "not_applicable_zero_other_stray"
+    assert not row["other_stray_structural_temperature_proxy_applied"]
+    kc = (temperatures[0] + expected_constants[0]) / (75.0 + expected_constants[0])
+    kn = (temperatures[1] + expected_constants[1]) / (75.0 + expected_constants[1])
+    assert row["collection_winding_i2r_temperature_correction_factor"] == pytest.approx(kc)
+    assert row["network_winding_i2r_temperature_correction_factor"] == pytest.approx(kn)
+    assert row["collection_winding_eddy_temperature_correction_factor"] == pytest.approx(1 / kc)
+    assert row["network_winding_eddy_temperature_correction_factor"] == pytest.approx(1 / kn)
+    effective_i2r = (1200.0 * kc + 1800.0 * kn) / 3000.0
+    effective_eddy = (200.0 / kc + 300.0 / kn) / 500.0
+    assert row["i2r_temperature_correction_factor"] == pytest.approx(effective_i2r)
+    assert row["winding_eddy_temperature_correction_factor"] == pytest.approx(effective_eddy)
+    assert row["i2r_loss_fundamental_temperature_corrected_w"] == pytest.approx(
+        row["collection_winding_i2r_loss_fundamental_temperature_corrected_w"]
+        + row["network_winding_i2r_loss_fundamental_temperature_corrected_w"]
+    )
+    assert row["winding_eddy_loss_fundamental_temperature_corrected_w"] == pytest.approx(
+        row["collection_winding_eddy_loss_fundamental_temperature_corrected_w"]
+        + row["network_winding_eddy_loss_fundamental_temperature_corrected_w"]
+    )
+    assert row["effective_winding_ohmic_resistance_temperature_corrected_ohm_per_phase"] == (
+        pytest.approx(
+            row["effective_winding_ohmic_resistance_reference_ohm_per_phase"] * effective_i2r
+        )
+    )
+    assert (
+        row["selected_total_load_loss_w"] == row["harmonic_and_temperature_corrected_load_loss_w"]
+    )
+
+
+def test_heterogeneous_nonzero_osl_resolves_with_explicit_aggregate_proxy_only() -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=88.0,
+        winding_temperatures=(95.0, 84.0),
+    )
+    values["winding_temperature_constant_by_transformer_id"] = {
+        "tx-1": TransformerWindingResistanceTemperatureConstantAuthority(
+            "tx-1",
+            "mixed_or_other_explicit",
+            230.0,
+            "linear_winding_resistance_temperature_constant_c",
+            "explicit aggregate structural proxy",
+            "high",
+        )
+    }
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
+    )
+    assert row["other_stray_temperature_basis_mode"] == (
+        "explicit_aggregate_mixed_structural_proxy"
+    )
+    assert row["other_stray_structural_temperature_proxy_applied"]
+    assert row["collection_winding_temperature_constant_source_mode"] == ("standard_copper_234p5_c")
+    assert row["network_winding_temperature_constant_source_mode"] == ("standard_aluminium_225_c")
+    assert row["collection_winding_resistance_temperature_constant_c"] == 234.5
+    assert row["network_winding_resistance_temperature_constant_c"] == 225.0
+
+
+def test_heterogeneous_nonzero_osl_at_aggregate_reference_needs_no_proxy_constant() -> None:
+    row = _run(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=75.0,
+        winding_temperatures=(95.0, 84.0),
+    ).states.iloc[0]
+    assert row["transformer_corrected_load_loss_state"] == (
+        "resolved_harmonic_and_temperature_corrected_transformer_load_loss"
+    )
+    assert row["other_stray_temperature_basis_mode"] == ("not_required_equal_reference_temperature")
+    assert not row["other_stray_structural_temperature_proxy_applied"]
+    assert row["other_stray_temperature_correction_factor"] == 1.0
+
+
+def test_winding_resolved_harmonics_use_rms_for_i2r_and_s12i_factor_for_eddy() -> None:
+    fundamental = _run(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=None,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    ).states.iloc[0]
+    harmonic = _run(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=None,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+        ratios={1: 1.0, 5: 0.2},
+    ).states.iloc[0]
+    rms_squared = harmonic["total_rms_to_fundamental_current_ratio"] ** 2
+    assert harmonic["i2r_loss_corrected_total_w"] == pytest.approx(
+        harmonic["i2r_loss_fundamental_temperature_corrected_w"] * rms_squared
+    )
+    assert harmonic["winding_eddy_loss_corrected_total_w"] == pytest.approx(
+        harmonic["winding_eddy_loss_fundamental_temperature_corrected_w"]
+        * rms_squared
+        * harmonic["winding_eddy_harmonic_loss_factor"]
+    )
+    assert fundamental["i2r_loss_harmonic_increment_w"] == pytest.approx(0.0)
+    assert fundamental["winding_eddy_loss_harmonic_increment_w"] == pytest.approx(0.0)
+
+
+def test_side_reference_temperature_needs_no_material_constant() -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("mixed_or_other_explicit", "copper"),
+        winding_temperature=None,
+        winding_temperatures=(75.0, 90.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["collection_winding_i2r_temperature_correction_factor"] == 1.0
+    assert row["collection_winding_temperature_constant_source_mode"] == (
+        "not_required_equal_reference_temperature"
+    )
+    assert math.isnan(row["collection_winding_resistance_temperature_constant_c"])
 
 
 def test_scalar_custom_constant_cannot_bypass_heterogeneous_winding_gate() -> None:
@@ -588,15 +746,16 @@ def test_advanced_selected_output_is_an_exact_alias_of_existing_advanced_values(
     row = result.states.iloc[0]
     assert row["advanced_load_loss_correction_resolved"]
     assert not row["s12g_load_loss_fallback_applied"]
-    assert row["selected_fundamental_load_loss_w"] == row[
-        "temperature_corrected_sinusoidal_load_loss_w"
-    ]
-    assert row["selected_harmonic_incremental_load_loss_w"] == row[
-        "harmonic_incremental_load_loss_w"
-    ]
-    assert row["selected_total_load_loss_w"] == row[
-        "harmonic_and_temperature_corrected_load_loss_w"
-    ]
+    assert (
+        row["selected_fundamental_load_loss_w"]
+        == row["temperature_corrected_sinusoidal_load_loss_w"]
+    )
+    assert (
+        row["selected_harmonic_incremental_load_loss_w"] == row["harmonic_incremental_load_loss_w"]
+    )
+    assert (
+        row["selected_total_load_loss_w"] == row["harmonic_and_temperature_corrected_load_loss_w"]
+    )
 
 
 def test_nullable_energisation_is_preserved_for_unresolved_s12g_row() -> None:
@@ -852,6 +1011,129 @@ def test_independent_validator_never_calls_production_builders(
         timestamps,
         result,
     )
+
+
+def test_winding_resolved_validator_never_calls_production_factor_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=None,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    result = calculate_topology_transformer_corrected_load_loss(**values)
+    parents = module._canonical_parents(values)
+    timestamps = list(dict.fromkeys(result.states.index.get_level_values("timestamp")))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("production winding factor called by validator")
+
+    monkeypatch.setattr(module, "_winding_factor", forbidden)
+    _validate_result(
+        parents,
+        values["transformer_equipment_by_id"],
+        {},
+        {},
+        timestamps,
+        result,
+    )
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "s12h_winding_resolved_advanced_correction_basis_resolved",
+        "s12j_winding_resolved_temperature_basis_resolved",
+        "winding_resolved_temperature_correction_applied",
+        "temperature_correction_basis",
+        "collection_winding_average_temperature_c",
+        "network_winding_average_temperature_c",
+        "collection_winding_conductor_material",
+        "network_winding_conductor_material",
+        "collection_winding_resistance_temperature_constant_c",
+        "network_winding_temperature_constant_source_mode",
+        "collection_winding_i2r_temperature_correction_factor",
+        "network_winding_eddy_temperature_correction_factor",
+        "collection_winding_i2r_loss_reference_w",
+        "network_winding_eddy_current_loss_reference_w",
+        "collection_winding_i2r_loss_corrected_total_w",
+        "network_winding_eddy_loss_corrected_total_w",
+        "i2r_temperature_correction_factor",
+        "winding_eddy_temperature_correction_factor",
+        "other_stray_temperature_basis_resolved",
+        "other_stray_temperature_basis_mode",
+        "selected_total_load_loss_w",
+    ],
+)
+def test_winding_resolved_validator_rejects_new_field_tampering(column: str) -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=None,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    result = calculate_topology_transformer_corrected_load_loss(**values)
+    parents = module._canonical_parents(values)
+    timestamps = list(dict.fromkeys(result.states.index.get_level_values("timestamp")))
+    changed = result.states.copy(deep=True)
+    value = changed.iloc[0][column]
+    if changed[column].dtype == bool:
+        replacement: object = not bool(value)
+    elif isinstance(value, str):
+        replacement = "tampered"
+    else:
+        replacement = float(value) + 1.0
+    changed.iloc[0, changed.columns.get_loc(column)] = replacement
+    with pytest.raises(ValueError, match="frame"):
+        _validate_result(
+            parents,
+            values["transformer_equipment_by_id"],
+            {},
+            {},
+            timestamps,
+            replace(result, states=changed),
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "winding_resolved_correction_basis_available_count",
+        "winding_resolved_correction_applied_count",
+        "legacy_scalar_correction_applied_count",
+        "winding_resolved_basis_missing_count",
+        "other_stray_proxy_basis_missing_count",
+        "zero_other_stray_no_proxy_required_count",
+        "aggregate_other_stray_proxy_applied_count",
+    ],
+)
+def test_winding_resolved_validator_rejects_new_diagnostics_tampering(field: str) -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=None,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    result = calculate_topology_transformer_corrected_load_loss(**values)
+    parents = module._canonical_parents(values)
+    timestamps = list(dict.fromkeys(result.states.index.get_level_values("timestamp")))
+    diagnostics = replace(result.diagnostics, **{field: 99})
+    with pytest.raises(ValueError, match="diagnostics"):
+        _validate_result(
+            parents,
+            values["transformer_equipment_by_id"],
+            {},
+            {},
+            timestamps,
+            replace(result, diagnostics=diagnostics),
+        )
 
 
 def test_independent_validator_rejects_every_output_family_tamper() -> None:
