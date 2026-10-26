@@ -6,8 +6,9 @@ import cmath
 import importlib
 import inspect
 import math
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 import pytest
@@ -24,6 +25,7 @@ from heliotelligence.physics.transformer_core_no_load_loss import (
     calculate_topology_transformer_core_no_load_loss,
 )
 from heliotelligence.physics.transformer_corrected_load_loss import (
+    TransformerWindingResistanceTemperatureConstantAuthority,
     calculate_topology_transformer_corrected_load_loss,
 )
 from tests.unit.test_physics import test_transformer_corrected_load_loss as ksupport
@@ -45,7 +47,7 @@ def _context(
     p: float = 100.0,
     q: float = 0.0,
     side: str = "collection_side",
-    winding_temperature: float = 75.0,
+    winding_temperature: float | None = 75.0,
     ratios: dict[int, float] | None = None,
     no_load_w: float = 600.0,
     advanced_core: bool = False,
@@ -56,6 +58,8 @@ def _context(
     winding_temperatures: tuple[float, float] | None = None,
     other_stray_w: float = 1500.0,
     rated_load_w: float = 5000.0,
+    winding_allocations: tuple[float, float, float, float] = (1500.0, 1500.0, 250.0, 250.0),
+    custom_constant: TransformerWindingResistanceTemperatureConstantAuthority | None = None,
 ) -> dict[str, Any]:
     """Build replay-consistent G/K/L parents while retaining upstream helpers."""
     original_inputs = ksupport._inputs  # type: ignore[attr-defined]
@@ -79,9 +83,12 @@ def _context(
             winding_temperatures=winding_temperatures,
             other_stray_w=other_stray_w,
             rated_load_w=rated_load_w,
+            winding_allocations=winding_allocations,
         )
     finally:
         ksupport._inputs = original_inputs  # type: ignore[attr-defined]
+    if custom_constant is not None:
+        values["winding_temperature_constant_by_transformer_id"] = {"tx-1": custom_constant}
     corrected = calculate_topology_transformer_corrected_load_loss(**values)
     values["transformer_corrected_load_loss"] = corrected
     times = list(
@@ -599,3 +606,485 @@ def test_public_schema_has_explicit_unique_contract_order() -> None:
     assert columns.index("transformer_advanced_operating_solution_state") < columns.index(
         "transformer_advanced_operating_solution_contract"
     )
+
+
+@pytest.fixture(scope="module")
+def winding_case() -> Callable[[str], tuple[dict[str, Any], Any]]:
+    """Cache canonical end-to-end cases, keeping tamper tests detached from parents."""
+    cache: dict[str, tuple[dict[str, Any], Any]] = {}
+
+    def build(name: str) -> tuple[dict[str, Any], Any]:
+        if name not in cache:
+            side, core_mode, loss_mode = name.split(":")
+            options: dict[str, Any] = {
+                "side": side,
+                "q": 30.0,
+                "advanced_core": core_mode == "advanced",
+                "material": "mixed_or_other_explicit",
+                "winding_materials": ("copper", "aluminium"),
+                "winding_temperatures": (95.0, 85.0),
+                "winding_temperature": None,
+                "winding_allocations": (1200.0, 1800.0, 200.0, 300.0),
+                "other_stray_w": 0.0,
+                "rated_load_w": 3500.0,
+                "ratios": {1: 1.0, 5: 0.2, 7: 0.1},
+            }
+            if loss_mode == "fundamental":
+                options["ratios"] = {1: 1.0}
+            elif loss_mode in {"aggregate_osl", "missing_osl"}:
+                options.update(other_stray_w=1500.0, rated_load_w=5000.0)
+                if loss_mode == "aggregate_osl":
+                    options.update(
+                        winding_temperature=88.0,
+                        custom_constant=TransformerWindingResistanceTemperatureConstantAuthority(
+                            "tx-1",
+                            "mixed_or_other_explicit",
+                            230.0,
+                            "linear_winding_resistance_temperature_constant_c",
+                            "explicit aggregate structural proxy",
+                            "high",
+                        ),
+                    )
+            elif loss_mode in {"copper", "aluminium"}:
+                options.update(
+                    material=loss_mode,
+                    winding_materials=(loss_mode, loss_mode),
+                    winding_temperature=88.0,
+                    other_stray_w=1500.0,
+                    rated_load_w=5000.0,
+                    custom_constant=TransformerWindingResistanceTemperatureConstantAuthority(
+                        "tx-1",
+                        cast(Any, loss_mode),
+                        240.0,
+                        "linear_winding_resistance_temperature_constant_c",
+                        "homogeneous winding certificate",
+                        "high",
+                    ),
+                )
+            # A module cache avoids replaying the expensive chain for each field mutation.
+            with pytest.MonkeyPatch.context() as patch:
+                database = support.conversion_support._database
+                patch.setattr(inverter_lookup, "_load_cec_inverter_database", database)
+                patch.setattr(inverter_envelope_lookup, "_load_cec_inverter_database", database)
+                values = _context(**options)
+                result = calculate_topology_transformer_advanced_operating_solution(**values)
+            cache[name] = values, result
+        return cache[name]
+
+    return build
+
+
+def _coefficient_closes(actual: float, expected: float) -> None:
+    # Match S12M's residual-to-zero test; no relative relaxation for large losses.
+    assert math.isclose(
+        actual - expected,
+        0.0,
+        rel_tol=module._CLOSURE_REL_TOL,
+        abs_tol=module._CLOSURE_ABS_TOL_W,
+    )
+
+
+def _assert_winding_terminal_closure(values: dict[str, Any], result: Any) -> None:
+    k = values["transformer_corrected_load_loss"].states.iloc[0]
+    g = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
+    core = values["transformer_core_no_load_loss"].states.iloc[0]
+    row = result.states.iloc[0]
+    assert k["temperature_correction_basis"] == "winding_resolved"
+    assert k["load_loss_output_fidelity"] == "advanced_harmonic_and_temperature_corrected"
+    assert row["transformer_advanced_operating_solution_state"] == (
+        "resolved_coupled_advanced_transformer_terminal_solution"
+    )
+    assert row["terminal_solution_fidelity"] == "coupled_advanced_load_loss"
+    assert row["s12k_load_loss_output_resolved"]
+    assert row["s12k_advanced_load_loss_correction_resolved"]
+    assert not row["s12k_load_loss_fallback_applied"]
+    assert not row["load_loss_fallback_applied"]
+    assert row["fixed_point_converged"]
+    assert not row["coupled_thermal_iteration_applied"]
+    assert not row["harmonic_voltage_drop_modeled"]
+
+    side_i2r = math.fsum(
+        k[f"{side}_winding_i2r_loss_reference_w"]
+        * k[f"{side}_winding_i2r_temperature_correction_factor"]
+        for side in ("collection", "network")
+    )
+    side_eddy = math.fsum(
+        k[f"{side}_winding_eddy_current_loss_reference_w"]
+        * k[f"{side}_winding_eddy_temperature_correction_factor"]
+        for side in ("collection", "network")
+    )
+    for side in ("collection", "network"):
+        assert k[f"{side}_winding_eddy_temperature_correction_factor"] == pytest.approx(
+            1.0 / k[f"{side}_winding_i2r_temperature_correction_factor"],
+            rel=module._CLOSURE_REL_TOL,
+            abs=module._CLOSURE_ABS_TOL_W,
+        )
+    _coefficient_closes(
+        k["i2r_loss_reference_w"] * k["i2r_temperature_correction_factor"], side_i2r
+    )
+    _coefficient_closes(
+        k["winding_eddy_current_loss_reference_w"]
+        * k["winding_eddy_temperature_correction_factor"],
+        side_eddy,
+    )
+    aggregate_osl = (
+        k["other_stray_loss_reference_w"] * k["other_stray_temperature_correction_factor"]
+    )
+    fundamental = math.fsum([side_i2r, side_eddy, aggregate_osl])
+    s2 = k["sum_current_ratio_squared"]
+    harmonic = math.fsum(
+        [
+            side_i2r * (s2 - 1.0),
+            side_eddy * (s2 * k["winding_eddy_harmonic_loss_factor"] - 1.0),
+            aggregate_osl * (s2 * k["other_stray_harmonic_loss_factor"] - 1.0),
+        ]
+    )
+    rf = row["advanced_fundamental_effective_series_resistance_ohm_per_phase"]
+    rh = row["harmonic_increment_accounting_resistance_ohm_per_phase"]
+    irated = k["rated_reference_side_current_a"]
+    i0 = k["fundamental_operating_current_a"]
+    _coefficient_closes(3.0 * rf * irated**2, fundamental)
+    _coefficient_closes(3.0 * rh * irated**2, harmonic)
+    _coefficient_closes(3.0 * rf * i0**2, k["temperature_corrected_sinusoidal_load_loss_w"])
+    _coefficient_closes(3.0 * rh * i0**2, k["harmonic_incremental_load_loss_w"])
+    _coefficient_closes(3.0 * (rf + rh) * i0**2, k["selected_total_load_loss_w"])
+    assert row["s12k_selected_load_loss_w"] == k["selected_total_load_loss_w"]
+
+    vc = complex(row["collection_voltage_line_to_line_rms_v"] / math.sqrt(3.0), 0.0)
+    ic = complex(row["collection_series_current_real_a"], row["collection_series_current_imag_a"])
+    inn = complex(row["network_series_current_real_a"], row["network_series_current_imag_a"])
+    transfer = row["network_to_collection_voltage_ratio"] * cmath.exp(
+        1j * math.radians(row["network_side_phase_displacement_deg"])
+    )
+    assert inn == pytest.approx(
+        ic / transfer.conjugate(), rel=module._CLOSURE_REL_TOL, abs=module._CLOSURE_ABS_TOL_W
+    )
+    assert ic == pytest.approx(
+        (
+            complex(
+                row["collection_p_w"]
+                - row["p_no_load_active_loss_w"]
+                - row["p_harmonic_incremental_load_loss_w"],
+                row["collection_q_var"],
+            )
+            / (3.0 * vc)
+        ).conjugate(),
+        rel=module._CLOSURE_REL_TOL,
+        abs=module._CLOSURE_ABS_TOL_W,
+    )
+    side = row["series_reference_side"]
+    assert side == g["series_equivalent_reference_side"]
+    iref = abs(ic if side == "collection_side" else inn)
+    assert (
+        k["fundamental_operating_current_a"]
+        == g[
+            "collection_series_current_magnitude_a"
+            if side == "collection_side"
+            else "network_series_current_magnitude_a"
+        ]
+    )
+    _coefficient_closes(row["p_fundamental_series_active_loss_w"], 3.0 * rf * iref**2)
+    harmonic_coupled = 3.0 * rh * iref**2
+    _coefficient_closes(
+        harmonic_coupled - row["p_harmonic_incremental_load_loss_w"],
+        row["harmonic_fixed_point_residual_w"],
+    )
+    assert math.isclose(
+        row["p_harmonic_incremental_load_loss_w"],
+        harmonic_coupled,
+        rel_tol=module.FIXED_POINT_RELATIVE_TOLERANCE,
+        abs_tol=module.FIXED_POINT_ABSOLUTE_TOLERANCE_W,
+    )
+    _coefficient_closes(
+        row["coupled_selected_load_loss_w"],
+        row["p_fundamental_series_active_loss_w"] + row["p_harmonic_incremental_load_loss_w"],
+    )
+    assert row["p_selected_load_loss_w"] == row["coupled_selected_load_loss_w"]
+    assert math.isclose(
+        row["coupled_selected_load_loss_w"],
+        3.0 * (rf + rh) * iref**2,
+        rel_tol=module.FIXED_POINT_RELATIVE_TOLERANCE,
+        abs_tol=module.FIXED_POINT_ABSOLUTE_TOLERANCE_W,
+    )
+    x = row["retained_series_reactance_ohm_per_phase"]
+    assert x == g["effective_series_reactance_ohm_per_phase"]
+    # Only R_f enters the positive-sequence voltage drop. R_h is an active sink.
+    ec = vc - complex(rf, x) * ic if side == "collection_side" else vc
+    en = transfer * ec
+    vn = en if side == "collection_side" else en - complex(rf, x) * inn
+    assert complex(
+        row["network_terminal_phase_voltage_real_v"], row["network_terminal_phase_voltage_imag_v"]
+    ) == pytest.approx(
+        vn,
+        rel=module._CLOSURE_REL_TOL,
+        abs=module._CLOSURE_ABS_TOL_W,
+    )
+    assert row["internal_collection_excitation_voltage_line_to_line_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(ec),
+        rel=module._CLOSURE_REL_TOL,
+        abs=module._CLOSURE_ABS_TOL_W,
+    )
+    assert row["internal_network_excitation_voltage_line_to_line_rms_v"] == pytest.approx(
+        math.sqrt(3.0) * abs(en),
+        rel=module._CLOSURE_REL_TOL,
+        abs=module._CLOSURE_ABS_TOL_W,
+    )
+    sn = 3.0 * vn * inn.conjugate()
+    assert abs(row["p_network_terminal_w"] - sn.real) <= module._CONSERVATION_ABS_TOL
+    assert abs(row["q_network_terminal_var"] - sn.imag) <= module._CONSERVATION_ABS_TOL
+    assert (
+        abs(
+            row["collection_p_w"]
+            - row["p_network_terminal_w"]
+            - row["p_no_load_active_loss_w"]
+            - row["p_fundamental_series_active_loss_w"]
+            - row["p_harmonic_incremental_load_loss_w"]
+        )
+        <= module._CONSERVATION_ABS_TOL
+    )
+    assert (
+        abs(
+            row["collection_q_var"]
+            - row["q_network_terminal_var"]
+            - row["q_fundamental_series_consumption_var"]
+        )
+        <= module._CONSERVATION_ABS_TOL
+    )
+    assert abs(row["active_power_conservation_residual_w"]) <= module._CONSERVATION_ABS_TOL
+    assert abs(row["reactive_power_conservation_residual_var"]) <= module._CONSERVATION_ABS_TOL
+
+    if core["advanced_core_loss_scaling_resolved"]:
+        assert row["s12l_core_loss_re_evaluated_in_coupled_iteration"]
+        if side == "collection_side":
+            assert row["coupled_no_load_adjustment_vs_s12l_w"] != pytest.approx(0.0, abs=1e-10)
+        core_voltage = math.sqrt(3.0) * abs(
+            ec if core["no_load_test_reference_side"] == "collection_side" else en
+        )
+        frequency_ratio = core["operating_frequency_hz"] / core["no_load_test_frequency_hz"]
+        flux_ratio = (
+            core_voltage
+            / core["factory_reference_core_excitation_voltage_ll_rms_v"]
+            / frequency_ratio
+        )
+        multiplier = frequency_ratio ** core["steinmetz_frequency_exponent_alpha"] * (
+            flux_ratio ** core["steinmetz_flux_density_exponent_beta"]
+        )
+        target = (
+            core["scalable_core_loss_reference_w"] * multiplier
+            + core["non_scaling_no_load_loss_reference_residual_w"]
+        )
+        assert math.isclose(
+            row["p_no_load_active_loss_w"],
+            target,
+            rel_tol=module.FIXED_POINT_RELATIVE_TOLERANCE,
+            abs_tol=module.FIXED_POINT_ABSOLUTE_TOLERANCE_W,
+        )
+        _coefficient_closes(
+            target - row["p_no_load_active_loss_w"], row["no_load_fixed_point_residual_w"]
+        )
+        assert row["coupled_core_loss_scaling_multiplier"] == pytest.approx(
+            multiplier,
+            rel=module._CLOSURE_REL_TOL,
+            abs=module._CLOSURE_ABS_TOL_W,
+        )
+    else:
+        assert not row["s12l_core_loss_re_evaluated_in_coupled_iteration"]
+        assert row["p_no_load_active_loss_w"] == core["corrected_no_load_loss_w"]
+
+
+@pytest.mark.parametrize("side", ["collection_side", "network_side"])
+@pytest.mark.parametrize("core_mode", ["factory", "advanced"])
+@pytest.mark.parametrize("loss_mode", ["fundamental", "harmonic"])
+def test_final_winding_resolved_chain_closes_at_reference_and_coupled_currents(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+    side: str,
+    core_mode: str,
+    loss_mode: str,
+) -> None:
+    values, result = winding_case(f"{side}:{core_mode}:{loss_mode}")
+    _assert_winding_terminal_closure(values, result)
+    k = values["transformer_corrected_load_loss"].states.iloc[0]
+    row = result.states.iloc[0]
+    if loss_mode == "harmonic":
+        assert k["harmonic_incremental_load_loss_w"] > 0.0
+        assert row["harmonic_increment_accounting_resistance_ohm_per_phase"] > 0.0
+        assert row["p_harmonic_incremental_load_loss_w"] > 0.0
+        coupled_current = row[f"{side.removesuffix('_side')}_series_current_magnitude_a"]
+        assert not math.isclose(coupled_current, k["fundamental_operating_current_a"], rel_tol=1e-9)
+        assert not math.isclose(
+            row["coupled_selected_load_loss_w"], k["selected_total_load_loss_w"], rel_tol=1e-9
+        )
+    else:
+        assert row["harmonic_increment_accounting_resistance_ohm_per_phase"] == 0.0
+        assert row["p_harmonic_incremental_load_loss_w"] == 0.0
+
+
+def test_final_winding_resolved_aggregate_osl_proxy(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+) -> None:
+    values, result = winding_case("collection_side:advanced:aggregate_osl")
+    k = values["transformer_corrected_load_loss"].states.iloc[0]
+    assert k["other_stray_temperature_basis_mode"] == "explicit_aggregate_mixed_structural_proxy"
+    for side, constant, temperature in [("collection", 234.5, 95.0), ("network", 225.0, 85.0)]:
+        assert k[f"{side}_winding_resistance_temperature_constant_c"] == constant
+        assert k[f"{side}_winding_i2r_temperature_correction_factor"] == pytest.approx(
+            (temperature + constant) / (75.0 + constant)
+        )
+    assert k["other_stray_temperature_correction_factor"] == pytest.approx(
+        (75.0 + 230.0) / (88.0 + 230.0)
+    )
+    _assert_winding_terminal_closure(values, result)
+
+
+@pytest.mark.parametrize("material", ["copper", "aluminium"])
+def test_final_winding_resolved_homogeneous_custom_constant(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+    material: str,
+) -> None:
+    values, result = winding_case(f"collection_side:advanced:{material}")
+    k = values["transformer_corrected_load_loss"].states.iloc[0]
+    for side, temperature in [("collection", 95.0), ("network", 85.0)]:
+        assert k[f"{side}_winding_temperature_constant_source_mode"] == "explicit_authority"
+        assert k[f"{side}_winding_resistance_temperature_constant_c"] == 240.0
+        assert k[f"{side}_winding_i2r_temperature_correction_factor"] == pytest.approx(
+            (temperature + 240.0) / (75.0 + 240.0)
+        )
+    assert k["other_stray_temperature_basis_mode"] == "legacy_explicit_constant"
+    _assert_winding_terminal_closure(values, result)
+
+
+@pytest.mark.parametrize("core_mode", ["factory", "advanced"])
+def test_final_winding_resolved_missing_osl_proxy_preserves_s12g_fallback(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+    core_mode: str,
+) -> None:
+    values, result = winding_case(f"collection_side:{core_mode}:missing_osl")
+    k = values["transformer_corrected_load_loss"].states.iloc[0]
+    g = values["transformer_operating_solution"].transformer_operating_states.iloc[0]
+    row = result.states.iloc[0]
+    assert k["s12h_winding_resolved_advanced_correction_basis_resolved"]
+    assert k["s12j_winding_resolved_temperature_basis_resolved"]
+    assert (
+        k["transformer_corrected_load_loss_state"]
+        == "unresolved_missing_other_stray_temperature_proxy_basis"
+    )
+    assert k["transformer_load_loss_output_resolved"]
+    assert not k["advanced_load_loss_correction_resolved"]
+    assert not k["winding_resolved_temperature_correction_applied"]
+    assert k["selected_total_load_loss_w"] == g["p_series_active_loss_w"]
+    assert math.isnan(k["harmonic_and_temperature_corrected_load_loss_w"])
+    assert (
+        row["transformer_advanced_operating_solution_state"]
+        == "resolved_coupled_transformer_terminal_solution_with_s12g_load_loss_fallback"
+    )
+    assert row["terminal_solution_fidelity"] == "coupled_s12g_load_loss_fallback"
+    assert row["s12k_load_loss_output_resolved"]
+    assert not row["s12k_advanced_load_loss_correction_resolved"]
+    assert row["s12k_load_loss_fallback_applied"]
+    assert row["load_loss_fallback_applied"]
+    assert row["s12k_selected_load_loss_w"] == g["p_series_active_loss_w"]
+    assert row["harmonic_increment_accounting_resistance_ohm_per_phase"] == 0.0
+    assert row["p_harmonic_incremental_load_loss_w"] == 0.0
+    for field in (
+        "advanced_fundamental_effective_series_resistance_ohm_per_phase",
+        "advanced_fundamental_series_resistance_delta_ohm_per_phase",
+        "p_advanced_load_loss_w",
+        "coupled_advanced_load_loss_w",
+        "coupled_load_loss_adjustment_vs_s12k_w",
+    ):
+        assert math.isnan(row[field])
+    current = complex(
+        row["collection_series_current_real_a"], row["collection_series_current_imag_a"]
+    )
+    resistance = g["effective_series_resistance_ohm_per_phase"]
+    _coefficient_closes(
+        row["p_fundamental_series_active_loss_w"], 3.0 * resistance * abs(current) ** 2
+    )
+    assert row["s12g_reference_effective_series_resistance_ohm_per_phase"] == resistance
+    vc = complex(row["collection_voltage_line_to_line_rms_v"] / math.sqrt(3.0), 0.0)
+    transfer = row["network_to_collection_voltage_ratio"] * cmath.exp(
+        1j * math.radians(row["network_side_phase_displacement_deg"])
+    )
+    expected_vn = transfer * (
+        vc - complex(resistance, g["effective_series_reactance_ohm_per_phase"]) * current
+    )
+    assert complex(
+        row["network_terminal_phase_voltage_real_v"], row["network_terminal_phase_voltage_imag_v"]
+    ) == pytest.approx(expected_vn, rel=module._CLOSURE_REL_TOL, abs=module._CLOSURE_ABS_TOL_W)
+    assert (
+        row["retained_series_reactance_ohm_per_phase"]
+        == g["effective_series_reactance_ohm_per_phase"]
+    )
+    _coefficient_closes(
+        row["coupled_selected_load_loss_w"], row["p_fundamental_series_active_loss_w"]
+    )
+    core = values["transformer_core_no_load_loss"].states.iloc[0]
+    assert (
+        row["s12l_advanced_core_loss_scaling_resolved"]
+        == core["advanced_core_loss_scaling_resolved"]
+    )
+    assert row["s12l_core_loss_re_evaluated_in_coupled_iteration"] == (core_mode == "advanced")
+    assert abs(row["active_power_conservation_residual_w"]) <= module._CONSERVATION_ABS_TOL
+    assert abs(row["reactive_power_conservation_residual_var"]) <= module._CONSERVATION_ABS_TOL
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "collection_winding_i2r_temperature_correction_factor",
+        "network_winding_eddy_temperature_correction_factor",
+        "other_stray_temperature_basis_mode",
+        "temperature_correction_basis",
+        "selected_total_load_loss_w",
+    ],
+)
+def test_final_winding_resolved_s12k_field_tampering_fails_parent_replay(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+    field: str,
+) -> None:
+    values, _ = winding_case("collection_side:advanced:harmonic")
+    parent = values["transformer_corrected_load_loss"]
+    frame = parent.states.copy(deep=True)
+    original = frame.iloc[0][field]
+    frame.loc[frame.index[0], field] = (
+        "tampered" if isinstance(original, str) else float(original) + 1.0
+    )
+    tampered = dict(values, transformer_corrected_load_loss=replace(parent, states=frame))
+    with pytest.raises(ValueError, match="S12K.*canonical replay"):
+        calculate_topology_transformer_advanced_operating_solution(**tampered)
+
+
+def test_final_winding_resolved_validator_is_independent(
+    winding_case: Callable[[str], tuple[dict[str, Any], Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values, result = winding_case("collection_side:advanced:harmonic")
+    _assert_winding_terminal_closure(values, result)
+    parents = tuple(
+        values[name]
+        for name in (
+            "transformer_operating_solution",
+            "transformer_corrected_load_loss",
+            "transformer_core_no_load_loss",
+        )
+    )
+    times = list(result.states.index.get_level_values("timestamp").unique())
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("production winding-resolved S12M helper invoked")
+
+    for name in ("_record", "_frame", "_diagnostics", "_propose", "_base"):
+        monkeypatch.setattr(module, name, fail)
+    _validate_result(parents, times, result)
+
+
+def test_final_s12m_boundary_uses_aggregate_s12k_contract_only() -> None:
+    source = inspect.getsource(module)
+    for forbidden in (
+        "transformer_loss_component_authority",
+        "transformer_harmonic_current_authority",
+        "transformer_thermal_state_authority",
+        "collection_winding",
+        "network_winding",
+    ):
+        assert forbidden not in source
