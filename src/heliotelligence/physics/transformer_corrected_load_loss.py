@@ -654,12 +654,14 @@ def _winding_factor(
         return 1.0, None, "not_required_equal_reference_temperature"
     constant: float | None = None
     mode = "unresolved"
-    if material == "copper":
+    if homogeneous and custom is not None:
+        if custom.applicable_conductor_material != material:
+            raise ValueError("temperature constant material does not match S12H construction")
+        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
+    elif material == "copper":
         constant, mode = 234.5, "standard_copper_234p5_c"
     elif material == "aluminium":
         constant, mode = 225.0, "standard_aluminium_225_c"
-    elif homogeneous and custom is not None and custom.applicable_conductor_material == material:
-        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
     if constant is None:
         return math.nan, None, mode
     numerator = temperature + constant
@@ -1314,12 +1316,14 @@ def _validator_side_factor(
 ) -> tuple[float, float | None, str]:
     if temperature == reference_temperature:
         return 1.0, None, "not_required_equal_reference_temperature"
-    if material == "copper":
+    if custom is not None and homogeneous:
+        if material != custom.applicable_conductor_material:
+            raise ValueError("temperature constant material does not match S12H construction")
+        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
+    elif material == "copper":
         constant, mode = 234.5, "standard_copper_234p5_c"
     elif material == "aluminium":
         constant, mode = 225.0, "standard_aluminium_225_c"
-    elif homogeneous and custom is not None and custom.applicable_conductor_material == material:
-        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
     else:
         return math.nan, None, "unresolved"
     numerator = temperature + constant

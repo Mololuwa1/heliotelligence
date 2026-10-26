@@ -509,6 +509,131 @@ def test_winding_resolved_zero_osl_side_equations_and_effective_factors(
     )
 
 
+@pytest.mark.parametrize("material", ["copper", "aluminium"])
+@pytest.mark.parametrize("other_stray_w", [0.0, 1500.0])
+def test_homogeneous_winding_custom_constant_precedes_standard_and_corrects_osl(
+    material: str, other_stray_w: float
+) -> None:
+    custom_constant = 240.0
+    values = _context(
+        material=material,
+        winding_materials=(material, material),
+        winding_temperature=88.0,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=other_stray_w,
+        rated_load_w=3500.0 + other_stray_w,
+        winding_allocations=(1200.0, 1800.0, 200.0, 300.0),
+    )
+    values["winding_temperature_constant_by_transformer_id"] = {
+        "tx-1": TransformerWindingResistanceTemperatureConstantAuthority(
+            "tx-1",
+            cast(Any, material),
+            custom_constant,
+            "linear_winding_resistance_temperature_constant_c",
+            "certificate",
+            "high",
+        )
+    }
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["advanced_load_loss_correction_resolved"]
+    assert row["winding_resolved_temperature_correction_applied"]
+    assert row["resistance_temperature_constant_source_mode"] == "explicit_authority"
+    factors = [
+        (95.0 + custom_constant) / (75.0 + custom_constant),
+        (85.0 + custom_constant) / (75.0 + custom_constant),
+    ]
+    standard = 234.5 if material == "copper" else 225.0
+    for side, temperature, factor in zip(
+        ("collection", "network"), (95.0, 85.0), factors, strict=True
+    ):
+        assert row[f"{side}_winding_temperature_constant_source_mode"] == "explicit_authority"
+        assert row[f"{side}_winding_resistance_temperature_constant_c"] == custom_constant
+        assert row[f"{side}_winding_i2r_temperature_correction_factor"] == pytest.approx(factor)
+        assert row[f"{side}_winding_i2r_temperature_correction_factor"] != pytest.approx(
+            (temperature + standard) / (75.0 + standard)
+        )
+        assert row[f"{side}_winding_eddy_temperature_correction_factor"] == pytest.approx(
+            1 / factor
+        )
+    assert row["i2r_temperature_correction_factor"] == pytest.approx(
+        (1200.0 * factors[0] + 1800.0 * factors[1]) / 3000.0
+    )
+    assert row["winding_eddy_temperature_correction_factor"] == pytest.approx(
+        (200.0 / factors[0] + 300.0 / factors[1]) / 500.0
+    )
+    if other_stray_w:
+        osl_factor = (75.0 + custom_constant) / (88.0 + custom_constant)
+        assert row["other_stray_temperature_basis_mode"] == "legacy_explicit_constant"
+        assert row["other_stray_temperature_correction_factor"] == pytest.approx(osl_factor)
+        assert row["other_stray_loss_fundamental_temperature_corrected_w"] == pytest.approx(
+            row["fundamental_current_loading_ratio"] ** 2 * other_stray_w * osl_factor
+        )
+    else:
+        assert row["other_stray_temperature_basis_mode"] == "not_applicable_zero_other_stray"
+
+
+@pytest.mark.parametrize(
+    ("material", "custom_material"), [("copper", "aluminium"), ("aluminium", "copper")]
+)
+def test_homogeneous_winding_rejects_mismatched_custom_authority(
+    material: str, custom_material: str
+) -> None:
+    values = _context(
+        material=material,
+        winding_materials=(material, material),
+        winding_temperatures=(95.0, 85.0),
+    )
+    values["winding_temperature_constant_by_transformer_id"] = {
+        "tx-1": TransformerWindingResistanceTemperatureConstantAuthority(
+            "tx-1",
+            cast(Any, custom_material),
+            240.0,
+            "linear_winding_resistance_temperature_constant_c",
+            "certificate",
+            "high",
+        )
+    }
+    with pytest.raises(
+        ValueError, match="temperature constant material does not match S12H construction"
+    ):
+        calculate_topology_transformer_corrected_load_loss(**values)
+
+
+@pytest.mark.parametrize("use_custom", [False, True])
+def test_homogeneous_reference_side_requires_no_custom_constant(use_custom: bool) -> None:
+    values = _context(
+        material="copper",
+        winding_materials=("copper", "copper"),
+        winding_temperature=None,
+        winding_temperatures=(75.0, 90.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    if use_custom:
+        values["winding_temperature_constant_by_transformer_id"] = {
+            "tx-1": TransformerWindingResistanceTemperatureConstantAuthority(
+                "tx-1",
+                "copper",
+                240.0,
+                "linear_winding_resistance_temperature_constant_c",
+                "certificate",
+                "high",
+            )
+        }
+    row = calculate_topology_transformer_corrected_load_loss(**values).states.iloc[0]
+    assert row["advanced_load_loss_correction_resolved"]
+    assert row["collection_winding_i2r_temperature_correction_factor"] == 1.0
+    assert row["collection_winding_eddy_temperature_correction_factor"] == 1.0
+    assert math.isnan(row["collection_winding_resistance_temperature_constant_c"])
+    assert row["collection_winding_temperature_constant_source_mode"] == (
+        "not_required_equal_reference_temperature"
+    )
+    constant = 240.0 if use_custom else 234.5
+    assert row["network_winding_i2r_temperature_correction_factor"] == pytest.approx(
+        (90.0 + constant) / (75.0 + constant)
+    )
+
+
 def test_heterogeneous_nonzero_osl_resolves_with_explicit_aggregate_proxy_only() -> None:
     values = _context(
         material="mixed_or_other_explicit",
@@ -538,6 +663,18 @@ def test_heterogeneous_nonzero_osl_resolves_with_explicit_aggregate_proxy_only()
     assert row["network_winding_temperature_constant_source_mode"] == ("standard_aluminium_225_c")
     assert row["collection_winding_resistance_temperature_constant_c"] == 234.5
     assert row["network_winding_resistance_temperature_constant_c"] == 225.0
+    assert row["collection_winding_i2r_temperature_correction_factor"] == pytest.approx(
+        (95.0 + 234.5) / (75.0 + 234.5)
+    )
+    assert row["network_winding_i2r_temperature_correction_factor"] == pytest.approx(
+        (84.0 + 225.0) / (75.0 + 225.0)
+    )
+    assert row["collection_winding_eddy_temperature_correction_factor"] == pytest.approx(
+        (75.0 + 234.5) / (95.0 + 234.5)
+    )
+    assert row["network_winding_eddy_temperature_correction_factor"] == pytest.approx(
+        (75.0 + 225.0) / (84.0 + 225.0)
+    )
 
 
 def test_heterogeneous_nonzero_osl_at_aggregate_reference_needs_no_proxy_constant() -> None:
