@@ -2,8 +2,9 @@
 
 S12K uses current loading, never real-power loading.  S12G supplies fundamental
 RMS current, S12I supplies total-RMS and harmonic multipliers, S12H decomposes
-the same factory P_LL represented by S12F/S12G, and S12J supplies average
-winding temperature.  The full S12K result replaces the S12G reference series
+the same factory P_LL represented by S12F/S12G, and S12J supplies scalar or
+winding-resolved average temperature evidence.  The full S12K result replaces
+the S12G reference series
 active loss; it is never additive.  The h**0.8 rule is harmonic-order weighting,
 not a temperature exponent.  Other-stray structural temperature is explicitly
 proxied by average winding temperature.  S12M owns later terminal reconciliation.
@@ -57,8 +58,8 @@ TRANSFORMER_CORRECTED_LOAD_LOSS_SCOPE = (
     "advanced_terminal_reconciliation_and_core_loss_correction"
 )
 TRANSFORMER_CORRECTED_LOAD_LOSS_COVERAGE_SCOPE = (
-    "resolved_s12g_transformers_with_explicit_advanced_or_positive_sequence_"
-    "series_loss_baseline_output_fidelity"
+    "resolved_s12g_transformers_with_scalar_or_winding_resolved_advanced_"
+    "temperature_correction_or_positive_sequence_series_loss_baseline_output_fidelity"
 )
 
 CURRENT_LOADING_SEMANTICS = "fundamental_and_total_rms_current_loading_not_real_power_loading"
@@ -77,6 +78,9 @@ OTHER_STRAY_TEMPERATURE_ASSUMPTION = (
 )
 ADVANCED_LOAD_LOSS_OWNERSHIP = "replacement_for_s12g_reference_series_active_loss_not_additive"
 S12D_OPERATING_LOSS_TREATMENT = "independent_reference_condition_baseline_not_consumed"
+WINDING_RESOLVED_TEMPERATURE_SEMANTICS = (
+    "explicit_side_temperature_and_factory_loss_allocation_without_cross_side_inference"
+)
 
 Confidence = Literal["high", "medium", "low", "unknown"]
 Conductor = Literal["copper", "aluminium", "mixed_or_other_explicit"]
@@ -102,6 +106,7 @@ _STATES = (
     "unresolved_nonfinite_corrected_transformer_load_loss",
     "resolved_harmonic_and_temperature_corrected_transformer_load_loss",
     "unresolved_winding_resolved_temperature_correction_basis_required",
+    "unresolved_missing_other_stray_temperature_proxy_basis",
 )
 
 
@@ -195,6 +200,13 @@ class TopologyTransformerCorrectedLoadLossDiagnostics:
     advanced_load_loss_correction_resolved_count: int
     s12g_load_loss_fallback_count: int
     deenergised_zero_output_count: int
+    winding_resolved_correction_basis_available_count: int
+    winding_resolved_correction_applied_count: int
+    legacy_scalar_correction_applied_count: int
+    winding_resolved_basis_missing_count: int
+    other_stray_proxy_basis_missing_count: int
+    zero_other_stray_no_proxy_required_count: int
+    aggregate_other_stray_proxy_applied_count: int
     state_counts: tuple[tuple[str, int], ...]
     model: str
 
@@ -232,6 +244,10 @@ _BOOL_COLUMNS = {
     "transformer_load_loss_output_resolved",
     "advanced_load_loss_correction_resolved",
     "s12g_load_loss_fallback_applied",
+    "s12h_winding_resolved_advanced_correction_basis_resolved",
+    "s12j_winding_resolved_temperature_basis_resolved",
+    "winding_resolved_temperature_correction_applied",
+    "other_stray_temperature_basis_resolved",
 }
 _NULLABLE_BOOL_COLUMNS = {"transformer_energised"}
 _FLOAT_COLUMNS = {
@@ -281,6 +297,26 @@ _FLOAT_COLUMNS = {
     "selected_fundamental_load_loss_w",
     "selected_harmonic_incremental_load_loss_w",
     "selected_total_load_loss_w",
+    "collection_winding_average_temperature_c",
+    "network_winding_average_temperature_c",
+    "collection_winding_resistance_temperature_constant_c",
+    "network_winding_resistance_temperature_constant_c",
+    "collection_winding_i2r_temperature_correction_factor",
+    "network_winding_i2r_temperature_correction_factor",
+    "collection_winding_eddy_temperature_correction_factor",
+    "network_winding_eddy_temperature_correction_factor",
+    "collection_winding_i2r_loss_reference_w",
+    "network_winding_i2r_loss_reference_w",
+    "collection_winding_eddy_current_loss_reference_w",
+    "network_winding_eddy_current_loss_reference_w",
+    "collection_winding_i2r_loss_fundamental_temperature_corrected_w",
+    "network_winding_i2r_loss_fundamental_temperature_corrected_w",
+    "collection_winding_i2r_loss_corrected_total_w",
+    "network_winding_i2r_loss_corrected_total_w",
+    "collection_winding_eddy_loss_fundamental_temperature_corrected_w",
+    "network_winding_eddy_loss_fundamental_temperature_corrected_w",
+    "collection_winding_eddy_loss_corrected_total_w",
+    "network_winding_eddy_loss_corrected_total_w",
 }
 _DEENERGISED_ZERO_COLUMNS = {
     "fundamental_operating_current_a",
@@ -317,6 +353,10 @@ _COLUMNS = (
     "s12i_harmonic_characterisation_resolved",
     "s12j_thermal_row_present",
     "s12j_load_loss_temperature_basis_resolved",
+    "s12h_winding_resolved_advanced_correction_basis_resolved",
+    "s12j_winding_resolved_temperature_basis_resolved",
+    "winding_resolved_temperature_correction_applied",
+    "temperature_correction_basis",
     "component_reference_side",
     "harmonic_reference_side",
     "operating_series_reference_side",
@@ -348,6 +388,16 @@ _COLUMNS = (
     "heterogeneous_winding_conductor_construction",
     "component_reference_temperature_c",
     "average_winding_temperature_c",
+    "collection_winding_average_temperature_c",
+    "network_winding_average_temperature_c",
+    "collection_winding_resistance_temperature_constant_c",
+    "network_winding_resistance_temperature_constant_c",
+    "collection_winding_temperature_constant_source_mode",
+    "network_winding_temperature_constant_source_mode",
+    "collection_winding_i2r_temperature_correction_factor",
+    "network_winding_i2r_temperature_correction_factor",
+    "collection_winding_eddy_temperature_correction_factor",
+    "network_winding_eddy_temperature_correction_factor",
     "resistance_temperature_constant_c",
     "resistance_temperature_constant_source_mode",
     "resistance_temperature_constant_parameter_source",
@@ -360,11 +410,17 @@ _COLUMNS = (
     "other_stray_temperature_semantics",
     "harmonic_other_stray_semantics",
     "other_stray_structural_temperature_proxy_applied",
+    "other_stray_temperature_basis_resolved",
+    "other_stray_temperature_basis_mode",
     "other_stray_temperature_assumption",
     "i2r_loss_reference_w",
     "winding_eddy_current_loss_reference_w",
     "other_stray_loss_reference_w",
     "factory_total_rated_load_loss_w",
+    "collection_winding_i2r_loss_reference_w",
+    "network_winding_i2r_loss_reference_w",
+    "collection_winding_eddy_current_loss_reference_w",
+    "network_winding_eddy_current_loss_reference_w",
     "effective_winding_ohmic_resistance_reference_ohm_per_phase",
     "effective_winding_ohmic_resistance_temperature_corrected_ohm_per_phase",
     "i2r_loss_fundamental_temperature_corrected_w",
@@ -373,6 +429,14 @@ _COLUMNS = (
     "winding_eddy_loss_fundamental_temperature_corrected_w",
     "winding_eddy_loss_harmonic_increment_w",
     "winding_eddy_loss_corrected_total_w",
+    "collection_winding_i2r_loss_fundamental_temperature_corrected_w",
+    "network_winding_i2r_loss_fundamental_temperature_corrected_w",
+    "collection_winding_i2r_loss_corrected_total_w",
+    "network_winding_i2r_loss_corrected_total_w",
+    "collection_winding_eddy_loss_fundamental_temperature_corrected_w",
+    "network_winding_eddy_loss_fundamental_temperature_corrected_w",
+    "collection_winding_eddy_loss_corrected_total_w",
+    "network_winding_eddy_loss_corrected_total_w",
     "other_stray_loss_fundamental_temperature_corrected_w",
     "other_stray_loss_harmonic_increment_w",
     "other_stray_loss_corrected_total_w",
@@ -395,6 +459,7 @@ _COLUMNS = (
     "terminal_voltage_recalculated",
     "series_equivalent_modified",
     "coupled_thermal_iteration_applied",
+    "winding_resolved_temperature_semantics",
     "transformer_corrected_load_loss_state",
     "load_loss_output_fidelity",
     "load_loss_fallback_reason",
@@ -536,6 +601,9 @@ def _base_record() -> dict[str, object]:
             "other_stray_temperature_assumption": OTHER_STRAY_TEMPERATURE_ASSUMPTION,
             "advanced_load_loss_ownership": ADVANCED_LOAD_LOSS_OWNERSHIP,
             "s12d_operating_loss_treatment": S12D_OPERATING_LOSS_TREATMENT,
+            "winding_resolved_temperature_semantics": WINDING_RESOLVED_TEMPERATURE_SEMANTICS,
+            "temperature_correction_basis": "unresolved",
+            "other_stray_temperature_basis_mode": "unresolved",
             "no_load_loss_included": False,
             "terminal_voltage_recalculated": False,
             "series_equivalent_modified": False,
@@ -575,6 +643,33 @@ def _finite(values: list[float]) -> bool:
     return all(math.isfinite(value) for value in values)
 
 
+def _winding_factor(
+    temperature: float,
+    reference_temperature: float,
+    material: str,
+    custom: TransformerWindingResistanceTemperatureConstantAuthority | None,
+    homogeneous: bool,
+) -> tuple[float, float | None, str]:
+    if temperature == reference_temperature:
+        return 1.0, None, "not_required_equal_reference_temperature"
+    constant: float | None = None
+    mode = "unresolved"
+    if homogeneous and custom is not None:
+        if custom.applicable_conductor_material != material:
+            raise ValueError("temperature constant material does not match S12H construction")
+        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
+    elif material == "copper":
+        constant, mode = 234.5, "standard_copper_234p5_c"
+    elif material == "aluminium":
+        constant, mode = 225.0, "standard_aluminium_225_c"
+    if constant is None:
+        return math.nan, None, mode
+    numerator = temperature + constant
+    denominator = reference_temperature + constant
+    factor = numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+    return factor, constant, mode
+
+
 def _record(
     timestamp: pd.Timestamp,
     identifier: str,
@@ -606,6 +701,9 @@ def _record(
     h_ok = bool(hrow["transformer_advanced_loss_basis_resolved"])
     i_ok = bool(irow["transformer_harmonic_current_characterisation_resolved"])
     j_ok = bool(jrow is not None and jrow["transformer_load_loss_temperature_basis_resolved"])
+    h_winding_ok = bool(hrow["winding_resolved_advanced_correction_basis_resolved"])
+    j_winding_ok = bool(jrow is not None and jrow["winding_resolved_temperature_basis_resolved"])
+    winding_path = h_winding_ok and j_winding_ok
     component_side = str(hrow["component_test_current_reference_side"])
     harmonic_side = str(irow["harmonic_current_reference_side"])
     operating_side = str(grow["series_equivalent_reference_side"]) if grow is not None else ""
@@ -627,6 +725,8 @@ def _record(
             "s12i_harmonic_characterisation_resolved": i_ok,
             "s12j_thermal_row_present": jrow is not None,
             "s12j_load_loss_temperature_basis_resolved": j_ok,
+            "s12h_winding_resolved_advanced_correction_basis_resolved": h_winding_ok,
+            "s12j_winding_resolved_temperature_basis_resolved": j_winding_ok,
             "component_reference_side": component_side,
             "harmonic_reference_side": harmonic_side,
             "operating_series_reference_side": operating_side,
@@ -670,12 +770,34 @@ def _record(
             "average_winding_temperature_c": float(jrow["average_winding_temperature_c"])
             if jrow is not None
             else math.nan,
+            "collection_winding_average_temperature_c": float(
+                jrow["collection_winding_average_temperature_c"]
+            )
+            if jrow is not None
+            else math.nan,
+            "network_winding_average_temperature_c": float(
+                jrow["network_winding_average_temperature_c"]
+            )
+            if jrow is not None
+            else math.nan,
             "i2r_loss_reference_w": float(hrow["i2r_loss_reference_w"]),
             "winding_eddy_current_loss_reference_w": float(
                 hrow["winding_eddy_current_loss_reference_w"]
             ),
             "other_stray_loss_reference_w": float(hrow["canonical_other_stray_loss_reference_w"]),
             "factory_total_rated_load_loss_w": float(hrow["s12b_rated_load_loss_w"]),
+            "collection_winding_i2r_loss_reference_w": float(
+                hrow["collection_winding_i2r_loss_reference_w"]
+            ),
+            "network_winding_i2r_loss_reference_w": float(
+                hrow["network_winding_i2r_loss_reference_w"]
+            ),
+            "collection_winding_eddy_current_loss_reference_w": float(
+                hrow["collection_winding_eddy_current_loss_reference_w"]
+            ),
+            "network_winding_eddy_current_loss_reference_w": float(
+                hrow["network_winding_eddy_current_loss_reference_w"]
+            ),
             "sum_current_ratio_squared": float(irow["sum_current_ratio_squared"]),
             "total_rms_to_fundamental_current_ratio": float(
                 irow["total_rms_current_to_fundamental_ratio"]
@@ -687,9 +809,7 @@ def _record(
             "s12h_factory_load_loss_evidence_fidelity": str(
                 hrow["factory_load_loss_evidence_fidelity"]
             ),
-            "s12h_factory_load_loss_evidence_kind": str(
-                hrow["factory_load_loss_evidence_kind"]
-            ),
+            "s12h_factory_load_loss_evidence_kind": str(hrow["factory_load_loss_evidence_kind"]),
         }
     )
     evidence_side = (
@@ -736,7 +856,7 @@ def _record(
         state = _STATES[8]
     elif jrow is None:
         state = _STATES[9]
-    elif not j_ok:
+    elif not (j_ok or winding_path):
         state = _STATES[10]
     else:
         material = construction.winding_conductor_material
@@ -747,36 +867,151 @@ def _record(
         )
         tref = float(hrow["component_reference_temperature_c"])
         tw = float(jrow["average_winding_temperature_c"])
-        tk: float | None
-        mode: str
-        if tw == tref:
-            tk, mode = None, "not_required_equal_reference_temperature"
-            kr = 1.0
-        elif heterogeneous:
-            tk, mode, kr = None, "winding_resolved_basis_required", math.nan
-        elif custom is not None:
-            if custom.applicable_conductor_material != material:
-                raise ValueError("temperature constant material does not match S12H construction")
-            tk, mode = custom.resistance_temperature_constant_c, "explicit_authority"
-            kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
-        elif material == "copper":
-            tk, mode = 234.5, "standard_copper_234p5_c"
-            kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
-        elif material == "aluminium":
-            tk, mode = 225.0, "standard_aluminium_225_c"
-            kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
+        pr = float(hrow["i2r_loss_reference_w"])
+        pec = float(hrow["winding_eddy_current_loss_reference_w"])
+        posl = float(hrow["canonical_other_stray_loss_reference_w"])
+        winding_values: tuple[float, ...] | None = None
+        if winding_path:
+            record["temperature_correction_basis"] = "winding_resolved"
+            collection_material = str(hrow["collection_winding_conductor_material"])
+            network_material = str(hrow["network_winding_conductor_material"])
+            homogeneous = collection_material == network_material
+            tc = float(jrow["collection_winding_average_temperature_c"])
+            tn = float(jrow["network_winding_average_temperature_c"])
+            krc, tkc, modec = _winding_factor(tc, tref, collection_material, custom, homogeneous)
+            krn, tkn, moden = _winding_factor(tn, tref, network_material, custom, homogeneous)
+            record.update(
+                {
+                    "collection_winding_temperature_constant_source_mode": modec,
+                    "network_winding_temperature_constant_source_mode": moden,
+                    "collection_winding_i2r_temperature_correction_factor": krc,
+                    "network_winding_i2r_temperature_correction_factor": krn,
+                    "collection_winding_eddy_temperature_correction_factor": 1.0 / krc
+                    if math.isfinite(krc) and krc > 0.0
+                    else math.nan,
+                    "network_winding_eddy_temperature_correction_factor": 1.0 / krn
+                    if math.isfinite(krn) and krn > 0.0
+                    else math.nan,
+                }
+            )
+            if tkc is not None:
+                record["collection_winding_resistance_temperature_constant_c"] = tkc
+            if tkn is not None:
+                record["network_winding_resistance_temperature_constant_c"] = tkn
+            if not _finite([krc, krn]) or krc <= 0.0 or krn <= 0.0:
+                state = _STATES[11] if not _finite([krc, krn]) else _STATES[12]
+            else:
+                prc = float(hrow["collection_winding_i2r_loss_reference_w"])
+                prn = float(hrow["network_winding_i2r_loss_reference_w"])
+                pecc = float(hrow["collection_winding_eddy_current_loss_reference_w"])
+                pecn = float(hrow["network_winding_eddy_current_loss_reference_w"])
+                corrected_i2r_ref = math.fsum([prc * krc, prn * krn])
+                corrected_eddy_ref = math.fsum([pecc / krc, pecn / krn])
+                kr = corrected_i2r_ref / pr if pr != 0.0 else 1.0
+                inv = corrected_eddy_ref / pec if pec != 0.0 else 1.0
+                winding_values = (prc, prn, pecc, pecn, krc, krn)
+                record.update(
+                    {
+                        "i2r_temperature_correction_factor": kr,
+                        "winding_eddy_temperature_correction_factor": inv,
+                    }
+                )
+                if posl == 0.0:
+                    osl_factor = 1.0
+                    osl_mode = "not_applicable_zero_other_stray"
+                    osl_proxy = False
+                elif math.isfinite(tw) and tw == tref:
+                    osl_factor = 1.0
+                    osl_mode = "not_required_equal_reference_temperature"
+                    osl_proxy = False
+                elif math.isfinite(tw) and not heterogeneous:
+                    osl_kr, _, osl_source = _winding_factor(tw, tref, material, custom, True)
+                    osl_factor = 1.0 / osl_kr if osl_kr > 0.0 else math.nan
+                    osl_mode = (
+                        "legacy_explicit_constant"
+                        if osl_source == "explicit_authority"
+                        else "legacy_homogeneous_standard_constant"
+                    )
+                    osl_proxy = True
+                elif (
+                    math.isfinite(tw)
+                    and custom is not None
+                    and custom.applicable_conductor_material == "mixed_or_other_explicit"
+                ):
+                    osl_kr = (tw + custom.resistance_temperature_constant_c) / (
+                        tref + custom.resistance_temperature_constant_c
+                    )
+                    osl_factor = 1.0 / osl_kr if osl_kr > 0.0 else math.nan
+                    osl_mode = "explicit_aggregate_mixed_structural_proxy"
+                    osl_proxy = True
+                else:
+                    osl_factor = math.nan
+                    osl_mode = "unresolved"
+                    osl_proxy = False
+                record.update(
+                    {
+                        "other_stray_temperature_correction_factor": osl_factor,
+                        "other_stray_temperature_basis_resolved": math.isfinite(osl_factor)
+                        and osl_factor > 0.0,
+                        "other_stray_temperature_basis_mode": osl_mode,
+                        "other_stray_structural_temperature_proxy_applied": osl_proxy,
+                    }
+                )
+                state = (
+                    _STATES[17]
+                    if not bool(record["other_stray_temperature_basis_resolved"])
+                    else ""
+                )
         else:
-            tk, mode, kr = None, "unresolved", math.nan
-        record["resistance_temperature_constant_source_mode"] = mode
-        if tk is not None:
-            record["resistance_temperature_constant_c"] = tk
-        if heterogeneous and tw != tref:
-            state = "unresolved_winding_resolved_temperature_correction_basis_required"
-        elif material == "mixed_or_other_explicit" and tk is None and tw != tref:
-            state = _STATES[11]
-        elif not math.isfinite(kr) or kr <= 0.0:
-            state = _STATES[12]
-        else:
+            record["temperature_correction_basis"] = "legacy_transformer_average"
+            tk: float | None
+            mode: str
+            if tw == tref:
+                tk, mode, kr = None, "not_required_equal_reference_temperature", 1.0
+            elif heterogeneous:
+                tk, mode, kr = None, "winding_resolved_basis_required", math.nan
+            elif custom is not None:
+                if custom.applicable_conductor_material != material:
+                    raise ValueError(
+                        "temperature constant material does not match S12H construction"
+                    )
+                tk, mode = custom.resistance_temperature_constant_c, "explicit_authority"
+                kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
+            elif material == "copper":
+                tk, mode = 234.5, "standard_copper_234p5_c"
+                kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
+            elif material == "aluminium":
+                tk, mode = 225.0, "standard_aluminium_225_c"
+                kr = (tw + tk) / (tref + tk) if tref + tk > 0 and tw + tk > 0 else math.nan
+            else:
+                tk, mode, kr = None, "unresolved", math.nan
+            record["resistance_temperature_constant_source_mode"] = mode
+            if tk is not None:
+                record["resistance_temperature_constant_c"] = tk
+            inv = 1.0 / kr if math.isfinite(kr) and kr > 0.0 else math.nan
+            record.update(
+                {
+                    "other_stray_temperature_correction_factor": inv,
+                    "other_stray_temperature_basis_resolved": math.isfinite(inv) and inv > 0.0,
+                    "other_stray_temperature_basis_mode": (
+                        "not_required_equal_reference_temperature"
+                        if tw == tref
+                        else "legacy_explicit_constant"
+                        if mode == "explicit_authority"
+                        else "legacy_homogeneous_standard_constant"
+                    ),
+                    "other_stray_structural_temperature_proxy_applied": True,
+                }
+            )
+            if heterogeneous and tw != tref:
+                state = "unresolved_winding_resolved_temperature_correction_basis_required"
+            elif material == "mixed_or_other_explicit" and tk is None and tw != tref:
+                state = _STATES[11]
+            elif not math.isfinite(kr) or kr <= 0.0:
+                state = _STATES[12]
+            else:
+                state = ""
+        if state == "":
             try:
                 rated_v = (
                     equipment.collection_side_rated_line_to_line_rms_v
@@ -793,20 +1028,20 @@ def _record(
                 rms_factor = float(irow["total_rms_current_to_fundamental_ratio"])
                 beta_rms = beta1 * rms_factor
                 total_i = i1 * rms_factor
-                pr = float(hrow["i2r_loss_reference_w"])
-                pec = float(hrow["winding_eddy_current_loss_reference_w"])
-                posl = float(hrow["canonical_other_stray_loss_reference_w"])
                 fec = float(irow["winding_eddy_harmonic_loss_factor"])
                 fosl = float(irow["other_stray_harmonic_loss_factor"])
                 b1sq = beta1 * beta1
                 brsq = beta_rms * beta_rms
-                inv = 1.0 / kr
+                osl_factor_value = record["other_stray_temperature_correction_factor"]
+                if not isinstance(osl_factor_value, Real):
+                    raise ValueError("other-stray temperature factor is not numeric")
+                osl_factor = float(osl_factor_value)
                 i2r_f = b1sq * pr * kr
                 ec_f = b1sq * pec * inv
-                osl_f = b1sq * posl * inv
+                osl_f = b1sq * posl * osl_factor
                 i2r_t = brsq * pr * kr
                 ec_t = brsq * pec * fec * inv
-                osl_t = brsq * posl * fosl * inv
+                osl_t = brsq * posl * fosl * osl_factor
                 i2r_h = i2r_t - i2r_f
                 ec_h = ec_t - ec_f
                 osl_h = osl_t - osl_f
@@ -821,6 +1056,27 @@ def _record(
                 decomposition = temp_effect + harmonic - correction
                 rref = pr / (3.0 * irated * irated)
                 rt = rref * kr
+                side_values: dict[str, float] = {}
+                if winding_values is not None:
+                    prc, prn, pecc, pecn, krc, krn = winding_values
+                    side_values = {
+                        "collection_winding_i2r_loss_fundamental_temperature_corrected_w": b1sq
+                        * prc
+                        * krc,
+                        "network_winding_i2r_loss_fundamental_temperature_corrected_w": b1sq
+                        * prn
+                        * krn,
+                        "collection_winding_i2r_loss_corrected_total_w": brsq * prc * krc,
+                        "network_winding_i2r_loss_corrected_total_w": brsq * prn * krn,
+                        "collection_winding_eddy_loss_fundamental_temperature_corrected_w": b1sq
+                        * pecc
+                        / krc,
+                        "network_winding_eddy_loss_fundamental_temperature_corrected_w": b1sq
+                        * pecn
+                        / krn,
+                        "collection_winding_eddy_loss_corrected_total_w": brsq * pecc * fec / krc,
+                        "network_winding_eddy_loss_corrected_total_w": brsq * pecn * fec / krn,
+                    }
                 numbers = [
                     irated,
                     i1,
@@ -864,8 +1120,6 @@ def _record(
                         "total_rms_current_loading_ratio": beta_rms,
                         "i2r_temperature_correction_factor": kr,
                         "winding_eddy_temperature_correction_factor": inv,
-                        "other_stray_temperature_correction_factor": inv,
-                        "other_stray_structural_temperature_proxy_applied": True,
                         "effective_winding_ohmic_resistance_reference_ohm_per_phase": rref,
                         "effective_winding_ohmic_resistance_temperature_corrected_ohm_per_phase": (
                             rt
@@ -888,6 +1142,7 @@ def _record(
                         "harmonic_and_temperature_corrected_load_loss_w": advanced,
                         "advanced_correction_vs_s12g_w": correction,
                         "advanced_correction_decomposition_residual_w": decomposition,
+                        **side_values,
                     }
                 )
                 state = (
@@ -896,9 +1151,12 @@ def _record(
                     else _STATES[15]
                 )
     record["transformer_corrected_load_loss_state"] = state
+    if state == _STATES[15] and record["temperature_correction_basis"] == "winding_resolved":
+        record["winding_resolved_temperature_correction_applied"] = True
     if state == _STATES[2]:
         record.update(
             {
+                "temperature_correction_basis": "not_applicable_deenergised",
                 "transformer_load_loss_output_resolved": True,
                 "advanced_load_loss_correction_resolved": False,
                 "s12g_load_loss_fallback_applied": False,
@@ -1030,9 +1288,48 @@ def _diagnostics(
         count("advanced_load_loss_correction_resolved"),
         count("s12g_load_loss_fallback_applied"),
         int((frame["load_loss_output_fidelity"] == "deenergised_zero").sum()),
+        count("s12h_winding_resolved_advanced_correction_basis_resolved"),
+        count("winding_resolved_temperature_correction_applied"),
+        int((frame["temperature_correction_basis"] == "legacy_transformer_average").sum()),
+        int(
+            (
+                frame["s12h_winding_resolved_advanced_correction_basis_resolved"]
+                & ~frame["s12j_winding_resolved_temperature_basis_resolved"]
+            ).sum()
+        ),
+        int((state == _STATES[17]).sum()),
+        int(
+            (frame["other_stray_temperature_basis_mode"] == "not_applicable_zero_other_stray").sum()
+        ),
+        count("other_stray_structural_temperature_proxy_applied"),
         tuple((name, int((state == name).sum())) for name in _STATES),
         TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,
     )
+
+
+def _validator_side_factor(
+    temperature: float,
+    reference_temperature: float,
+    material: str,
+    custom: TransformerWindingResistanceTemperatureConstantAuthority | None,
+    homogeneous: bool,
+) -> tuple[float, float | None, str]:
+    if temperature == reference_temperature:
+        return 1.0, None, "not_required_equal_reference_temperature"
+    if custom is not None and homogeneous:
+        if material != custom.applicable_conductor_material:
+            raise ValueError("temperature constant material does not match S12H construction")
+        constant, mode = custom.resistance_temperature_constant_c, "explicit_authority"
+    elif material == "copper":
+        constant, mode = 234.5, "standard_copper_234p5_c"
+    elif material == "aluminium":
+        constant, mode = 225.0, "standard_aluminium_225_c"
+    else:
+        return math.nan, None, "unresolved"
+    numerator = temperature + constant
+    denominator = reference_temperature + constant
+    factor = numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+    return factor, constant, mode
 
 
 def _validator_record(
@@ -1080,6 +1377,9 @@ def _validator_record(
             "other_stray_temperature_assumption": OTHER_STRAY_TEMPERATURE_ASSUMPTION,
             "advanced_load_loss_ownership": ADVANCED_LOAD_LOSS_OWNERSHIP,
             "s12d_operating_loss_treatment": S12D_OPERATING_LOSS_TREATMENT,
+            "winding_resolved_temperature_semantics": WINDING_RESOLVED_TEMPERATURE_SEMANTICS,
+            "temperature_correction_basis": "unresolved",
+            "other_stray_temperature_basis_mode": "unresolved",
             "no_load_loss_included": False,
             "terminal_voltage_recalculated": False,
             "series_equivalent_modified": False,
@@ -1127,6 +1427,11 @@ def _validator_record(
     j_resolved = bool(
         j_row is not None and j_row["transformer_load_loss_temperature_basis_resolved"]
     )
+    h_winding_resolved = bool(h_row["winding_resolved_advanced_correction_basis_resolved"])
+    j_winding_resolved = bool(
+        j_row is not None and j_row["winding_resolved_temperature_basis_resolved"]
+    )
+    winding_path = h_winding_resolved and j_winding_resolved
     component_side = str(h_row["component_test_current_reference_side"])
     harmonic_side = str(i_row["harmonic_current_reference_side"])
     operating_side = str(g_row["series_equivalent_reference_side"]) if g_row is not None else ""
@@ -1168,6 +1473,8 @@ def _validator_record(
             "s12i_harmonic_characterisation_resolved": i_resolved,
             "s12j_thermal_row_present": j_row is not None,
             "s12j_load_loss_temperature_basis_resolved": j_resolved,
+            "s12h_winding_resolved_advanced_correction_basis_resolved": h_winding_resolved,
+            "s12j_winding_resolved_temperature_basis_resolved": j_winding_resolved,
             "component_reference_side": component_side,
             "harmonic_reference_side": harmonic_side,
             "operating_series_reference_side": operating_side,
@@ -1207,12 +1514,34 @@ def _validator_record(
             "average_winding_temperature_c": (
                 float(j_row["average_winding_temperature_c"]) if j_row is not None else math.nan
             ),
+            "collection_winding_average_temperature_c": (
+                float(j_row["collection_winding_average_temperature_c"])
+                if j_row is not None
+                else math.nan
+            ),
+            "network_winding_average_temperature_c": (
+                float(j_row["network_winding_average_temperature_c"])
+                if j_row is not None
+                else math.nan
+            ),
             "i2r_loss_reference_w": float(h_row["i2r_loss_reference_w"]),
             "winding_eddy_current_loss_reference_w": float(
                 h_row["winding_eddy_current_loss_reference_w"]
             ),
             "other_stray_loss_reference_w": float(h_row["canonical_other_stray_loss_reference_w"]),
             "factory_total_rated_load_loss_w": float(h_row["s12b_rated_load_loss_w"]),
+            "collection_winding_i2r_loss_reference_w": float(
+                h_row["collection_winding_i2r_loss_reference_w"]
+            ),
+            "network_winding_i2r_loss_reference_w": float(
+                h_row["network_winding_i2r_loss_reference_w"]
+            ),
+            "collection_winding_eddy_current_loss_reference_w": float(
+                h_row["collection_winding_eddy_current_loss_reference_w"]
+            ),
+            "network_winding_eddy_current_loss_reference_w": float(
+                h_row["network_winding_eddy_current_loss_reference_w"]
+            ),
             "sum_current_ratio_squared": float(i_row["sum_current_ratio_squared"]),
             "total_rms_to_fundamental_current_ratio": float(
                 i_row["total_rms_current_to_fundamental_ratio"]
@@ -1224,9 +1553,7 @@ def _validator_record(
             "s12h_factory_load_loss_evidence_fidelity": str(
                 h_row["factory_load_loss_evidence_fidelity"]
             ),
-            "s12h_factory_load_loss_evidence_kind": str(
-                h_row["factory_load_loss_evidence_kind"]
-            ),
+            "s12h_factory_load_loss_evidence_kind": str(h_row["factory_load_loss_evidence_kind"]),
         }
     )
     if custom is not None:
@@ -1261,7 +1588,7 @@ def _validator_record(
         primary = _STATES[8]
     elif j_row is None:
         primary = _STATES[9]
-    elif not j_resolved:
+    elif not (j_resolved or winding_path):
         primary = _STATES[10]
     else:
         material = construction.winding_conductor_material
@@ -1272,58 +1599,210 @@ def _validator_record(
         )
         reference_temperature = float(h_row["component_reference_temperature_c"])
         winding_temperature = float(j_row["average_winding_temperature_c"])
-        constant: float | None
-        if winding_temperature == reference_temperature:
-            constant = None
-            source_mode = "not_required_equal_reference_temperature"
-            resistance_factor = 1.0
-        elif heterogeneous:
-            constant = None
-            source_mode = "winding_resolved_basis_required"
-            resistance_factor = math.nan
-        elif custom is not None:
-            constant = custom.resistance_temperature_constant_c
-            source_mode = "explicit_authority"
-            numerator = winding_temperature + constant
-            denominator = reference_temperature + constant
-            resistance_factor = (
-                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+        i2r_reference = float(h_row["i2r_loss_reference_w"])
+        eddy_reference = float(h_row["winding_eddy_current_loss_reference_w"])
+        stray_reference = float(h_row["canonical_other_stray_loss_reference_w"])
+        validator_winding_values: tuple[float, ...] | None = None
+        if winding_path:
+            expected["temperature_correction_basis"] = "winding_resolved"
+            collection_material = str(h_row["collection_winding_conductor_material"])
+            network_material = str(h_row["network_winding_conductor_material"])
+            homogeneous = collection_material == network_material
+            collection_temperature = float(j_row["collection_winding_average_temperature_c"])
+            network_temperature = float(j_row["network_winding_average_temperature_c"])
+            collection_factor, collection_constant, collection_mode = _validator_side_factor(
+                collection_temperature,
+                reference_temperature,
+                collection_material,
+                custom,
+                homogeneous,
             )
-        elif material == "copper":
-            constant = 234.5
-            source_mode = "standard_copper_234p5_c"
-            numerator = winding_temperature + constant
-            denominator = reference_temperature + constant
-            resistance_factor = (
-                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+            network_factor, network_constant, network_mode = _validator_side_factor(
+                network_temperature,
+                reference_temperature,
+                network_material,
+                custom,
+                homogeneous,
             )
-        elif material == "aluminium":
-            constant = 225.0
-            source_mode = "standard_aluminium_225_c"
-            numerator = winding_temperature + constant
-            denominator = reference_temperature + constant
-            resistance_factor = (
-                numerator / denominator if numerator > 0.0 and denominator > 0.0 else math.nan
+            expected.update(
+                {
+                    "collection_winding_temperature_constant_source_mode": collection_mode,
+                    "network_winding_temperature_constant_source_mode": network_mode,
+                    "collection_winding_i2r_temperature_correction_factor": collection_factor,
+                    "network_winding_i2r_temperature_correction_factor": network_factor,
+                    "collection_winding_eddy_temperature_correction_factor": (
+                        1.0 / collection_factor
+                        if math.isfinite(collection_factor) and collection_factor > 0.0
+                        else math.nan
+                    ),
+                    "network_winding_eddy_temperature_correction_factor": (
+                        1.0 / network_factor
+                        if math.isfinite(network_factor) and network_factor > 0.0
+                        else math.nan
+                    ),
+                }
             )
+            if collection_constant is not None:
+                expected["collection_winding_resistance_temperature_constant_c"] = (
+                    collection_constant
+                )
+            if network_constant is not None:
+                expected["network_winding_resistance_temperature_constant_c"] = network_constant
+            if not all(math.isfinite(x) for x in (collection_factor, network_factor)):
+                primary = _STATES[11]
+            elif collection_factor <= 0.0 or network_factor <= 0.0:
+                primary = _STATES[12]
+            else:
+                collection_i2r = float(h_row["collection_winding_i2r_loss_reference_w"])
+                network_i2r = float(h_row["network_winding_i2r_loss_reference_w"])
+                collection_eddy = float(h_row["collection_winding_eddy_current_loss_reference_w"])
+                network_eddy = float(h_row["network_winding_eddy_current_loss_reference_w"])
+                corrected_i2r = math.fsum(
+                    [collection_i2r * collection_factor, network_i2r * network_factor]
+                )
+                corrected_eddy = math.fsum(
+                    [collection_eddy / collection_factor, network_eddy / network_factor]
+                )
+                resistance_factor = corrected_i2r / i2r_reference if i2r_reference else 1.0
+                inverse_factor = corrected_eddy / eddy_reference if eddy_reference else 1.0
+                validator_winding_values = (
+                    collection_i2r,
+                    network_i2r,
+                    collection_eddy,
+                    network_eddy,
+                    collection_factor,
+                    network_factor,
+                )
+                expected.update(
+                    {
+                        "i2r_temperature_correction_factor": resistance_factor,
+                        "winding_eddy_temperature_correction_factor": inverse_factor,
+                    }
+                )
+                if stray_reference == 0.0:
+                    stray_factor, stray_mode, stray_proxy = (
+                        1.0,
+                        "not_applicable_zero_other_stray",
+                        False,
+                    )
+                elif (
+                    math.isfinite(winding_temperature)
+                    and winding_temperature == reference_temperature
+                ):
+                    stray_factor, stray_mode, stray_proxy = (
+                        1.0,
+                        "not_required_equal_reference_temperature",
+                        False,
+                    )
+                elif math.isfinite(winding_temperature) and not heterogeneous:
+                    proxy_factor, _, proxy_mode = _validator_side_factor(
+                        winding_temperature, reference_temperature, material, custom, True
+                    )
+                    stray_factor = 1.0 / proxy_factor if proxy_factor > 0.0 else math.nan
+                    stray_mode = (
+                        "legacy_explicit_constant"
+                        if proxy_mode == "explicit_authority"
+                        else "legacy_homogeneous_standard_constant"
+                    )
+                    stray_proxy = True
+                elif (
+                    math.isfinite(winding_temperature)
+                    and custom is not None
+                    and custom.applicable_conductor_material == "mixed_or_other_explicit"
+                ):
+                    proxy_factor = (
+                        winding_temperature + custom.resistance_temperature_constant_c
+                    ) / (reference_temperature + custom.resistance_temperature_constant_c)
+                    stray_factor = 1.0 / proxy_factor if proxy_factor > 0.0 else math.nan
+                    stray_mode = "explicit_aggregate_mixed_structural_proxy"
+                    stray_proxy = True
+                else:
+                    stray_factor, stray_mode, stray_proxy = math.nan, "unresolved", False
+                expected.update(
+                    {
+                        "other_stray_temperature_correction_factor": stray_factor,
+                        "other_stray_temperature_basis_resolved": math.isfinite(stray_factor)
+                        and stray_factor > 0.0,
+                        "other_stray_temperature_basis_mode": stray_mode,
+                        "other_stray_structural_temperature_proxy_applied": stray_proxy,
+                    }
+                )
+                primary = (
+                    _STATES[17]
+                    if not bool(expected["other_stray_temperature_basis_resolved"])
+                    else ""
+                )
         else:
-            constant = None
-            source_mode = "unresolved"
-            resistance_factor = math.nan
-        expected["resistance_temperature_constant_source_mode"] = source_mode
-        if constant is not None:
-            expected["resistance_temperature_constant_c"] = constant
-
-        if heterogeneous and winding_temperature != reference_temperature:
-            primary = "unresolved_winding_resolved_temperature_correction_basis_required"
-        elif (
-            material == "mixed_or_other_explicit"
-            and constant is None
-            and (winding_temperature != reference_temperature)
-        ):
-            primary = _STATES[11]
-        elif not math.isfinite(resistance_factor) or resistance_factor <= 0.0:
-            primary = _STATES[12]
-        else:
+            expected["temperature_correction_basis"] = "legacy_transformer_average"
+            constant: float | None
+            if winding_temperature == reference_temperature:
+                constant, source_mode, resistance_factor = (
+                    None,
+                    "not_required_equal_reference_temperature",
+                    1.0,
+                )
+            elif heterogeneous:
+                constant, source_mode, resistance_factor = (
+                    None,
+                    "winding_resolved_basis_required",
+                    math.nan,
+                )
+            elif custom is not None:
+                constant, source_mode = (
+                    custom.resistance_temperature_constant_c,
+                    "explicit_authority",
+                )
+                resistance_factor = (winding_temperature + constant) / (
+                    reference_temperature + constant
+                )
+            elif material == "copper":
+                constant, source_mode = 234.5, "standard_copper_234p5_c"
+                resistance_factor = (winding_temperature + constant) / (
+                    reference_temperature + constant
+                )
+            elif material == "aluminium":
+                constant, source_mode = 225.0, "standard_aluminium_225_c"
+                resistance_factor = (winding_temperature + constant) / (
+                    reference_temperature + constant
+                )
+            else:
+                constant, source_mode, resistance_factor = None, "unresolved", math.nan
+            expected["resistance_temperature_constant_source_mode"] = source_mode
+            if constant is not None:
+                expected["resistance_temperature_constant_c"] = constant
+            inverse_factor = (
+                1.0 / resistance_factor
+                if math.isfinite(resistance_factor) and resistance_factor > 0.0
+                else math.nan
+            )
+            expected.update(
+                {
+                    "other_stray_temperature_correction_factor": inverse_factor,
+                    "other_stray_temperature_basis_resolved": math.isfinite(inverse_factor)
+                    and inverse_factor > 0.0,
+                    "other_stray_temperature_basis_mode": (
+                        "not_required_equal_reference_temperature"
+                        if winding_temperature == reference_temperature
+                        else "legacy_explicit_constant"
+                        if source_mode == "explicit_authority"
+                        else "legacy_homogeneous_standard_constant"
+                    ),
+                    "other_stray_structural_temperature_proxy_applied": True,
+                }
+            )
+            if heterogeneous and winding_temperature != reference_temperature:
+                primary = "unresolved_winding_resolved_temperature_correction_basis_required"
+            elif (
+                material == "mixed_or_other_explicit"
+                and constant is None
+                and winding_temperature != reference_temperature
+            ):
+                primary = _STATES[11]
+            elif not math.isfinite(resistance_factor) or resistance_factor <= 0.0:
+                primary = _STATES[12]
+            else:
+                primary = ""
+        if primary == "":
             try:
                 rated_voltage = (
                     equipment.collection_side_rated_line_to_line_rms_v
@@ -1342,21 +1821,21 @@ def _validator_record(
                 beta_total = beta_fundamental * rms_multiplier
                 beta_fundamental_squared = beta_fundamental * beta_fundamental
                 beta_total_squared = beta_total * beta_total
-                inverse_factor = 1.0 / resistance_factor
-                i2r_reference = float(h_row["i2r_loss_reference_w"])
-                eddy_reference = float(h_row["winding_eddy_current_loss_reference_w"])
-                stray_reference = float(h_row["canonical_other_stray_loss_reference_w"])
                 eddy_harmonic_factor = float(i_row["winding_eddy_harmonic_loss_factor"])
                 stray_harmonic_factor = float(i_row["other_stray_harmonic_loss_factor"])
+                stray_factor_value = expected["other_stray_temperature_correction_factor"]
+                if not isinstance(stray_factor_value, Real):
+                    raise ValueError("other-stray temperature factor is not numeric")
+                stray_factor = float(stray_factor_value)
                 i2r_fundamental = beta_fundamental_squared * i2r_reference * resistance_factor
                 eddy_fundamental = beta_fundamental_squared * eddy_reference * inverse_factor
-                stray_fundamental = beta_fundamental_squared * stray_reference * inverse_factor
+                stray_fundamental = beta_fundamental_squared * stray_reference * stray_factor
                 i2r_total = beta_total_squared * i2r_reference * resistance_factor
                 eddy_total = (
                     beta_total_squared * eddy_reference * eddy_harmonic_factor * inverse_factor
                 )
                 stray_total = (
-                    beta_total_squared * stray_reference * stray_harmonic_factor * inverse_factor
+                    beta_total_squared * stray_reference * stray_harmonic_factor * stray_factor
                 )
                 i2r_increment = i2r_total - i2r_fundamental
                 eddy_increment = eddy_total - eddy_fundamental
@@ -1376,6 +1855,35 @@ def _validator_record(
                 effect_residual = temperature_effect + harmonic_effect - advanced_effect
                 resistance_reference = i2r_reference / (3.0 * rated_current * rated_current)
                 resistance_temperature = resistance_reference * resistance_factor
+                validator_side_values: dict[str, float] = {}
+                if validator_winding_values is not None:
+                    ci2r, ni2r, ceddy, neddy, cfactor, nfactor = validator_winding_values
+                    validator_side_values = {
+                        "collection_winding_i2r_loss_fundamental_temperature_corrected_w": (
+                            beta_fundamental_squared * ci2r * cfactor
+                        ),
+                        "network_winding_i2r_loss_fundamental_temperature_corrected_w": (
+                            beta_fundamental_squared * ni2r * nfactor
+                        ),
+                        "collection_winding_i2r_loss_corrected_total_w": (
+                            beta_total_squared * ci2r * cfactor
+                        ),
+                        "network_winding_i2r_loss_corrected_total_w": (
+                            beta_total_squared * ni2r * nfactor
+                        ),
+                        "collection_winding_eddy_loss_fundamental_temperature_corrected_w": (
+                            beta_fundamental_squared * ceddy / cfactor
+                        ),
+                        "network_winding_eddy_loss_fundamental_temperature_corrected_w": (
+                            beta_fundamental_squared * neddy / nfactor
+                        ),
+                        "collection_winding_eddy_loss_corrected_total_w": (
+                            beta_total_squared * ceddy * eddy_harmonic_factor / cfactor
+                        ),
+                        "network_winding_eddy_loss_corrected_total_w": (
+                            beta_total_squared * neddy * eddy_harmonic_factor / nfactor
+                        ),
+                    }
                 derived = [
                     rated_current,
                     fundamental_current,
@@ -1419,8 +1927,6 @@ def _validator_record(
                         "total_rms_current_loading_ratio": beta_total,
                         "i2r_temperature_correction_factor": resistance_factor,
                         "winding_eddy_temperature_correction_factor": inverse_factor,
-                        "other_stray_temperature_correction_factor": inverse_factor,
-                        "other_stray_structural_temperature_proxy_applied": True,
                         "effective_winding_ohmic_resistance_reference_ohm_per_phase": (
                             resistance_reference
                         ),
@@ -1445,6 +1951,7 @@ def _validator_record(
                         "harmonic_and_temperature_corrected_load_loss_w": advanced_total,
                         "advanced_correction_vs_s12g_w": advanced_effect,
                         "advanced_correction_decomposition_residual_w": effect_residual,
+                        **validator_side_values,
                     }
                 )
                 primary = (
@@ -1455,9 +1962,12 @@ def _validator_record(
                     else _STATES[15]
                 )
     expected["transformer_corrected_load_loss_state"] = primary
+    if primary == _STATES[15] and expected["temperature_correction_basis"] == "winding_resolved":
+        expected["winding_resolved_temperature_correction_applied"] = True
     if primary == _STATES[2]:
         expected.update(
             {
+                "temperature_correction_basis": "not_applicable_deenergised",
                 "transformer_load_loss_output_resolved": True,
                 "advanced_load_loss_correction_resolved": False,
                 "s12g_load_loss_fallback_applied": False,
@@ -1601,6 +2111,28 @@ def _validator_diagnostics(
         s12g_load_loss_fallback_count=true_count("s12g_load_loss_fallback_applied"),
         deenergised_zero_output_count=int(
             (frame["load_loss_output_fidelity"] == "deenergised_zero").sum()
+        ),
+        winding_resolved_correction_basis_available_count=true_count(
+            "s12h_winding_resolved_advanced_correction_basis_resolved"
+        ),
+        winding_resolved_correction_applied_count=true_count(
+            "winding_resolved_temperature_correction_applied"
+        ),
+        legacy_scalar_correction_applied_count=int(
+            (frame["temperature_correction_basis"] == "legacy_transformer_average").sum()
+        ),
+        winding_resolved_basis_missing_count=int(
+            (
+                frame["s12h_winding_resolved_advanced_correction_basis_resolved"]
+                & ~frame["s12j_winding_resolved_temperature_basis_resolved"]
+            ).sum()
+        ),
+        other_stray_proxy_basis_missing_count=int((states == _STATES[17]).sum()),
+        zero_other_stray_no_proxy_required_count=int(
+            (frame["other_stray_temperature_basis_mode"] == "not_applicable_zero_other_stray").sum()
+        ),
+        aggregate_other_stray_proxy_applied_count=true_count(
+            "other_stray_structural_temperature_proxy_applied"
         ),
         state_counts=tuple((name, int((states == name).sum())) for name in _STATES),
         model=TRANSFORMER_CORRECTED_LOAD_LOSS_MODEL_ID,

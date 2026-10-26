@@ -51,6 +51,11 @@ def _context(
     advanced_core: bool = False,
     energised: bool | None = True,
     aggregate_evidence: bool = False,
+    material: str = "copper",
+    winding_materials: tuple[str, str] | None = None,
+    winding_temperatures: tuple[float, float] | None = None,
+    other_stray_w: float = 1500.0,
+    rated_load_w: float = 5000.0,
 ) -> dict[str, Any]:
     """Build replay-consistent G/K/L parents while retaining upstream helpers."""
     original_inputs = ksupport._inputs  # type: ignore[attr-defined]
@@ -69,6 +74,11 @@ def _context(
             ratios=ratios,
             energised=energised,
             aggregate_evidence=aggregate_evidence,
+            material=material,
+            winding_materials=winding_materials,
+            winding_temperatures=winding_temperatures,
+            other_stray_w=other_stray_w,
+            rated_load_w=rated_load_w,
         )
     finally:
         ksupport._inputs = original_inputs  # type: ignore[attr-defined]
@@ -122,6 +132,44 @@ def test_factory_reference_identity_reproduces_s12g_without_double_counting() ->
     assert row["p_selected_load_loss_w"] == row["p_advanced_load_loss_w"]
     assert row["coupled_selected_load_loss_w"] == row["coupled_advanced_load_loss_w"]
     assert row["terminal_solution_fidelity"] == "coupled_advanced_load_loss"
+
+
+def test_winding_resolved_effective_factors_flow_through_s12m_unchanged() -> None:
+    values = _context(
+        material="mixed_or_other_explicit",
+        winding_materials=("copper", "aluminium"),
+        winding_temperature=75.0,
+        winding_temperatures=(95.0, 85.0),
+        other_stray_w=0.0,
+        rated_load_w=3500.0,
+    )
+    krow = values["transformer_corrected_load_loss"].states.iloc[0]
+    result = calculate_topology_transformer_advanced_operating_solution(**values)
+    row = result.states.iloc[0]
+    assert krow["temperature_correction_basis"] == "winding_resolved"
+    assert krow["advanced_load_loss_correction_resolved"]
+    assert row["transformer_advanced_operating_solution_state"] == (
+        "resolved_coupled_advanced_transformer_terminal_solution"
+    )
+    assert row["terminal_solution_fidelity"] == "coupled_advanced_load_loss"
+    assert row["s12k_advanced_load_loss_correction_resolved"]
+    assert krow["i2r_loss_reference_w"] * krow["i2r_temperature_correction_factor"] == (
+        pytest.approx(
+            krow["collection_winding_i2r_loss_reference_w"]
+            * krow["collection_winding_i2r_temperature_correction_factor"]
+            + krow["network_winding_i2r_loss_reference_w"]
+            * krow["network_winding_i2r_temperature_correction_factor"]
+        )
+    )
+    assert (
+        krow["winding_eddy_current_loss_reference_w"]
+        * krow["winding_eddy_temperature_correction_factor"]
+    ) == pytest.approx(
+        krow["collection_winding_eddy_current_loss_reference_w"]
+        * krow["collection_winding_eddy_temperature_correction_factor"]
+        + krow["network_winding_eddy_current_loss_reference_w"]
+        * krow["network_winding_eddy_temperature_correction_factor"]
+    )
 
 
 @pytest.mark.parametrize("advanced_core", [False, True])
@@ -190,9 +238,7 @@ def test_full_s12g_load_and_no_load_fallback_reproduces_s12g_terminal_solution()
     assert row["p_fundamental_series_active_loss_w"] == pytest.approx(
         baseline["p_series_active_loss_w"]
     )
-    assert row["p_no_load_active_loss_w"] == pytest.approx(
-        baseline["p_no_load_active_sink_w"]
-    )
+    assert row["p_no_load_active_loss_w"] == pytest.approx(baseline["p_no_load_active_sink_w"])
     assert row["p_total_transformer_active_loss_w"] == pytest.approx(
         baseline["p_total_transformer_active_loss_w"]
     )
