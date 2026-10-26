@@ -106,32 +106,27 @@ physical mismatch
 branch-resistance authority
 branch-transformed I-V
 MPPT-input common-voltage DC state
-inverter equipment authority
-inverter DC envelope state
-Sandia AC available power
-Sandia pre-Paco AC potential
-conversion / clipping / tare accounting
-static inverter AC capability authority
-timestamped inverter P/Q/S capability-state evaluation
-static inverter thermal-derating authority
-temperature-dependent inverter capability evaluation
-explicit inverter active-power dispatch-request authority
-requested inverter P/Q/S feasibility evaluation
-selected inverter AC P/Q/S state
+inverter authority / envelope / conversion / accounting
+static + thermal inverter capability
+explicit dispatch request / feasibility / selection
 static LV collection topology and direct per-phase R+jX authority
-timestamped collection-exit line-to-line RMS voltage authority
+timestamped collection-exit V_LL,RMS authority
 balanced radial constant-PQ LV operating solution
+explicit transformer static/rated-terminal/S11-boundary authority
+explicit transformer factory-test P_NL / P_LL authority
+explicit timestamped transformer energisation authority
+current-based factory-reference transformer active-loss baseline
 ```
 
 Current merged checkpoint:
 
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
+`359ac6695a19fc9781ca26b96529ed4af0566b87`
 
-Final reviewed CI for PR #86 ran `3040` backend unit tests successfully in `527.89s` on Python 3.13.15 with `pvlib==0.15.2`; the frontend build also passed. Run #217 / ID `37544412809` validated exact synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e` from reviewed head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`.
+Final reviewed CI for PR #91 ran `3360` backend unit tests successfully in `388.38s` on Python 3.13.16 with `pvlib==0.15.2`; the frontend build also passed. Run #228 / ID `38002846864` validated exact synthetic merge `eaa78fdf9bd6bf2c8701d80d8760209ccb3c1b9a` from reviewed head `eb8008cd68fe9715eaba056d67992048d31dc934`.
 
 Always verify the live repository before treating those numbers as current.
 
-## Required invariants for S8/S9
+## Required invariants for validated electrical stages
 
 ### String / MPPT
 
@@ -350,18 +345,69 @@ Validation covers:
 
 S11C solved state remains modeled, not measured, and does not validate voltage compliance, transformer behavior, controller feedback, or energy integration.
 
-## Next validation target: S12 transformer authority
+## Validated S12 progression
 
-Validate explicit transformer equipment/topology and reference planes before operating transformer physics. Do not infer winding identity, voltage bases, rating, ratio, impedance, losses, loading, or tap state from S11 exit voltage, names, capacity, CEC fields, geometry, or site configuration.
+### S12A transformer static/boundary authority
+
+Required invariants:
+
+- transformer identity/rating/terminal authority is explicit rather than inferred;
+- collection-side and network-side rated line-to-line RMS bases remain distinct;
+- S11 collection-exit binding is exact and references a canonical S11 collection-exit node;
+- equipment-only and topology-only partial authority remains visible;
+- no turns-ratio physics, impedance, vector group, tap state, loss or operating state is fabricated.
+
+### S12B factory-test loss authority
+
+Required invariants:
+
+- `P_NL` and `P_LL` are explicit transformer-specific factory-test evidence;
+- `P_LL` is aggregate total rated load loss represented by the test, not merely winding DC `I²R`;
+- explicit zero and missing authority remain distinct;
+- test side, test frequency, rated-voltage/rated-current condition and load-loss reference temperature remain explicit;
+- no 50/60 Hz, temperature, winding-material, harmonic, K-factor or Steinmetz default is inserted;
+- no operating loss calculation occurs in the authority stage.
+
+### S12C transformer energisation authority
+
+Required invariants:
+
+- `True`, `False` and missing are three distinct evidence states;
+- explicit `False` is resolved de-energised authority, not absence;
+- timestamp universe comes only from explicit S12C evidence;
+- no forward/backward fill, persistence, interpolation, resampling, nearest lookup or timezone conversion;
+- no inference from S11 voltage/power, dispatch, inverter state, daylight, irradiance or schedule.
+
+### S12D baseline transformer operating loss
+
+Required invariants:
+
+- transformer loading consumes delivered S11C collection-exit P/Q/V after S11 series losses;
+- `|S| = sqrt(P² + Q²)` closes against the S11C delivered apparent-power magnitude;
+- `I_oper = |S|/(sqrt(3)V_oper)`;
+- `I_rated = S_rated/(sqrt(3)V_rated,collection)`;
+- `beta_I = I_oper/I_rated`, not `P/S_rated`;
+- `beta_I` is not clamped at 1;
+- `P_load = P_LL beta_I²`;
+- Q and operating voltage affect current and load loss;
+- clean explicit de-energisation resolves zero internal loss;
+- de-energised material nonzero transfer is an unresolved contradiction;
+- energised zero collection voltage is unresolved and never divides by zero;
+- no-load and load-loss components may resolve independently while total remains unresolved;
+- no winding-temperature, harmonic, frequency or voltage-dependent no-load correction is applied;
+- no transformer terminal power allocation, network-side V/I/P/Q/S, equivalent-circuit solve, or energy integration is claimed.
+
+Analytical reference cases should include rated current (`beta_I=1`), half current (`P_load=0.25 P_LL`), equal-P varying-Q cases, equal-|S| varying-voltage cases, overload without clamping, energised zero transfer at positive voltage, and de-energised contradiction cases.
+
+## Next validation target: transformer electrical/network boundary
+
+Before S13 MV/HV collection, validate an explicit transformer network-side operating boundary. The exact authority/solve contract remains to be designed. Any future series impedance, magnitude transformation, phase displacement, tap or shunt behavior must be validated against explicit evidence and analytical/reference cases; none should be inferred merely from S12D loss magnitude or rated terminal voltages.
 
 ## Future validation targets
 
-### Transformer
+### Transformer electrical/network and enhanced loss
 
-- no-load loss appears when energised even at low load;
-- load loss follows authoritative loading dependence;
-- input/output accounting closes;
-- P/Q/S loading semantics remain explicit.
+Validate future network-side transformer propagation against explicit electrical authority and suitable analytical/manufacturer cases. Enhanced temperature/harmonic loss models should remain separate from the already validated S12D factory-reference baseline and must avoid double counting aggregate factory `P_LL`.
 
 ### Benchmarking
 

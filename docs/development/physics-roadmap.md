@@ -19,33 +19,29 @@ The project is beyond MVP. New physics should remain narrow, provenance-aware, e
 
 ## Current canonical checkpoint
 
-As of 2026-10-06, live `main` is:
+As of 2026-10-10, live `main` is:
 
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
+`359ac6695a19fc9781ca26b96529ed4af0566b87`
 
-This is the merge commit of PR #86, S11C balanced radial LV AC collection solve.
+This is the merge commit of PR #91, S12D baseline transformer operating-loss evaluation.
 
-Controller milestone merges:
+S12 milestone merges:
 
-- S10A PR #79 → `4a6b318946a5a2bb688bfa29f7318403362f99de`;
-- S10B PR #81 → `2f4a4050c48203018fbf914c3853675f996bda97`;
-- S10C PR #82 → `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
+- S12A PR #88 → `7d25a186cc071a524bcbdbeba17f28d9e750fd58`;
+- S12B PR #89 → `db78ef563a1c3e68dcacdb13b331a8d06395bbb0`;
+- S12C PR #90 → `fc9a22f4145d52acfe092fc8b8d1f11b9e14adfa`;
+- S12D PR #91 → `359ac6695a19fc9781ca26b96529ed4af0566b87`.
 
-S11 milestone merges:
+Reviewed S12 CI history:
 
-- S11A PR #84 → `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
-- S11B PR #85 → `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- S11C PR #86 → `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+| Stage | CI | Run ID | Synthetic merge | Backend | Python | Frontend |
+|---|---:|---:|---|---|---|---|
+| S12A | #221 | `37703848849` | `38c56f2bb6c8314c59089b42708b9d7ccefd9b6c` | 3121 passed in 319.24s | 3.13.15 | success |
+| S12B | #224 | `37850450286` | `bd0645f940cf355d160e30e3484fbccde73ef861` | 3209 passed in 339.52s | 3.13.16 | success |
+| S12C | #226 | `37856774002` | `45e06c9918632470b8c7db3812f2259a4477e770` | 3277 passed in 553.18s | 3.13.16 | success |
+| S12D | #228 | `38002846864` | `eaa78fdf9bd6bf2c8701d80d8760209ccb3c1b9a` | 3360 passed in 388.38s | 3.13.16 | success |
 
-Final reviewed S11C CI used head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`:
-
-- run #217;
-- run ID `37544412809`;
-- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
-- Python 3.13.15;
-- `pvlib==0.15.2`;
-- backend `3040 passed in 527.89s`;
-- frontend success.
+All reviewed S12 CI used `pvlib==0.15.2`.
 
 ## Current validated electrical chain
 
@@ -62,44 +58,38 @@ S8-3B resistive branch I-V transform
     ↓
 S8-3C MPPT-input common-voltage operating point
     ↓
-S9-0 explicit inverter CEC/SAM authority
+S9 inverter authority / conversion / accounting / capability / thermal
     ↓
-S9-1 inverter DC operating-envelope classification
+S10 request / feasibility / selected inverter P/Q/S
     ↓
-S9-2 one-physical-inverter Sandia AC conversion
-    ↓
-S9-3A Sandia pre-Paco AC potential
-    ↓
-S9-3B conversion / clipping / tare accounting
-    ↓
-S9-4A static inverter AC capability authority
-    ↓
-S9-4B timestamped P/Q/S capability-state evaluation
-    + S9-4C explicit thermal authority
-    + explicit timestamped inverter temperature
-    ↓
-S9-4D temperature-dependent capability evaluation
-    ↓
-S10A explicit active-power dispatch request
-    ↓
-S10B requested P/Q/S feasibility
-    ↓
-S10C selected inverter AC P/Q/S
-    ↓
-S11A static radial topology + direct per-phase R+jX
+S11A static radial LV topology + direct per-phase R+jX
     ↓
 S11B timestamped collection-exit V_LL,RMS
     ↓
 S11C balanced radial constant-PQ LV operating solution
+    ↓
+S12A explicit transformer static equipment + S11 boundary authority
+    ├───────────────┐
+    ↓               ↓
+S12B             S12C
+factory loss     timestamped energisation
+authority        authority
+    \               /
+     \             /
+      └──────┬────┘
+             ↓
+S12D current-based factory-reference active-loss baseline
 ```
 
-- **S10A — merged:** direct timestamped per-inverter absolute P request at `inverter_ac_output`; missing ≠ zero; no persistence; no duplicate Q authority.
-- **S10B — merged:** exact requested-point feasibility against instantaneous availability, static S/Q capability and thermal P/S/Q capability; no P/Q/S modification.
-- **S10C — merged:** exact feasible-request passthrough only; infeasible, partial and unresolved requests do not produce a selected point; no clamping, projection or fallback policy.
+S12B and S12C are independent evidence channels. S12D combines canonical S11C and S12A/B/C; it does not solve transformer network-side terminal state.
 
 ## Immediate next build
 
-S11 v1 is complete. The next priority is **S12 — transformer**, beginning with explicit transformer equipment/topology and reference-plane authority. Do not infer a transformer, winding boundary, voltage ratio, rating, impedance, loss, or tap state from S11 exit voltage, CEC `Vac`, labels, capacities, geometry, or current site YAML.
+The S12 baseline transformer-loss milestone is complete through S12D. The next priority is the **transformer electrical/network boundary** required before S13 can consume a defensible network-side transformer state.
+
+Design that increment independently rather than reviving the superseded branch-only R/X/G/B S12B proposal unchanged. Explicit electrical authority may eventually include series impedance, terminal magnitude transformation, phase displacement or other parameters where required by the chosen operating solve, but none of those are currently merged.
+
+Do not infer transformer electrical/network authority from rated voltages, labels, geography, S11 exit voltage, capacity, generic efficiency or legacy loss percentages.
 
 ## Next system stages after inverter capability
 
@@ -132,15 +122,21 @@ S11C assumes the S10C selected target is realised; it is not measured output. Ph
 
 ### S12 — transformer model
 
-The authority-first transformer sequence should begin with explicit equipment/topology evidence, potentially covering only when authorised:
+**Status: baseline transformer-loss milestone complete through S12D; electrical/network terminal propagation still deferred.**
 
-- terminal/reference-plane definition and winding voltage bases;
-- rated power and turns/voltage ratio;
-- series impedance and copper-loss authority;
-- no-load/core-loss authority;
-- loading and tap/control evidence only when explicit.
+- **S12A — merged/complete:** explicit balanced-three-phase two-winding transformer identity, rated apparent power, rated collection/network `V_LL,RMS`, terminal identities/reference planes, and direct S11 collection-exit binding. No impedance, vector group, taps, losses or operating solve.
+- **S12B — merged/complete:** explicit transformer-specific factory-test `P_NL` and total rated `P_LL` with test/reference conditions, provenance and confidence. Missing authority remains missing; no default frequency, temperature or winding material.
+- **S12C — merged/complete:** exact timestamped transformer energised/de-energised authority. Explicit `False` resolves; missing is unknown; there is no temporal persistence or inference from power, voltage, daylight or schedule.
+- **S12D — merged/complete for baseline loss:** uses delivered S11C collection-boundary P/Q/V to derive current-based loading:
+  `I_oper = |S|/(sqrt(3)V)`,
+  `I_rated = S_rated/(sqrt(3)V_rated)`,
+  `beta_I = I_oper/I_rated`,
+  and `P_load = P_LL beta_I²`.
+  The model adds `P_NL` only for explicit energised authority, preserves clean de-energised zero loss, detects contradictory de-energised nonzero transfer, and does not clamp overload.
 
-Operating transformer physics follows only after the required authority exists. `lv_ac_collection_exit` is not automatically a transformer winding.
+S12D is explicitly a factory-reference baseline. It applies no temperature, harmonic, frequency or voltage-dependent no-load correction; does not decompose aggregate `P_LL`; does not solve transformer R/X/phase displacement; does not allocate loss to a terminal; and does not integrate energy.
+
+The next transformer increment must establish the electrical/network boundary needed to produce a defensible network-side operating state before S13.
 
 ### S13 — MV/HV collection + explicit revenue-meter boundary
 
@@ -227,7 +223,7 @@ Do not substitute scalar mismatch or shading percentages for this mechanism.
 
 ## Production integration remains separate
 
-The physical S8/S9 chain is validated but must not be silently mixed into the legacy production calculation.
+The physical S8–S12D chain is validated but must not be silently mixed into the legacy production calculation.
 
 The compatibility path still includes aggregate effects such as soiling, LID, static mismatch, DC wiring, and legacy AC wiring / grid-cap behaviour.
 
@@ -254,6 +250,7 @@ Architectural milestones:
 - S11B collection-exit voltage authority — merged / complete;
 - S11C balanced radial LV operating solve — merged / complete;
 - S11 v1 — complete;
-- S12 transformer authority — next;
+- S12A–D transformer baseline-loss milestone — merged / complete through reference-condition active-loss baseline;
+- transformer electrical/network boundary — next;
 - S13 MV/HV collection + explicit revenue-meter boundary — planned;
 - S14 benchmarking and causal attribution — planned.

@@ -100,55 +100,47 @@ BENCHMARKING / CAUSAL LOSS ATTRIBUTION
 
 ## Current validated electrical implementation
 
-As of the PR #86 merge checkpoint, the validated electrical/control chain includes:
+The validated dormant electrical/control path now extends through **S12D transformer reference-condition active-loss evaluation**.
+
+The transformer portion is intentionally authority-first and DAG-shaped:
 
 ```text
-S8-1  physical string I-V
-S8-2  source-plane common-voltage MPPT / physical mismatch
-S8-3A direct branch resistance authority
-S8-3B resistive branch I-V transform
-S8-3C MPPT-input common-voltage operating point
-S9-0  inverter CEC/SAM authority
-S9-1  inverter DC envelope classification
-S9-2  Sandia inverter conversion
-S9-3A Sandia pre-Paco AC potential
-S9-3B conversion / clipping / tare power accounting
-S9-4A explicit static inverter AC capability authority
-S9-4B timestamped inverter P/Q/S capability-state evaluation
-S9-4C explicit inverter thermal-derating authority
-S9-4D temperature-dependent inverter capability evaluation
-S10A explicit inverter active-power dispatch-request authority
-S10B requested dispatch-feasibility evaluation
-S10C selected inverter AC P/Q/S state
-S11A explicit LV collection topology and series-impedance authority
-S11B explicit timestamped collection-exit operating-voltage authority
-S11C balanced radial LV AC operating-network solve
+                       S12B factory P_NL/P_LL authority
+                      /
+S12A static authority+
+                      \
+                       S12C timestamped energisation authority
+
+S11C collection-exit operating state
+              \       |       /
+               \      |      /
+                +---- S12D ----+
+                      |
+             internal active-loss baseline
 ```
 
-Canonical merged checkpoint:
-
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
-
-Final reviewed S11C CI evidence was CI #217 / run ID `37544412809` on synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`: backend 3040 passed in 527.89s on Python 3.13.15 with `pvlib==0.15.2`; frontend succeeded.
+S12A establishes transformer identity/rated terminal bases and the direct S11-exit boundary. S12B and S12C are independent evidence channels. S12D performs the first transformer operating calculation only after canonical parent replay. No transformer network-side operating voltage/current/power state is solved yet.
 
 ## Electrical reference planes
 
-The architecture distinguishes these physical locations:
+Electrical state is boundary-specific:
 
 1. module terminals;
 2. physical string source terminals;
 3. branch/string cable output;
 4. parallel collection junction;
 5. shared homerun / feeder output;
-6. inverter MPPT input terminals;
-7. inverter conversion boundary / AC output;
-8. S10C selected target and S11A terminal binding at `inverter_ac_output`;
-9. S11C-solved LV internal nodes;
-10. `lv_ac_collection_exit`, the end of S11;
-11. future transformer / MV / HV nodes;
-12. revenue-meter boundary.
+6. inverter MPPT input;
+7. inverter AC output / conversion boundary;
+8. S10C selected target / S11A inverter-terminal binding at `inverter_ac_output`;
+9. S11C internal LV nodes;
+10. `lv_ac_collection_exit`;
+11. S12A transformer collection-side terminal when explicitly bound to the S11 exit;
+12. S12A transformer network-side terminal identity, without a solved operating electrical state yet;
+13. future MV/HV network nodes;
+14. revenue meter.
 
-An accounting or counterfactual quantity such as Sandia pre-Paco potential is not automatically a physical conductor plane. Static equipment authority such as `Smax`, phase or nominal voltage is also not a physical operating-state plane.
+S12D active loss is an internal model quantity and does not create a new conductor plane. Transformer sides remain **collection side** and **network side** unless explicit future authority establishes a voltage-order interpretation.
 
 ## Model status
 
@@ -189,7 +181,11 @@ An accounting or counterfactual quantity such as Sandia pre-Paco potential is no
 | LV collection-exit voltage authority | implemented, dormant | S11B exact timestamped `line_to_line_rms` magnitude at `lv_ac_collection_exit` | No persistence, interpolation or inferred nominal voltage |
 | LV AC operating solution | implemented, dormant | S11C balanced radial constant-PQ backward/forward sweep with physical series losses | Production migration must prevent legacy-loss double counting |
 | Legacy AC wiring loss | compatibility only | Static aggregate `wiring_loss_ac_pct` | Never combine with physical S11C loss on the same path without migration proof |
-| Transformer | next / planned | Not separately canonical | Begin with explicit equipment/topology authority before operating physics |
+| Transformer static/boundary authority | implemented, dormant | S12A explicit identity, rated terminal bases and direct S11-exit binding | Preserve explicit authority; no inferred winding/network physics |
+| Transformer factory-test loss authority | implemented, dormant | S12B explicit P_NL / total rated P_LL with test/reference conditions | Enhanced loss channels only when separately authoritative |
+| Transformer energisation authority | implemented, dormant | S12C exact timestamped energised/de-energised evidence | No persistence or operating inference |
+| Transformer baseline active loss | implemented, dormant | S12D current-based factory-reference baseline | Preserve as baseline; no terminal power allocation |
+| Transformer electrical/network state | deferred | No canonical network-side operating solve yet | Design explicit authority/solve before S13 |
 | MV/HV network | planned | Not canonical | Topology-aware network elements |
 | Revenue meter | partial | Actual data exists for comparison | Explicit end-of-chain expected boundary |
 | Benchmarking | partial / legacy | Existing reporting and residual concepts | Physics-telescoping causal attribution |
@@ -418,7 +414,44 @@ The physical S11C instantaneous losses replace no production quantity automatica
 
 S11C is balanced equivalent-phase physics only: no unbalanced phases, neutral, loads, shunts, cable charging, transformer, voltage-compliance logic, inverter voltage feedback, energy integration, or measured-output claim.
 
-The next physical milestone is S12 transformer authority. `lv_ac_collection_exit` is not silently a transformer LV winding; future explicit topology must establish that boundary.
+The S12 baseline-loss milestone is now implemented through S12D. S12A explicitly establishes any direct `lv_ac_collection_exit` to transformer collection-side boundary; transformer electrical/network terminal propagation remains deferred.
+
+## Transformer architecture
+
+### S12A — static transformer authority
+
+S12A admits explicit two-winding balanced-three-phase identity, rated apparent power, rated collection/network line-to-line RMS voltages, transformer terminal identities/reference planes, and direct S11 collection-exit binding. It does not infer winding ratio physics, impedance, vector group, tap state, phase displacement, loss or operating state.
+
+### S12B — factory-test loss authority
+
+S12B separately admits transformer-specific `P_NL` and total rated `P_LL` with their test/reference conditions and independent provenance. Missing values remain missing; explicit zero is valid. Aggregate `P_LL` must not be silently decomposed into copper, eddy and stray components.
+
+### S12C — energisation authority
+
+S12C is exact timestamped binary evidence. `True`, `False` and missing remain distinct. It does not infer energisation from power, voltage, time, daylight, inverter state or schedules and does not persist state between timestamps.
+
+### S12D — baseline active-loss evaluation
+
+S12D uses delivered S11C collection-exit `P`, `Q` and `V_LL` after LV collection loss:
+
+```text
+|S_exit| = sqrt(P_exit² + Q_exit²)
+I_oper = |S_exit| / (sqrt(3) V_exit)
+I_rated = S_rated / (sqrt(3) V_rated,collection)
+beta_I = I_oper / I_rated
+P_load = P_LL beta_I²
+P_total = P_NL + P_load
+```
+
+This is a factory-reference-condition baseline. `beta_I` is not clamped. Q and operating voltage therefore affect current and load loss.
+
+Clean explicit de-energisation resolves zero internal loss; de-energised nonzero transfer is a contradiction, and energised zero collection voltage is unresolved. No temperature, harmonic, frequency or voltage-dependent no-load correction is applied.
+
+S12D does not solve transformer terminal phasors or allocate the loss to one terminal. In particular it does not imply `P_network_side = P_collection_exit - P_loss`.
+
+### Deferred transformer electrical/network layer
+
+A future independent transformer electrical/network model must establish the defensible network-side operating boundary required before S13. Possible required evidence may include series impedance, magnitude transformation and phase displacement, but the exact contract remains to be designed. The superseded branch-only R/X/G/B S12B implementation is not part of the merged architecture.
 
 ## Partial shading target
 
@@ -430,11 +463,11 @@ A scalar shading or mismatch percentage is not the final target mechanism.
 
 ## Production integration boundary
 
-Validated physical layers are not automatically production-active. The legacy compatibility path still contains aggregate loss behaviour. Production migration must prove no double counting and preserve safe fallback behaviour for sites without required authority.
+Validated physical layers through S12D are not automatically production-active. The legacy compatibility path still contains aggregate loss behaviour. Production migration must prove no double counting and preserve safe fallback behaviour for sites without required authority.
 
 ## Reference site discipline
 
-Bracon Ash remains a reference site, not a reusable topology template. Its physical MPPT-to-string map, DC/LV cable networks, S9-4A AC capability authority, S11 terminal/junction/exit topology, direct R/X, collection-exit voltage, transformer network, and MV/HV connectivity must not be invented from counts, groups, labels, capacities, geometry, `Paco`, CEC `Vac`, or legacy losses.
+Bracon Ash remains a reference site, not a reusable topology template. Its physical MPPT-to-string map, DC/LV cable networks, S9-4A AC capability authority, S11 terminal/junction/exit topology, direct R/X, collection-exit voltage, S12 transformer authority/evidence, transformer network state, and MV/HV connectivity must not be invented from counts, groups, labels, capacities, geometry, `Paco`, CEC `Vac`, geography, or legacy losses.
 
 ## Dependency lock
 

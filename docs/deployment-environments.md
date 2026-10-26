@@ -73,27 +73,27 @@ CI currently validates:
 1. backend unit tests;
 2. frontend dependency installation and production build.
 
-The validated dormant component-physics/control chain now extends through **S11C balanced radial LV AC collection operating solution**.
+The validated dormant component-physics/control chain now extends through **S12D factory-reference-condition transformer active-loss evaluation**.
 
-Final reviewed CI for PR #86 was:
+Final reviewed CI for PR #91 was:
 
-- workflow run #217;
-- run ID `37544412809`;
-- base `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`;
-- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
-- Python 3.13.15;
+- workflow run #228;
+- run ID `38002846864`;
+- base `fc9a22f4145d52acfe092fc8b8d1f11b9e14adfa`;
+- head `eb8008cd68fe9715eaba056d67992048d31dc934`;
+- synthetic merge `eaa78fdf9bd6bf2c8701d80d8760209ccb3c1b9a`;
+- Python 3.13.16;
 - `pvlib==0.15.2`;
-- backend `3040 passed in 527.89s`;
+- backend `3360 passed in 388.38s`;
 - frontend success.
 
-PR #86 then merged as `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+PR #91 then merged as `359ac6695a19fc9781ca26b96529ed4af0566b87`.
 
 Treat this as historical validation evidence and re-check current CI before release decisions.
 
-Validated S8/S9/S10/S11 contracts remain dormant from production. Production activation requires a separately reviewed integration proving authoritative inputs, safe unresolved behavior, reference-plane alignment, telemetry compatibility, operational safety, and no double counting with legacy loss factors.
+Validated S8–S12D contracts remain dormant from production. Production activation requires a separately reviewed integration proving authoritative inputs, safe unresolved behavior, reference-plane alignment, telemetry compatibility, operational safety, and no double counting with legacy loss factors.
 
-Deployment configuration is not controller or LV-network authority. Legacy `grid_limit_kwac`, `wiring_loss_ac_pct`, Cloud Run settings, environment variables, and service configuration must not be promoted into dispatch requests, LV topology/R/X, operating voltage, or solved state.
+Deployment configuration is not controller, LV-network or transformer authority. Legacy `grid_limit_kwac`, `wiring_loss_ac_pct`, Cloud Run settings, environment variables and service configuration must not be promoted into dispatch requests, LV topology/R/X, transformer identity/rating, `P_NL`/`P_LL`, energisation state, or transformer network-side electrical state.
 
 ## Configuration rules
 
