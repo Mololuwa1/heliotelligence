@@ -105,6 +105,7 @@ async def get_benchmarking(
             raise HTTPException(
                 status_code=404,
                 detail=f"No expected_energy data found for site {site_id} "
+                f"for source {source} "
                 f"in [{start.isoformat()}, {end.isoformat()})",
             )
 

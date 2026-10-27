@@ -275,6 +275,7 @@ async def test_route_guard_rejects_missing_requested_source(
         await endpoint(SITE, START, END, source="missing_model")
     assert exc.value.status_code == 404
     assert db.calls[-1][1]["source"] == "missing_model"
+    assert "for source missing_model" in exc.value.detail
 
 
 @pytest.mark.parametrize("endpoint", [benchmarking.get_benchmarking, reports.generate_report])
@@ -461,3 +462,64 @@ async def test_analysis_route_forwards_alternative_source(
     result = await endpoint(SITE, START, END, source=ALT)
     assert result["expected_energy_source"] == ALT
     assert metric.await_args.kwargs == {"source": ALT}
+
+
+@pytest.mark.parametrize("path", ["degradation", "anomalies", "string-health", "inverter-health"])
+async def test_analysis_guards_with_only_alternative_model(
+    db: Database,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    """Health endpoints retain their existence gate without selecting a model."""
+    await upsert_expected_energy(_site(), frame(200), db, source=ALT)
+    monkeypatch.setattr(analysis, "get_session_factory", lambda: db.session)
+    string_metric = AsyncMock(return_value={"telemetry": "string"})
+    inverter_metric = AsyncMock(return_value={"telemetry": "inverter"})
+    monkeypatch.setattr(analysis, "analyse_string_health", string_metric)
+    monkeypatch.setattr(analysis, "analyse_inverter_health", inverter_metric)
+    app = FastAPI()
+    app.include_router(analysis.router)
+    import httpx
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/v1/analysis/{SITE}/{path}",
+            params={"start": START.isoformat(), "end": END.isoformat()},
+        )
+    if path in {"degradation", "anomalies"}:
+        assert response.status_code == 404
+        assert "for source physics_sdm" in response.json()["detail"]
+        assert db.calls[-1][1]["source"] == LEGACY_EXPECTED_ENERGY_SOURCE
+        string_metric.assert_not_awaited()
+        inverter_metric.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        assert "source" not in db.calls[-1][1]
+        assert "source =" not in db.calls[-1][0]
+        if path == "string-health":
+            string_metric.assert_awaited_once_with(SITE, START, END, db, 2.0)
+            assert response.json() == {"telemetry": "string"}
+        else:
+            inverter_metric.assert_awaited_once_with(SITE, START, END, db)
+            assert response.json() == {"telemetry": "inverter"}
+        parameters = app.openapi()["paths"][f"/api/v1/analysis/{{site_id}}/{path}"]["get"][
+            "parameters"
+        ]
+        assert all(parameter["name"] != "source" for parameter in parameters)
+
+
+@pytest.mark.parametrize("endpoint", [analysis.get_string_health, analysis.get_inverter_health])
+async def test_telemetry_analysis_keeps_original_no_data_guard(
+    db: Database,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: Any,
+) -> None:
+    monkeypatch.setattr(analysis, "get_session_factory", lambda: db.session)
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        await endpoint(SITE, START, END)
+    assert exc.value.status_code == 404
+    assert "source" not in db.calls[-1][1]

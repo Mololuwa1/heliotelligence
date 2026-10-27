@@ -38,14 +38,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
 
 
-async def _check_site_data(
+async def _check_expected_energy_data(
     site_id: str,
     start: datetime,
     end: datetime,
     *,
     source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> None:
-    """Raise 404 if no expected_energy data exists for site in window."""
+    """Require the selected model series for expected-energy analyses."""
     source = validate_expected_energy_source(source)
     factory = get_session_factory()
     async with factory() as session:
@@ -58,6 +58,31 @@ async def _check_site_data(
                 LIMIT 1
             """),
             {"site_id": site_id, "start": start, "end": end, "source": source},
+        )
+        if result.fetchone() is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No expected_energy data found for site {site_id} "
+                f"for source {source} "
+                f"in [{start.isoformat()}, {end.isoformat()})",
+            )
+
+
+async def _check_any_expected_energy_data(site_id: str, start: datetime, end: datetime) -> None:
+    """Preserve the pre-P0 existence gate for telemetry-only analyses.
+
+    This checks existence only, without reading or combining model values.
+    """
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            text("""
+                SELECT 1 FROM expected_energy
+                WHERE site_id = :site_id
+                  AND time >= :start AND time < :end
+                LIMIT 1
+            """),
+            {"site_id": site_id, "start": start, "end": end},
         )
         if result.fetchone() is None:
             raise HTTPException(
@@ -85,7 +110,7 @@ async def get_degradation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _validate_window(start, end)
-    await _check_site_data(site_id, start, end, source=source)
+    await _check_expected_energy_data(site_id, start, end, source=source)
     factory = get_session_factory()
     async with factory() as session:
         result = await calculate_degradation(site_id, start, end, session, source=source)
@@ -107,7 +132,7 @@ async def get_anomalies(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _validate_window(start, end)
-    await _check_site_data(site_id, start, end, source=source)
+    await _check_expected_energy_data(site_id, start, end, source=source)
     factory = get_session_factory()
     async with factory() as session:
         result = await detect_anomalies(
@@ -126,7 +151,7 @@ async def get_string_health(
 ) -> dict:
     """Return per-string current health analysis for a site."""
     _validate_window(start, end)
-    await _check_site_data(site_id, start, end)
+    await _check_any_expected_energy_data(site_id, start, end)
     factory = get_session_factory()
     async with factory() as session:
         return await analyse_string_health(site_id, start, end, session, threshold_sigma)
@@ -140,7 +165,7 @@ async def get_inverter_health(
 ) -> dict:
     """Return per-inverter fault event analysis for a site."""
     _validate_window(start, end)
-    await _check_site_data(site_id, start, end)
+    await _check_any_expected_energy_data(site_id, start, end)
     factory = get_session_factory()
     async with factory() as session:
         return await analyse_inverter_health(site_id, start, end, session)
