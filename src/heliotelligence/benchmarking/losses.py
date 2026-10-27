@@ -31,11 +31,15 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from heliotelligence.benchmarking.availability import (
+    _compute_availability,
+    _fetch_avail_df,
+)
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import SiteConfig, load_sites
-from heliotelligence.benchmarking.availability import (
-    _fetch_avail_df,
-    _compute_availability,
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +50,7 @@ _GAMMA_PMP = -0.29  # %/°C — temperature coefficient of maximum power (Pmax)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_site_config(site_id: str) -> SiteConfig | None:
     sites = load_sites(settings.site_config_path)
@@ -136,10 +141,18 @@ def _compute_losses(
         unaccounted_pct, e_exp_stc_kwh, e_exp_kwh, e_actual_kwh, start, end
     """
     _null_result: dict[str, Any] = dict(
-        optical_pct=None, temperature_pct=None, dc_losses_pct=None,
-        inverter_pct=None, clipping_pct=None, availability_pct=None,
-        unaccounted_pct=None, e_exp_stc_kwh=0.0, e_exp_kwh=0.0,
-        e_actual_kwh=0.0, start=start, end=end,
+        optical_pct=None,
+        temperature_pct=None,
+        dc_losses_pct=None,
+        inverter_pct=None,
+        clipping_pct=None,
+        availability_pct=None,
+        unaccounted_pct=None,
+        e_exp_stc_kwh=0.0,
+        e_exp_kwh=0.0,
+        e_actual_kwh=0.0,
+        start=start,
+        end=end,
     )
 
     if expected_df.empty:
@@ -171,9 +184,7 @@ def _compute_losses(
     # ------------------------------------------------------------------
     if site is not None:
         optical_pct = site.module.soiling_loss_pct + site.module.lid_loss_pct
-        dc_losses_pct = (
-            site.module.wiring_loss_dc_pct + site.module.mismatch_loss_pct
-        )
+        dc_losses_pct = site.module.wiring_loss_dc_pct + site.module.mismatch_loss_pct
     else:
         optical_pct = None
         dc_losses_pct = None
@@ -222,9 +233,7 @@ def _compute_losses(
     if availability_level_pct is not None:
         # If the plant was X% available, (100-X)% of expected AC was lost
         avail_loss_pct = (
-            (1.0 - availability_level_pct / 100.0)
-            * (e_exp_ac_kwh / e_exp_stc_kwh)
-            * 100.0
+            (1.0 - availability_level_pct / 100.0) * (e_exp_ac_kwh / e_exp_stc_kwh) * 100.0
         )
     else:
         avail_loss_pct = None
@@ -276,24 +285,36 @@ def _compute_losses(
 # DB fetchers
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_expected_df(
-    site_id: str, start: datetime, end: datetime, session: AsyncSession
+    site_id: str,
+    start: datetime,
+    end: datetime,
+    session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> pd.DataFrame:
+    source = validate_expected_energy_source(source)
     result = await session.execute(
         text("""
             SELECT time, p_dc_stc_kw, p_dc_kw, p_ac_kw, t_cell_c, poa_total_wm2
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             ORDER BY time ASC
         """),
-        {"site_id": site_id, "start": start, "end": end},
+        {"site_id": site_id, "start": start, "end": end, "source": source},
     )
     rows = result.fetchall()
     if not rows:
-        return pd.DataFrame(columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"])
-    df = pd.DataFrame(rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"])
+        return pd.DataFrame(
+            columns=["p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"]
+        )
+    df = pd.DataFrame(
+        rows, columns=["time", "p_dc_stc_kw", "p_dc_kw", "p_ac_kw", "t_cell_c", "poa_total_wm2"]
+    )
     df["time"] = pd.to_datetime(df["time"], utc=True)
     return df.set_index("time").sort_index()
 
@@ -324,13 +345,16 @@ async def _fetch_meter_df(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def calculate_losses(
     site_id: str,
     start: datetime,
     end: datetime,
     session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
-    """Compute loss waterfall for a site over a time window.
+    """Compute the legacy physics_sdm loss waterfall; other sources are unsupported.
 
     Parameters
     ----------
@@ -346,15 +370,16 @@ async def calculate_losses(
         clipping_pct, availability_pct (energy loss %), unaccounted_pct,
         e_exp_stc_kwh, e_exp_kwh, e_actual_kwh, start, end
     """
+    source = validate_expected_energy_source(source)
+    if source != LEGACY_EXPECTED_ENERGY_SOURCE:
+        raise ValueError("legacy loss waterfall supports only physics_sdm")
     site = _load_site_config(site_id)
 
-    expected_df = await _fetch_expected_df(site_id, start, end, session)
+    expected_df = await _fetch_expected_df(site_id, start, end, session, source=source)
     meter_df = await _fetch_meter_df(site_id, start, end, session)
     avail_df = await _fetch_avail_df(site_id, start, end, session)
 
     avail_result = _compute_availability(avail_df, site, start, end)
     availability_level_pct = avail_result.get("availability_pct")
 
-    return _compute_losses(
-        expected_df, meter_df, site, availability_level_pct, start, end
-    )
+    return _compute_losses(expected_df, meter_df, site, availability_level_pct, start, end)

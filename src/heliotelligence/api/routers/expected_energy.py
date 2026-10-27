@@ -7,6 +7,7 @@ GET /api/v1/expected-energy/{site_id}
       start       ISO-8601 datetime (required)
       end         ISO-8601 datetime (required)
       resolution  'raw' | 'hourly' | 'daily'  (default: 'raw')
+      source      exact expected-model series (default: 'physics_sdm')
 
 Returns an array of expected energy records for the requested window and
 resolution.  'hourly' and 'daily' return time-bucket averages for power
@@ -25,6 +26,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from heliotelligence.db.session import get_db
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,8 @@ async def get_expected_energy(
     end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
     resolution: Resolution = Query(Resolution.raw, description="Aggregation resolution"),
     db: AsyncSession = Depends(get_db),
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> list[dict[str, Any]]:
     """Return expected energy records for a site over a time window.
 
@@ -58,7 +65,7 @@ async def get_expected_energy(
     resolution : Resolution
         'raw' returns one row per timestamp from expected_energy.
         'hourly' / 'daily' return time-bucketed averages using
-        TimescaleDB time_bucket().
+        PostgreSQL date_trunc(). Each mode selects exactly one model source.
 
     Returns
     -------
@@ -67,10 +74,12 @@ async def get_expected_energy(
           time, p_ac_kw, p_dc_kw, p_dc_stc_kw,
           poa_total_wm2, t_cell_c, tier_used, fit_quality, source
     """
+    try:
+        source = validate_expected_energy_source(source)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if end <= start:
-        raise HTTPException(
-            status_code=422, detail="end must be after start"
-        )
+        raise HTTPException(status_code=422, detail="end must be after start")
 
     if resolution == Resolution.raw:
         stmt = text("""
@@ -79,6 +88,7 @@ async def get_expected_energy(
                 poa_total_wm2, t_cell_c, tier_used, fit_quality, source
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             ORDER BY time ASC
@@ -97,6 +107,7 @@ async def get_expected_energy(
                 MIN(source)        AS source
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             GROUP BY 1
@@ -116,6 +127,7 @@ async def get_expected_energy(
                 MIN(source)        AS source
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             GROUP BY 1
@@ -124,7 +136,7 @@ async def get_expected_energy(
 
     result = await db.execute(
         stmt,
-        {"site_id": site_id, "start": start, "end": end},
+        {"site_id": site_id, "start": start, "end": end, "source": source},
     )
     rows = result.fetchall()
     keys = result.keys()

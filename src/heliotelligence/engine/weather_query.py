@@ -28,6 +28,10 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from heliotelligence.config.site import SiteConfig
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 from heliotelligence.models.orm import WeatherReading
 
 logger = logging.getLogger(__name__)
@@ -96,14 +100,17 @@ async def fetch_weather(
     rows = result.fetchall()
 
     _empty_cols = [
-        "ghi_wm2", "dhi_wm2", "dni_wm2", "poa_wm2",
-        "temp_amb_c", "temp_mod_avg_c", "wind_speed_ms",
+        "ghi_wm2",
+        "dhi_wm2",
+        "dni_wm2",
+        "poa_wm2",
+        "temp_amb_c",
+        "temp_mod_avg_c",
+        "wind_speed_ms",
     ]
 
     if not rows:
-        logger.debug(
-            "No weather rows for site %s in [%s, %s).", site.id, start, end
-        )
+        logger.debug("No weather rows for site %s in [%s, %s).", site.id, start, end)
         return pd.DataFrame(columns=_empty_cols)
 
     df = pd.DataFrame(rows, columns=[c.key for c in _SELECT_COLS])
@@ -123,7 +130,8 @@ async def fetch_weather(
     if unusable.any():
         logger.debug(
             "Dropping %d rows for site %s: GHI, DHI, DNI and POA all NULL.",
-            int(unusable.sum()), site.id,
+            int(unusable.sum()),
+            site.id,
         )
         df = df[~unusable]
 
@@ -135,7 +143,10 @@ async def fetch_weather(
 
     logger.info(
         "Fetched %d weather rows for site %s in [%s, %s).",
-        len(df), site.id, start, end,
+        len(df),
+        site.id,
+        start,
+        end,
     )
     return df
 
@@ -185,7 +196,8 @@ def _apply_erbs(
 
     logger.info(
         "Erbs decomposition applied to %d rows for site %s.",
-        int(mask.sum()), site.id,
+        int(mask.sum()),
+        site.id,
     )
     return df
 
@@ -193,8 +205,10 @@ def _apply_erbs(
 async def get_latest_expected_energy_time(
     site_id: str,
     session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> datetime | None:
-    """Return the latest time in expected_energy for a site, or None.
+    """Return the latest time for one site/model source, or None.
 
     Parameters
     ----------
@@ -205,17 +219,17 @@ async def get_latest_expected_energy_time(
     -------
     datetime (UTC-aware) or None if no rows exist for this site.
     """
+    source = validate_expected_energy_source(source)
     result = await session.execute(
-        text(
-            "SELECT MAX(time) FROM expected_energy WHERE site_id = :site_id"
-        ),
-        {"site_id": site_id},
+        text("SELECT MAX(time) FROM expected_energy WHERE site_id = :site_id AND source = :source"),
+        {"site_id": site_id, "source": source},
     )
     row = result.fetchone()
     if row and row[0] is not None:
         ts = row[0]
         if ts.tzinfo is None:
             import pytz
+
             ts = pytz.utc.localize(ts)
         return ts
     return None
@@ -237,9 +251,7 @@ async def get_latest_weather_time(
     datetime (UTC-aware) or None if no rows exist for this site.
     """
     result = await session.execute(
-        text(
-            "SELECT MAX(ts) FROM weather_readings WHERE site_id = :site_id"
-        ),
+        text("SELECT MAX(ts) FROM weather_readings WHERE site_id = :site_id"),
         {"site_id": site_id},
     )
     row = result.fetchone()
@@ -247,6 +259,7 @@ async def get_latest_weather_time(
         ts = row[0]
         if ts.tzinfo is None:
             import pytz
+
             ts = pytz.utc.localize(ts)
         return ts
     return None

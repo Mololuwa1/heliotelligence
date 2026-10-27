@@ -15,6 +15,12 @@ Schema
   quality       SMALLINT NOT NULL DEFAULT 0  — 0=good, 1=gap-filled, 2=flagged
 
 Primary key: (time, site_id, source)
+
+Source is part of expected-model identity: alternative model series may coexist,
+but must never be averaged across sources or interpreted as additive loss layers.
+physics_sdm is the current legacy production compatibility source. Intermediate
+column semantics above describe that legacy model, not an implied contract for
+future sources.
 """
 
 from __future__ import annotations
@@ -29,18 +35,14 @@ from heliotelligence.db.base import Base
 
 
 class ExpectedEnergy(Base):
-    """Expected AC/DC energy output computed by the physics SDM pipeline."""
+    """Alternative expected-model series keyed by site, timestamp and source."""
 
     __tablename__ = "expected_energy"
 
     # --- Primary-key components (must include hypertable partition col) ------
-    time: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    time: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     site_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), nullable=False)
-    source: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default="physics_sdm"
-    )
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="physics_sdm")
 
     # --- Physics outputs -----------------------------------------------------
     p_ac_kw: Mapped[float | None] = mapped_column(Double, nullable=True)
@@ -54,11 +56,10 @@ class ExpectedEnergy(Base):
     fit_quality: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Quality flag --------------------------------------------------------
-    quality: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, server_default="0"
-    )
+    quality: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
 
     __table_args__ = (
+        Index("idx_expected_energy_site_source_time", "site_id", "source", time.desc()),
         # Unique constraint matches the ON CONFLICT target in upsert.py
         # and mirrors the index created in Tiger Data.
         Index(

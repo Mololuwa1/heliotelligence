@@ -20,6 +20,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from heliotelligence.benchmarking.performance_ratio import _compute_pr
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,19 +36,27 @@ _MEDIUM_CONFIDENCE_DAYS = 90
 # DB fetchers (fetch full window once; slice into days in Python)
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_expected_full(
-    site_id: str, start: datetime, end: datetime, session: AsyncSession
+    site_id: str,
+    start: datetime,
+    end: datetime,
+    session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> pd.DataFrame:
+    source = validate_expected_energy_source(source)
     result = await session.execute(
         text("""
             SELECT time, p_ac_kw
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             ORDER BY time ASC
         """),
-        {"site_id": site_id, "start": start, "end": end},
+        {"site_id": site_id, "start": start, "end": end, "source": source},
     )
     rows = result.fetchall()
     if not rows:
@@ -80,6 +92,7 @@ async def _fetch_meter_full(
 # Pure computation (no DB access — testable in isolation)
 # ---------------------------------------------------------------------------
 
+
 def _build_daily_pr_series(
     expected_full: pd.DataFrame,
     meter_full: pd.DataFrame,
@@ -98,12 +111,12 @@ def _build_daily_pr_series(
     while day < end:
         day_end = day + timedelta(days=1)
 
-        exp_day = expected_full[
-            (expected_full.index >= day) & (expected_full.index < day_end)
-        ]
-        met_day = meter_full[
-            (meter_full.index >= day) & (meter_full.index < day_end)
-        ] if not meter_full.empty else pd.DataFrame(columns=["p_ac_kw", "e_exported_kwh"])
+        exp_day = expected_full[(expected_full.index >= day) & (expected_full.index < day_end)]
+        met_day = (
+            meter_full[(meter_full.index >= day) & (meter_full.index < day_end)]
+            if not meter_full.empty
+            else pd.DataFrame(columns=["p_ac_kw", "e_exported_kwh"])
+        )
 
         result = _compute_pr(exp_day, met_day, day, day_end)
         if result["pr"] is not None:
@@ -122,8 +135,9 @@ def _build_daily_pr_series(
     max_exp = max(daily_exp_energy.values()) if daily_exp_energy else 0.0
     if max_exp > 0.0:
         threshold = 0.20 * max_exp
-        daily_prs = {d: pr for d, pr in daily_prs.items()
-                     if daily_exp_energy.get(d, 0.0) >= threshold}
+        daily_prs = {
+            d: pr for d, pr in daily_prs.items() if daily_exp_energy.get(d, 0.0) >= threshold
+        }
 
     if not daily_prs:
         return pd.Series(dtype=float)
@@ -152,8 +166,14 @@ def _compute_degradation(
         confidence, start, end
     """
     _null = dict(
-        rate_pct_per_year=None, r_squared=None, window_days=len(daily_pr),
-        first_pr=None, last_pr=None, confidence=None, start=start, end=end,
+        rate_pct_per_year=None,
+        r_squared=None,
+        window_days=len(daily_pr),
+        first_pr=None,
+        last_pr=None,
+        confidence=None,
+        start=start,
+        end=end,
     )
 
     n = len(daily_pr)
@@ -196,11 +216,14 @@ def _compute_degradation(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def calculate_degradation(
     site_id: str,
     start: datetime,
     end: datetime,
     session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Calculate long-run PR degradation rate for a site.
 
@@ -222,12 +245,11 @@ async def calculate_degradation(
         confidence         'high' | 'medium' | 'low' | None
         start, end         datetime
     """
-    expected_full = await _fetch_expected_full(site_id, start, end, session)
+    expected_full = await _fetch_expected_full(site_id, start, end, session, source=source)
     meter_full = await _fetch_meter_full(site_id, start, end, session)
     daily_pr = _build_daily_pr_series(expected_full, meter_full, start, end)
     result = _compute_degradation(daily_pr, start, end)
     result["daily_pr"] = [
-        {"date": d.date().isoformat(), "pr": round(float(v), 4)}
-        for d, v in daily_pr.items()
+        {"date": d.date().isoformat(), "pr": round(float(v), 4)} for d, v in daily_pr.items()
     ]
     return result

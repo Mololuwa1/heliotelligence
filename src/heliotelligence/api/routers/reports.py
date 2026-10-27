@@ -5,8 +5,11 @@ POST /api/v1/reports/{site_id}
       start   ISO-8601 datetime (required)
       end     ISO-8601 datetime (required)
       sections  comma-separated list of section names (optional — defaults to all)
+      source    expected-model identity (default: physics_sdm)
 
-Returns application/pdf bytes of the generated report.
+Returns application/pdf bytes with X-Expected-Energy-Source provenance.
+This report includes legacy loss interpretation and rejects non-legacy sources
+with 422 after its source-specific no-data guard.
 """
 
 from __future__ import annotations
@@ -14,25 +17,29 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import text
 
-from heliotelligence.db.session import get_session_factory
+from heliotelligence.analysis.anomaly import detect_anomalies
+from heliotelligence.analysis.degradation import calculate_degradation
+from heliotelligence.analysis.inverter_health import analyse_inverter_health
+from heliotelligence.analysis.string_health import analyse_string_health
+from heliotelligence.benchmarking.availability import calculate_availability
+from heliotelligence.benchmarking.losses import calculate_losses
+from heliotelligence.benchmarking.performance_ratio import calculate_pr
+from heliotelligence.benchmarking.yield_metrics import calculate_yield
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import load_sites
-from heliotelligence.benchmarking.performance_ratio import calculate_pr
-from heliotelligence.benchmarking.losses import calculate_losses
-from heliotelligence.benchmarking.availability import calculate_availability
-from heliotelligence.benchmarking.yield_metrics import calculate_yield
-from heliotelligence.analysis.degradation import calculate_degradation
-from heliotelligence.analysis.anomaly import detect_anomalies
-from heliotelligence.analysis.string_health import analyse_string_health
-from heliotelligence.analysis.inverter_health import analyse_inverter_health
-from heliotelligence.reporting.report_data import ReportData
+from heliotelligence.db.session import get_session_factory
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 from heliotelligence.reporting.renderer import render
+from heliotelligence.reporting.report_data import ReportData
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +80,12 @@ async def generate_report(
         None,
         description="Comma-separated section names to include (default: all)",
     ),
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> Response:
+    try:
+        source = validate_expected_energy_source(source)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if end <= start:
         raise HTTPException(status_code=422, detail="end must be after start")
 
@@ -84,26 +96,34 @@ async def generate_report(
             text("""
                 SELECT 1 FROM expected_energy
                 WHERE site_id = :site_id
+                  AND source = :source
                   AND time >= :start AND time < :end
                 LIMIT 1
             """),
-            {"site_id": site_id, "start": start, "end": end},
+            {"site_id": site_id, "start": start, "end": end, "source": source},
         )
         if result.fetchone() is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"No data found for site {site_id} "
-                       f"in [{start.isoformat()}, {end.isoformat()})",
+                detail=f"No expected_energy data found for site {site_id} "
+                f"for source {source} "
+                f"in [{start.isoformat()}, {end.isoformat()})",
             )
+
+    if source != LEGACY_EXPECTED_ENERGY_SOURCE:
+        raise HTTPException(
+            status_code=422,
+            detail="legacy loss waterfall supports only physics_sdm",
+        )
 
     # Fetch all metrics in parallel, each with its own session
     async def _pr():
         async with factory() as s:
-            return await _safe_fetch(calculate_pr(site_id, start, end, s))
+            return await _safe_fetch(calculate_pr(site_id, start, end, s, source=source))
 
     async def _losses():
         async with factory() as s:
-            return await _safe_fetch(calculate_losses(site_id, start, end, s))
+            return await _safe_fetch(calculate_losses(site_id, start, end, s, source=source))
 
     async def _avail():
         async with factory() as s:
@@ -117,11 +137,11 @@ async def generate_report(
 
     async def _deg():
         async with factory() as s:
-            return await _safe_fetch(calculate_degradation(site_id, start, end, s))
+            return await _safe_fetch(calculate_degradation(site_id, start, end, s, source=source))
 
     async def _anom():
         async with factory() as s:
-            return await _safe_fetch(detect_anomalies(site_id, start, end, s))
+            return await _safe_fetch(detect_anomalies(site_id, start, end, s, source=source))
 
     async def _str_health():
         async with factory() as s:
@@ -132,11 +152,23 @@ async def generate_report(
             return await _safe_fetch(analyse_inverter_health(site_id, start, end, s))
 
     (
-        pr_data, losses_data, avail_data, yield_data,
-        deg_data, anom_data, str_data, inv_data,
+        pr_data,
+        losses_data,
+        avail_data,
+        yield_data,
+        deg_data,
+        anom_data,
+        str_data,
+        inv_data,
     ) = await asyncio.gather(
-        _pr(), _losses(), _avail(), _yield(),
-        _deg(), _anom(), _str_health(), _inv_health(),
+        _pr(),
+        _losses(),
+        _avail(),
+        _yield(),
+        _deg(),
+        _anom(),
+        _str_health(),
+        _inv_health(),
     )
 
     section_list = None
@@ -148,7 +180,7 @@ async def generate_report(
         site_name=_site_name(site_id),
         report_start=start,
         report_end=end,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         performance_ratio=pr_data,
         losses=losses_data,
         availability=avail_data,
@@ -170,8 +202,9 @@ async def generate_report(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
+            "X-Expected-Energy-Source": source,
             "Content-Disposition": (
                 f'attachment; filename="report_{site_id}_{start.date()}_{end.date()}.pdf"'
-            )
+            ),
         },
     )

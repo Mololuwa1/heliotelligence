@@ -7,7 +7,8 @@ run_pipeline(site, session, *, chunk_hours=24, lookback_days=30) -> dict
 Catch-up logic
 --------------
 On each run the pipeline:
-  1. Queries the latest time in expected_energy for the site.
+  1. Queries the latest physics_sdm time for the site. This runner owns only
+     the legacy compatibility series, never an alternative shadow model.
      If no rows exist, defaults to (now - lookback_days).
   2. Queries the latest time in weather_readings for the site.
      If no rows exist, returns early.
@@ -31,6 +32,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from heliotelligence.config.site import SiteConfig
+from heliotelligence.engine.expected_energy_source import LEGACY_EXPECTED_ENERGY_SOURCE
 from heliotelligence.engine.inverter import calculate_ac_power
 from heliotelligence.engine.upsert import upsert_expected_energy
 from heliotelligence.engine.weather_query import (
@@ -76,16 +78,20 @@ async def run_pipeline(
     # ------------------------------------------------------------------
     # Determine catch-up window
     # ------------------------------------------------------------------
-    latest_weather = await get_latest_weather_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
+    latest_weather = await get_latest_weather_time(
+        str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session
+    )
     if latest_weather is None:
-        logger.info(
-            "Site %s: no weather_readings found — pipeline skipped.", site.id
-        )
+        logger.info("Site %s: no weather_readings found — pipeline skipped.", site.id)
         return _result(site.id, 0, 0, None, None)
 
     catch_up_to = latest_weather
 
-    latest_expected = await get_latest_expected_energy_time(str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)), session)
+    latest_expected = await get_latest_expected_energy_time(
+        str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)),
+        session,
+        source=LEGACY_EXPECTED_ENERGY_SOURCE,
+    )
     catch_up_from = (
         latest_expected
         if latest_expected is not None
@@ -95,7 +101,8 @@ async def run_pipeline(
     if catch_up_from >= catch_up_to:
         logger.info(
             "Site %s: expected_energy already up to date (latest=%s).",
-            site.id, catch_up_from.isoformat(),
+            site.id,
+            catch_up_from.isoformat(),
         )
         return _result(site.id, 0, 0, None, None)
 
@@ -134,7 +141,9 @@ async def run_pipeline(
 
     logger.info(
         "Site %s: pipeline complete — %d rows upserted across %d chunks.",
-        site.id, total_rows, chunks_run,
+        site.id,
+        total_rows,
+        chunks_run,
     )
     return _result(site.id, total_rows, chunks_run, first_ts, last_ts)
 
@@ -163,7 +172,9 @@ async def _run_chunk(
     if weather_df.empty:
         logger.debug(
             "Site %s: empty weather window [%s, %s) — skipping chunk.",
-            site.id, start.isoformat(), end.isoformat(),
+            site.id,
+            start.isoformat(),
+            end.isoformat(),
         )
         return 0
 
@@ -215,10 +226,13 @@ async def _run_chunk(
     )
 
     # --- Upsert --------------------------------------------------------------
-    rows = await upsert_expected_energy(site, merged, session)
+    rows = await upsert_expected_energy(site, merged, session, source=LEGACY_EXPECTED_ENERGY_SOURCE)
     logger.debug(
         "Site %s: chunk [%s, %s) → %d rows upserted.",
-        site.id, start.isoformat(), end.isoformat(), rows,
+        site.id,
+        start.isoformat(),
+        end.isoformat(),
+        rows,
     )
     return rows
 

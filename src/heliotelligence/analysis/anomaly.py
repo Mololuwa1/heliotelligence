@@ -16,10 +16,14 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +34,17 @@ _DAYTIME_THRESHOLD_KW = 1.0  # expected p_ac_kw must exceed this to flag
 # DB fetchers
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_joined(
-    site_id: str, start: datetime, end: datetime, session: AsyncSession
+    site_id: str,
+    start: datetime,
+    end: datetime,
+    session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> pd.DataFrame:
     """Fetch aligned (time, actual_kw, expected_kw) for the window."""
+    source = validate_expected_energy_source(source)
     result = await session.execute(
         text("""
             SELECT
@@ -45,11 +56,12 @@ async def _fetch_joined(
                 ON CAST(mr.site_id AS uuid) = ee.site_id
                AND mr.ts                    = ee.time
             WHERE ee.site_id = CAST(:site_id AS uuid)
+              AND ee.source = :source
               AND ee.time >= :start
               AND ee.time < :end
             ORDER BY ee.time ASC
         """),
-        {"site_id": site_id, "start": start, "end": end},
+        {"site_id": site_id, "start": start, "end": end, "source": source},
     )
     rows = result.fetchall()
     if not rows:
@@ -62,6 +74,7 @@ async def _fetch_joined(
 # ---------------------------------------------------------------------------
 # Pure computation
 # ---------------------------------------------------------------------------
+
 
 def _compute_anomalies(
     joined: pd.DataFrame,
@@ -85,8 +98,12 @@ def _compute_anomalies(
         flags (list of dicts), start, end
     """
     _empty = dict(
-        flagged_count=0, total_count=0, flag_rate_pct=0.0,
-        flags=[], start=start, end=end,
+        flagged_count=0,
+        total_count=0,
+        flag_rate_pct=0.0,
+        flags=[],
+        start=start,
+        end=end,
     )
 
     if joined.empty:
@@ -108,8 +125,12 @@ def _compute_anomalies(
 
     if residual_std == 0.0:
         return dict(
-            flagged_count=0, total_count=total_count, flag_rate_pct=0.0,
-            flags=[], start=start, end=end,
+            flagged_count=0,
+            total_count=total_count,
+            flag_rate_pct=0.0,
+            flags=[],
+            start=start,
+            end=end,
         )
 
     daytime["sigma"] = daytime["residual"].abs() / residual_std
@@ -117,13 +138,15 @@ def _compute_anomalies(
 
     flags = []
     for ts, row in flagged.iterrows():
-        flags.append(dict(
-            time=ts,
-            actual_kw=round(float(row["actual_kw"]), 3),
-            expected_kw=round(float(row["expected_kw"]), 3),
-            residual_kw=round(float(row["residual"]), 3),
-            sigma=round(float(row["sigma"]), 3),
-        ))
+        flags.append(
+            dict(
+                time=ts,
+                actual_kw=round(float(row["actual_kw"]), 3),
+                expected_kw=round(float(row["expected_kw"]), 3),
+                residual_kw=round(float(row["residual"]), 3),
+                sigma=round(float(row["sigma"]), 3),
+            )
+        )
 
     flagged_count = len(flags)
     flag_rate_pct = round(flagged_count / total_count * 100.0, 2)
@@ -142,12 +165,15 @@ def _compute_anomalies(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def detect_anomalies(
     site_id: str,
     start: datetime,
     end: datetime,
     session: AsyncSession,
     threshold_sigma: float = 2.0,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Detect AC power anomalies for a site over a time window.
 
@@ -165,5 +191,5 @@ async def detect_anomalies(
         flagged_count, total_count, flag_rate_pct,
         flags (list), start, end
     """
-    joined = await _fetch_joined(site_id, start, end, session)
+    joined = await _fetch_joined(site_id, start, end, session, source=source)
     return _compute_anomalies(joined, threshold_sigma, start, end)

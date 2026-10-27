@@ -24,6 +24,11 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
+
 logger = logging.getLogger(__name__)
 
 # Threshold below which PR is reported as None rather than a misleading number.
@@ -33,6 +38,7 @@ _MIN_COVERAGE_PCT = 10.0
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _interval_hours(index: pd.DatetimeIndex) -> np.ndarray:
     """Return per-row forward interval in hours.
@@ -51,7 +57,7 @@ def _interval_hours(index: pd.DatetimeIndex) -> np.ndarray:
     # pd.Series.diff() → Timedelta; dt.total_seconds() is resolution-independent
     diffs_s = pd.Series(index).diff().dt.total_seconds().values  # shape (n,), [0] = NaN
     diffs_h = diffs_s / 3600.0
-    diffs_h[0] = diffs_h[1]   # forward-fill first element from second
+    diffs_h[0] = diffs_h[1]  # forward-fill first element from second
     return diffs_h
 
 
@@ -84,8 +90,12 @@ def _compute_pr(
         end             datetime
     """
     _empty = dict(
-        pr=None, e_actual_kwh=0.0, e_expected_kwh=0.0,
-        coverage_pct=0.0, start=start, end=end,
+        pr=None,
+        e_actual_kwh=0.0,
+        e_expected_kwh=0.0,
+        coverage_pct=0.0,
+        start=start,
+        end=end,
     )
 
     if expected_df.empty or "p_ac_kw" not in expected_df.columns:
@@ -93,24 +103,23 @@ def _compute_pr(
 
     expected_df = expected_df.sort_index()
     intervals_h = _interval_hours(expected_df.index)
-    e_expected_kwh = float(
-        (expected_df["p_ac_kw"].fillna(0.0).values * intervals_h).sum()
-    )
+    e_expected_kwh = float((expected_df["p_ac_kw"].fillna(0.0).values * intervals_h).sum())
 
     if meter_df.empty:
         return dict(
-            pr=None, e_actual_kwh=0.0, e_expected_kwh=round(e_expected_kwh, 3),
-            coverage_pct=0.0, start=start, end=end,
+            pr=None,
+            e_actual_kwh=0.0,
+            e_expected_kwh=round(e_expected_kwh, 3),
+            coverage_pct=0.0,
+            start=start,
+            end=end,
         )
 
     # Align meter onto expected timestamps (left join).
     meter_aligned = meter_df.reindex(expected_df.index)
 
     total_count = len(expected_df)
-    has_actual = (
-        meter_aligned["p_ac_kw"].notna()
-        | meter_aligned["e_exported_kwh"].notna()
-    )
+    has_actual = meter_aligned["p_ac_kw"].notna() | meter_aligned["e_exported_kwh"].notna()
     matched_count = int(has_actual.sum())
     coverage_pct = matched_count / total_count * 100.0 if total_count > 0 else 0.0
 
@@ -151,19 +160,27 @@ def _compute_pr(
 # DB fetchers
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_expected_df(
-    site_id: str, start: datetime, end: datetime, session: AsyncSession
+    site_id: str,
+    start: datetime,
+    end: datetime,
+    session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> pd.DataFrame:
+    source = validate_expected_energy_source(source)
     result = await session.execute(
         text("""
             SELECT time, p_ac_kw
             FROM expected_energy
             WHERE site_id = :site_id
+              AND source = :source
               AND time >= :start
               AND time < :end
             ORDER BY time ASC
         """),
-        {"site_id": site_id, "start": start, "end": end},
+        {"site_id": site_id, "start": start, "end": end, "source": source},
     )
     rows = result.fetchall()
     if not rows:
@@ -199,11 +216,14 @@ async def _fetch_meter_df(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def calculate_pr(
     site_id: str,
     start: datetime,
     end: datetime,
     session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Calculate Performance Ratio for a site over a time window.
 
@@ -219,6 +239,6 @@ async def calculate_pr(
     dict
         pr, e_actual_kwh, e_expected_kwh, coverage_pct, start, end
     """
-    expected_df = await _fetch_expected_df(site_id, start, end, session)
+    expected_df = await _fetch_expected_df(site_id, start, end, session, source=source)
     meter_df = await _fetch_meter_df(site_id, start, end, session)
     return _compute_pr(expected_df, meter_df, start, end)
