@@ -44,9 +44,11 @@ The current repository values `320 kWac`, grid export limit, inverter model name
 
 Do not invent these relationships or use group membership, equipment count, capacity, labels, positions, `Paco`, CEC/SAM `Vac`, or cable-plan assumptions as substitutes for electrical/equipment authority.
 
-## Applicability of the validated S8/S9/S10/S11 chain
+## Applicability of the validated S8–S14 chain
 
-Heliotelligence now contains independently validated generic electrical/control contracts through the S11C balanced radial LV AC operating solution. Their existence does **not** mean Bracon Ash can be run through every high-fidelity stage from current site configuration.
+Heliotelligence now contains independently validated generic contracts through S14 meter benchmarking and delivery-loss attribution. Generic S12–S14 implementation does **not** make Bracon Ash S12–S14 ready.
+
+“Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
 The current generic chain includes:
 
@@ -68,6 +70,9 @@ physical string I-V
 → explicit static radial LV topology + direct per-phase R+jX
 → explicit timestamped collection-exit V_LL,RMS
 → modeled balanced radial LV operating solution
+→ S12 transformer authority/loss correction/coupled terminals
+→ S13 MV/HV network and expected/measured meter boundaries
+→ S14 instantaneous/interval benchmarks and delivery-loss accounting
 ```
 
 For Bracon Ash specifically, topology-dependent stages must remain unresolved where required MPPT/string/cable authority is absent. S9-4A requires explicit per-inverter AC capability evidence; S9-4B additionally requires explicit timestamped Q requests; S9-4C requires authoritative inverter thermal-derating evidence; S9-4D additionally requires explicit matching inverter-temperature state; S10A requires explicit timestamped per-inverter active-power request; S10B requires the preceding capability/request evidence; and S10C can establish a selected point only where S10B fully proves the exact request feasible.
@@ -108,7 +113,6 @@ Reactive thermal limits use the project convention: positive Q is injection and 
 
 Until such evidence is supplied, Bracon Ash thermal authority remains unresolved. S9-4D must not substitute module/cell temperature or ambient temperature unless that exact quantity is the admitted S9-4C authority basis.
 
-
 ## S9-4D applicability
 
 S9-4D is implemented generically, but its existence does **not** make Bracon Ash thermally resolved.
@@ -125,7 +129,6 @@ Do not substitute module/cell temperature for inverter temperature. Do not infer
 Outside the authority domain S9-4D remains unresolved; it does not clamp or extrapolate. Missing thermal channels remain partial authority. A known upstream or thermal violation remains definitive, but a passing partial result does not become a fully satisfied capability state.
 
 No S9-4D result should be interpreted as controller dispatch, actual inverter output, AC-current state, or site-network validation.
-
 
 ## S10A applicability
 
@@ -173,9 +176,27 @@ The legacy `wiring_loss_ac_pct` does not establish nodes, connectivity, R/X, or 
 
 Missing Bracon Ash S11 authority remains unresolved. Existing MPPT/string mapping, S9 AC capability/controller evidence, and transformer/MV/HV topology gaps also remain unresolved; no site values are populated by the generic implementation.
 
+## S12–S14 evidence onboarding
+
+Repository site configuration (`config/sites.yaml`) supplies aggregate equipment/layout and loss settings, not a complete authority package. Generic test fixtures demonstrate contracts and are not Bracon Ash as-built evidence. Existing SCADA/meter ingestion does not itself establish an S13D physical meter binding, scaling or temporal semantics.
+
+In addition to the MPPT/string/DC, S9/S10 and S11 gaps above, current site configuration does not establish:
+
+- transformer equipment, terminal bindings, ratio/tapping and impedance reference-side authority;
+- factory no-load/load-loss test evidence, construction/component allocations, thermal channels or transformer-terminal harmonic authority;
+- transformer-to-MV/HV connectivity, complete MV/HV topology and nominal-pi electrical parameters;
+- exact timestamped grid-boundary voltage authority;
+- explicit revenue-meter physical binding and admitted signed/scaled snapshot or interval measurement authority.
+
+Timestamped controller P/Q requests and inverter thermal authority/state also require explicit evidence; weather, module temperature and the site grid cap cannot supply them. The existence of documents or external site records must be checked during onboarding; absence from this configured authority package is not a claim that evidence cannot exist externally.
+
+S12M can select valid lower-fidelity transformer physics where evidence supports the S12G baseline. Such fallback may pass through S13C and S14A/B/C only when their own boundary/electrical evidence resolves. It cannot repair missing topology or voltage evidence. Fallback provenance remains visible, including S14C fallback IDs/presence across interval support.
+
+The next workstream is controlled [production integration and site evidence onboarding](../development/production-integration-roadmap.md), starting with planned source isolation. No site activation is performed by this documentation update.
+
 ## Legacy compatibility note
 
-The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. S11A/B/C remain dormant and do not consume `wiring_loss_ac_pct`. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
+The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. The generic S8–S14 component chain remains dormant from the default production path; S11 does not consume `wiring_loss_ac_pct`. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
 
 ## Capacity arithmetic discrepancy
 
