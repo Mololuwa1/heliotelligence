@@ -83,6 +83,18 @@ _TREE_STATES = (
     "resolved_balanced_radial_nominal_pi_mv_hv_operating_solution",
 )
 
+_S12M_ENERGISED_RESOLVED = frozenset(
+    {
+        "resolved_coupled_advanced_transformer_terminal_solution",
+        "resolved_coupled_transformer_terminal_solution_with_s12g_load_loss_fallback",
+    }
+)
+_S12M_RESOLVED = _S12M_ENERGISED_RESOLVED | frozenset(
+    {
+        "resolved_deenergised_transformer_zero_advanced_transfer",
+    }
+)
+
 _TREE_COLUMNS = (
     "grid_boundary_id",
     "network_basis_resolved",
@@ -143,6 +155,8 @@ _TX_COLUMNS = (
     "transformer_connected_to_network_exit",
     "s12m_row_present",
     "s12m_operating_state",
+    "s12m_terminal_solution_fidelity",
+    "s12m_load_loss_fallback_applied",
     "s12m_injection_ready",
     "transformer_energised",
     "p_network_terminal_injection_w",
@@ -295,7 +309,7 @@ _TX_BOOL = frozenset(
         "mv_hv_operating_solution_resolved",
     }
 )
-_TX_NULLABLE_BOOL = frozenset({"transformer_energised"})
+_TX_NULLABLE_BOOL = frozenset({"transformer_energised", "s12m_load_loss_fallback_applied"})
 _TX_FLOAT = frozenset(
     {
         "p_network_terminal_injection_w",
@@ -737,7 +751,7 @@ def _build_result(parents: tuple[Any, Any, Any]) -> TopologyMvHvOperatingSolutio
                 tx_rows[tx] = upstream
                 state = upstream["transformer_advanced_operating_solution_state"]
                 node = network.transformer_terminal_binding_by_transformer_id[tx].node_id
-                if state == "resolved_coupled_advanced_transformer_terminal_solution":
+                if state in _S12M_ENERGISED_RESOLVED:
                     injections[node] = complex(
                         upstream["p_network_terminal_w"], upstream["q_network_terminal_var"]
                     )
@@ -811,7 +825,7 @@ def _build_result(parents: tuple[Any, Any, Any]) -> TopologyMvHvOperatingSolutio
                     for tx, upstream in tx_rows.items():
                         if (
                             upstream["transformer_advanced_operating_solution_state"]
-                            != "resolved_coupled_advanced_transformer_terminal_solution"
+                            not in _S12M_ENERGISED_RESOLVED
                         ):
                             continue
                         applicable += 1
@@ -993,12 +1007,9 @@ def _transformer_frame(
                 if upstream is not None
                 else ""
             )
-            ready = state in {
-                "resolved_coupled_advanced_transformer_terminal_solution",
-                "resolved_deenergised_transformer_zero_advanced_transfer",
-            }
+            ready = state in _S12M_RESOLVED
             energised = upstream["transformer_energised"] if upstream is not None else pd.NA
-            applicable = state == "resolved_coupled_advanced_transformer_terminal_solution"
+            applicable = state in _S12M_ENERGISED_RESOLVED
             if applicable:
                 assert upstream is not None
                 p = float(upstream["p_network_terminal_w"])
@@ -1031,6 +1042,12 @@ def _transformer_frame(
                     "transformer_connected_to_network_exit": exit_id is not None,
                     "s12m_row_present": upstream is not None,
                     "s12m_operating_state": state,
+                    "s12m_terminal_solution_fidelity": (
+                        upstream["terminal_solution_fidelity"] if upstream is not None else ""
+                    ),
+                    "s12m_load_loss_fallback_applied": (
+                        upstream["load_loss_fallback_applied"] if upstream is not None else pd.NA
+                    ),
                     "s12m_injection_ready": ready,
                     "transformer_energised": energised,
                     "p_network_terminal_injection_w": p,
@@ -1345,7 +1362,7 @@ def _validator_close_unresolved_publication(
             if upstream is not None
             else ""
         )
-        applicable = state == "resolved_coupled_advanced_transformer_terminal_solution"
+        applicable = state in _S12M_ENERGISED_RESOLVED
         deenergised = state == "resolved_deenergised_transformer_zero_advanced_transfer"
         ready = applicable or deenergised
         if applicable:
@@ -1367,6 +1384,12 @@ def _validator_close_unresolved_publication(
                 "transformer_connected_to_network_exit": True,
                 "s12m_row_present": upstream is not None,
                 "s12m_operating_state": state,
+                "s12m_terminal_solution_fidelity": (
+                    upstream["terminal_solution_fidelity"] if upstream is not None else ""
+                ),
+                "s12m_load_loss_fallback_applied": (
+                    upstream["load_loss_fallback_applied"] if upstream is not None else pd.NA
+                ),
                 "s12m_injection_ready": ready,
                 "transformer_energised": (
                     upstream["transformer_energised"] if upstream is not None else pd.NA
@@ -1382,10 +1405,7 @@ def _validator_close_unresolved_publication(
                 "terminal_voltage_magnitude_residual_v": residual,
                 "terminal_voltage_magnitude_consistency_satisfied": (
                     not applicable
-                    or (
-                        transformer_id in residuals
-                        and _close(residual, 0.0, terminal=True)
-                    )
+                    or (transformer_id in residuals and _close(residual, 0.0, terminal=True))
                 ),
                 "mv_hv_operating_solution_resolved": False,
                 "transformer_terminal_operating_state": (
@@ -1408,12 +1428,8 @@ def _validator_close_unresolved_publication(
                 "mv_hv_operating_solution_resolved": False,
                 "local_transformer_p_injection_w": math.nan,
                 "local_transformer_q_injection_var": math.nan,
-                "total_incident_half_shunt_conductance_siemens_per_phase": (
-                    shunts[node_id].real
-                ),
-                "total_incident_half_shunt_susceptance_siemens_per_phase": (
-                    shunts[node_id].imag
-                ),
+                "total_incident_half_shunt_conductance_siemens_per_phase": (shunts[node_id].real),
+                "total_incident_half_shunt_susceptance_siemens_per_phase": (shunts[node_id].imag),
                 "voltage_phase_real_v": math.nan,
                 "voltage_phase_imag_v": math.nan,
                 "voltage_phase_magnitude_v": math.nan,
@@ -1479,9 +1495,7 @@ def _validator_close_unresolved_publication(
                 "reactive_power_sign_convention": meter.reactive_power_sign_convention,
                 "power_basis": meter.power_basis,
                 "meter_boundary_cut_semantics": METER_CUT,
-                "revenue_meter_expected_state": (
-                    "unresolved_upstream_mv_hv_operating_solution"
-                ),
+                "revenue_meter_expected_state": ("unresolved_upstream_mv_hv_operating_solution"),
                 "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
                 "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
             },
@@ -1821,7 +1835,7 @@ def _validate_result(
                 node_id = network.transformer_terminal_binding_by_transformer_id[
                     transformer_id
                 ].node_id
-                if state == "resolved_coupled_advanced_transformer_terminal_solution":
+                if state in _S12M_ENERGISED_RESOLVED:
                     injections[node_id] = complex(
                         upstream["p_network_terminal_w"], upstream["q_network_terminal_var"]
                     )
@@ -1846,22 +1860,25 @@ def _validate_result(
                     if upstream is not None
                     else ""
                 )
-                ready = upstream_state in {
-                    "resolved_coupled_advanced_transformer_terminal_solution",
-                    "resolved_deenergised_transformer_zero_advanced_transfer",
-                }
+                ready = upstream_state in _S12M_RESOLVED
                 terminal_static = {
                     "transformer_terminal_node_id": node_id,
                     "network_exit_node_id": exit_id,
                     "transformer_connected_to_network_exit": True,
                     "s12m_row_present": upstream is not None,
                     "s12m_operating_state": upstream_state,
+                    "s12m_terminal_solution_fidelity": (
+                        upstream["terminal_solution_fidelity"] if upstream is not None else ""
+                    ),
+                    "s12m_load_loss_fallback_applied": (
+                        upstream["load_loss_fallback_applied"] if upstream is not None else pd.NA
+                    ),
                     "s12m_injection_ready": ready,
                     "transformer_energised": (
                         upstream["transformer_energised"] if upstream is not None else pd.NA
                     ),
                     "terminal_voltage_consistency_applicable": (
-                        upstream_state == "resolved_coupled_advanced_transformer_terminal_solution"
+                        upstream_state in _S12M_ENERGISED_RESOLVED
                     ),
                     "mv_hv_operating_solution_contract": MV_HV_OPERATING_SOLUTION_CONTRACT_ID,
                     "mv_hv_operating_solution_model": MV_HV_OPERATING_SOLUTION_MODEL_ID,
@@ -2329,9 +2346,7 @@ def _validate_result(
                 ].node_id
                 upstream = s12m.states.loc[(timestamp, transformer_id)]
                 upstream_state = upstream["transformer_advanced_operating_solution_state"]
-                applicable = (
-                    upstream_state == "resolved_coupled_advanced_transformer_terminal_solution"
-                )
+                applicable = upstream_state in _S12M_ENERGISED_RESOLVED
                 candidate_voltage = math.sqrt(3.0) * abs(solved.voltages[node_id])
                 solved_voltage = candidate_voltage if applicable else math.nan
                 residual = (
@@ -2398,9 +2413,10 @@ def _validate_result(
     # per-tree loops above.
     all_shunts = _validator_shunts(network.nodes_by_id, network.segments_by_id)
     for timestamp in times:
-        for transformer_id, binding in (
-            network.transformer_terminal_binding_by_transformer_id.items()
-        ):
+        for (
+            transformer_id,
+            binding,
+        ) in network.transformer_terminal_binding_by_transformer_id.items():
             if node_exit[binding.node_id] is not None:
                 continue
             row = result.transformer_terminal_states.loc[(timestamp, transformer_id)]
@@ -2414,15 +2430,13 @@ def _validate_result(
                 if upstream is not None
                 else ""
             )
-            applicable = state == "resolved_coupled_advanced_transformer_terminal_solution"
+            applicable = state in _S12M_ENERGISED_RESOLVED
             deenergised = state == "resolved_deenergised_transformer_zero_advanced_transfer"
             if applicable:
                 assert upstream is not None
                 p = float(upstream["p_network_terminal_w"])
                 q = float(upstream["q_network_terminal_var"])
-                parent_voltage = float(
-                    upstream["network_terminal_voltage_line_to_line_rms_v"]
-                )
+                parent_voltage = float(upstream["network_terminal_voltage_line_to_line_rms_v"])
             elif deenergised:
                 p = q = 0.0
                 parent_voltage = math.nan
@@ -2436,6 +2450,12 @@ def _validate_result(
                     "transformer_connected_to_network_exit": False,
                     "s12m_row_present": upstream is not None,
                     "s12m_operating_state": state,
+                    "s12m_terminal_solution_fidelity": (
+                        upstream["terminal_solution_fidelity"] if upstream is not None else ""
+                    ),
+                    "s12m_load_loss_fallback_applied": (
+                        upstream["load_loss_fallback_applied"] if upstream is not None else pd.NA
+                    ),
                     "s12m_injection_ready": applicable or deenergised,
                     "transformer_energised": (
                         upstream["transformer_energised"] if upstream is not None else pd.NA
@@ -2443,9 +2463,7 @@ def _validate_result(
                     "p_network_terminal_injection_w": p,
                     "q_network_terminal_injection_var": q,
                     "s_network_terminal_injection_magnitude_va": (
-                        abs(complex(p, q))
-                        if math.isfinite(p) and math.isfinite(q)
-                        else math.nan
+                        abs(complex(p, q)) if math.isfinite(p) and math.isfinite(q) else math.nan
                     ),
                     "s12m_network_terminal_voltage_line_to_line_rms_v": parent_voltage,
                     "solved_s13_terminal_voltage_line_to_line_rms_v": math.nan,
