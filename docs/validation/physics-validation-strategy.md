@@ -90,46 +90,41 @@ Compare against, where authoritative and aligned:
 
 Do not tune away structural physics errors with unexplained empirical correction factors. Site-data fit is evidence, not permission to conceal an incorrect mechanism.
 
-
-
-
-
 ## Current validated trace
 
-The independently validated electrical/control trace now includes:
+Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
-module electrical state
-string-terminal I-V
-source-plane common-voltage MPPT
-physical mismatch
-branch-resistance authority
-branch-transformed I-V
-MPPT-input common-voltage DC state
-inverter equipment authority
-inverter DC envelope state
-Sandia AC available power
-Sandia pre-Paco AC potential
-conversion / clipping / tare accounting
-static inverter AC capability authority
-timestamped inverter P/Q/S capability-state evaluation
-static inverter thermal-derating authority
-temperature-dependent inverter capability evaluation
-explicit inverter active-power dispatch-request authority
-requested inverter P/Q/S feasibility evaluation
-selected inverter AC P/Q/S state
-static LV collection topology and direct per-phase R+jX authority
-timestamped collection-exit line-to-line RMS voltage authority
-balanced radial constant-PQ LV operating solution
+WEATHER / QC
+↓
+SOLAR GEOMETRY / IRRADIANCE
+↓
+FRONT + REAR OPTICS / SHADING / IAM / SPECTRAL
+↓
+CANONICAL ELECTRICAL IRRADIANCE
+↓
+THERMAL
+↓
+MODULE ELECTRICAL
+↓
+S8 STRING / MPPT / PHYSICAL DC MISMATCH / DIRECT DC BRANCH
+↓
+S9 INVERTER CONVERSION + AC CAPABILITY + THERMAL CAPABILITY
+↓
+S10 EXPLICIT REQUEST / FEASIBILITY / SELECTED AC P-Q-S
+↓
+S11 LV AC COLLECTION
+↓
+S12 TRANSFORMER
+↓
+S13 MV/HV COLLECTION + GRID/REVENUE-METER BOUNDARY
+↓
+S14 METER BENCHMARK + DELIVERY-LOSS ATTRIBUTION
 ```
 
-Current merged checkpoint:
+Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
 
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
-
-Final reviewed CI for PR #86 ran `3040` backend unit tests successfully in `527.89s` on Python 3.13.15 with `pvlib==0.15.2`; the frontend build also passed. Run #217 / ID `37544412809` validated exact synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e` from reviewed head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`.
-
-Always verify the live repository before treating those numbers as current.
+Generic validation does not establish site readiness or production activation.
 
 ## Required invariants for S8/S9
 
@@ -204,7 +199,6 @@ Required invariants:
 - missing fixed-Q authority is different from explicit zero Q capability;
 - no P/Q/S operating state, AC current, PF compliance, thermal derating, controller, cable or transformer physics appears in S9-4A.
 
-
 ### S9-4B P/Q/S capability-state evaluation
 
 S9-4B is now validated.
@@ -226,7 +220,6 @@ Required invariants include:
 - mapping insertion order cannot change canonical output order;
 - P and Q are never changed to force feasibility;
 - no AC-current, thermal, controller, cable or transformer physics appears in S9-4B.
-
 
 ### S9-4C thermal-derating authority
 
@@ -252,7 +245,6 @@ Required invariants include:
 - exact provenance, diagnostics, dtypes, ordering and ownership;
 - no dispatch, AC current, network or production integration.
 
-
 ### S9-4D temperature-dependent inverter capability
 
 S9-4D is now validated.
@@ -275,7 +267,6 @@ Required invariants include:
 - static S9-4A/S9-4B capability and S9-4C thermal authority remain separately attributable;
 - no controller dispatch, P/Q/S modification, AC current, thermal-loss accounting, cables or transformers;
 - exact dtypes, provenance, state semantics, diagnostics and deterministic full-result closure.
-
 
 ### S10A explicit inverter active-power dispatch-request authority
 
@@ -350,40 +341,49 @@ Validation covers:
 
 S11C solved state remains modeled, not measured, and does not validate voltage compliance, transformer behavior, controller feedback, or energy integration.
 
-## Next validation target: S12 transformer authority
+## Validated S12 transformer invariants
 
-Validate explicit transformer equipment/topology and reference planes before operating transformer physics. Do not infer winding identity, voltage bases, rating, ratio, impedance, losses, loading, or tap state from S11 exit voltage, names, capacity, CEC fields, geometry, or site configuration.
+- Explicit positive-sequence transfer, tapping/ratio and impedance reference-side ownership; no extra referral.
+- Factory series equivalent closes to admitted total load loss; terminal P/Q/V/current and baseline loss conserve.
+- Component I²R/eddy/OSL decomposition closes to factory evidence; harmonic h²/ h^0.8 weighting is distinct from temperature dependence.
+- Scalar and winding-resolved thermal correction preserve explicit side evidence and homogeneous custom-authority precedence; no inferred/averaged temperatures.
+- Effective aggregate I²R/eddy factors reproduce winding sums; S12M reconstructs fundamental/harmonic coefficients at S12K's construction current.
+- Aggregate OSL remains unsplit; missing defensible proxy produces unresolved advanced correction with a valid selected S12G fallback where available.
+- Core/no-load scaling and its explicit valid factory fallback retain ownership; contradictory evidence is not a fallback licence.
+- S12M fixed point reconciles core voltage and coupled-current loss on one converged iterate, supports both reference sides and preserves P/Q conservation.
+- Harmonic active sink remains separate from voltage-drop resistance; no thermal iteration is claimed.
+- Parent canonical replay rejects representative new winding fields; independent validation succeeds with production helpers disabled.
 
-## Future validation targets
+## Validated S13 network/boundary invariants
 
-### Transformer
+- Topology authority and exact grid-boundary voltage precede the balanced radial nominal-pi solve.
+- Canonical S12M P/Q is admitted for advanced and valid S12G-load-loss fallback; deenergised retains zero-transfer semantics.
+- The same transformer terminal-voltage tolerances apply to both energised resolved states. Mismatch stays unresolved.
+- Series/shunt consumption, meter-boundary expected P/Q and active/reactive conservation close without reapplying transformer loss.
+- Mixed advanced/fallback trees resolve when evidence is complete, while exact fidelity and fallback fields remain visible.
+- Missing/nonfinite/nonconvergent states remain unresolved. Independent validator reconstructs readiness and rejects fidelity/provenance tampering.
 
-- no-load loss appears when energised even at low load;
-- load loss follows authoritative loading dependence;
-- input/output accounting closes;
-- P/Q/S loading semantics remain explicit.
+## Validated S14 benchmark/accounting invariants
 
-### Benchmarking
+- Exact expected/measured meter identity, physical boundary and timestamp alignment; snapshot and interval-average measurements remain distinct.
+- Exact interval endpoint/support eligibility, piecewise-linear expected power and trapezoidal integration; no nearest-time substitution or extrapolation.
+- Delivery accounting closes selected source, LV loss, transformer loss, network consumption and expected meter output.
+- Valid transformer fallback supports resolved instantaneous/interval accounting using generic total-loss fields, not advanced-only fields.
+- Deterministic fallback ID tuples and presence flags reconstruct from canonical contributing S12M states; interval provenance unions all admitted support timestamps.
+- Residual remains measured minus expected, never a hidden correction or automatic causal allocation.
+- Canonical replay/tamper rejection and independent validator monkeypatch proofs remain required.
 
-- expected and actual are aligned to the same boundary;
-- loss waterfalls telescope exactly;
-- residual is defined rather than used as a hidden correction factor;
-- confidence / unresolved state propagates into diagnostics.
+## Next validation target — production-integration migration safety
 
-## Regression matrix for each new physics PR
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). First prove P0 source isolation across writes, reads, aggregates and catch-up: alternative models cannot mix or overwrite each other. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
-Use a non-redundant cadence, as applicable:
+No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
-- focused new-stage tests;
-- immediately upstream-stage tests;
-- Ruff, strict mypy, syntax compilation, and `git diff --check`;
-- one full backend unit suite before PR review;
-- frontend build;
-- one fresh CI on the exact synthetic merge.
+## Regression matrix for each change
 
-Run additional historical subsets or optical/rear regressions only when shared dependencies changed or when diagnosing a failure; do not repeat nested suites already subsumed by the full backend.
+During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`. Run optical/rear regressions when shared dependencies warrant them.
 
-Record exact base SHA, head SHA, synthetic merge SHA, Python version, dependency version, and pass counts.
+GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
 
 ## Site and portfolio validation
 

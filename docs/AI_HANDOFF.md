@@ -4,6 +4,35 @@ This is the current recovery and architectural checkpoint for Heliotelligence, a
 
 It does not replace live source, tests, Git history, CI evidence, or direct inspection of current code.
 
+## Current status
+
+Heliotelligence is a physics-first PV digital twin and meter-benchmarking platform.
+
+```text
+Current checkpoint:
+PR #115 merge d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a
+Validated generic chain:
+S8 → S9 → S10 → S11 → S12 → S13 → S14
+Production:
+legacy expected-energy path remains active
+Next:
+controlled production integration, beginning with expected-energy source isolation
+```
+
+Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+
+“Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
+
+Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
+
+Never infer missing string/MPPT/inverter mappings, conductor paths, capability, controller requests, side temperatures, transformer loss evidence, operating voltages or meter bindings. Equipment counts, CEC fields, weather, measured output and site export caps are not substitutes. Bracon Ash still lacks the authority described in the [site record](sites/bracon-ash.md).
+
+During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`. Run optical/rear regressions when shared dependencies warrant them.
+
+GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
+
+Read the canonical [production-integration roadmap](development/production-integration-roadmap.md) before activation work. P0 source isolation and physical shadow execution remain planned. The `(time, site_id, source)` database identity alone is insufficient: current catch-up and several readers are not source-isolated.
+
 ## Recovery rule
 
 When beginning from a new conversation or development session:
@@ -34,102 +63,37 @@ When information disagrees, use this authority order:
 
 Never authorize a merge from an implementation report alone.
 
-
-
-
-
-## Current canonical repository checkpoint
-
-As of 2026-10-06, live `main` is:
-
-`6f6dbb34027f9e648fe8623aab37b14341f193c7`
-
-This is the merge commit of PR #86:
-
-`S11C: add balanced radial LV AC collection solve`
-
-S10 controller milestone:
-
-- S10A PR #79 merged as `4a6b318946a5a2bb688bfa29f7318403362f99de`;
-- S10B PR #81 merged as `2f4a4050c48203018fbf914c3853675f996bda97`;
-- S10C PR #82 merged as `a8e883b4ba04dfcab4a2736d15ceaf9eed06496e`.
-
-S11 milestone:
-
-- S11A PR #84, reviewed head `07cb048dec18ca42b3b668a3b7407e9e27b784ce`, merged as `caabb06ff31d5b5cf48139fada6aeb265ae9771a`;
-- S11B PR #85, reviewed head `c4e8ba2e3545bbf64037759730cdc6746bd45f79`, merged as `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- S11C PR #86, reviewed hardened head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`, merged as `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
-
-GitHub reports the S11C merge signature as verified. Its parents are canonical S11B main `3fb4c3181c283ecf62622865b88622ac7b24ae22` and reviewed S11C head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`.
-
-Final reviewed pre-merge CI evidence:
-
-- workflow: CI;
-- run #217;
-- run ID `37544412809`;
-- base `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
-- Python 3.13.15;
-- `pvlib==0.15.2`;
-- backend: `3040 passed in 527.89s`;
-- frontend: success.
-
-Reviewed S11 CI history:
-
-| Stage | CI | Run ID | Synthetic merge | Backend | Frontend |
-|---|---:|---:|---|---|---|
-| S11A | #212 | `37246123578` | `b11c0ccf463eabe7a7797c4027f9f672852e2ea0` | 2939 passed in 627.40s | success |
-| S11B | #214 | `37384225311` | `014ff7db4218cc4668604cbcb1e7031c25daac63` | 2989 passed in 518.15s | success |
-| S11C hardened | #217 | `37544412809` | `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e` | 3040 passed in 527.89s | success |
-
-All three used Python 3.13.15 and `pvlib==0.15.2`. Verify live `main` before relying on this checkpoint in a later session.
-
-## Product / engineering position
-
-Heliotelligence is beyond MVP. The target is an enterprise-grade, physics-first, component-resolved, provenance-aware, defensively validated, measurement-boundary-aware solar digital twin and benchmarking platform.
-
-Do not replace physical mechanisms with arbitrary percentages when sufficient physical inputs exist. Do not invent unavailable topology or equipment data. Prefer explicit `unresolved`, `unknown`, or `not_applicable` states over guessed values.
-
-New physical capability should normally be introduced as narrow, independently validated contracts and remain dormant from production until lower-level physics and handoff invariants are proven.
-
-
-
-
-
-## Current validated physics chain
+## Validated generic chain
 
 ```text
-S8-1  physical string I-V
-S8-2  common-voltage MPPT / physical mismatch
-S8-3A direct branch resistance authority
-S8-3B resistive branch I-V transform
-S8-3C MPPT-input operating point
-S9-0  explicit CEC/SAM inverter authority
-S9-1  DC envelope classification
-S9-2  Sandia inverter conversion
-S9-3A pre-limit Sandia AC potential
-S9-3B conversion / clipping / tare accounting
-S9-4A explicit static AC capability authority
-S9-4B timestamped P/Q/S capability-state evaluation
-S9-4C explicit inverter thermal-derating authority
-S9-4D temperature-dependent inverter capability
-S10A  explicit timestamped active-power dispatch request
-S10B  requested P/Q/S feasibility evaluation
-S10C  selected inverter AC P/Q/S state
-S11A  explicit static LV topology and direct per-phase R+jX authority
-S11B  timestamped collection-exit V_LL,RMS authority
-S11C  balanced radial constant-PQ LV operating solution
+WEATHER / QC
+↓
+SOLAR GEOMETRY / IRRADIANCE
+↓
+FRONT + REAR OPTICS / SHADING / IAM / SPECTRAL
+↓
+CANONICAL ELECTRICAL IRRADIANCE
+↓
+THERMAL
+↓
+MODULE ELECTRICAL
+↓
+S8 STRING / MPPT / PHYSICAL DC MISMATCH / DIRECT DC BRANCH
+↓
+S9 INVERTER CONVERSION + AC CAPABILITY + THERMAL CAPABILITY
+↓
+S10 EXPLICIT REQUEST / FEASIBILITY / SELECTED AC P-Q-S
+↓
+S11 LV AC COLLECTION
+↓
+S12 TRANSFORMER
+↓
+S13 MV/HV COLLECTION + GRID/REVENUE-METER BOUNDARY
+↓
+S14 METER BENCHMARK + DELIVERY-LOSS ATTRIBUTION
 ```
 
-The S10 chain is deliberately split:
-
-- **request:** S10A owns explicit per-inverter active-power request; canonical Q request remains S9-4B-owned;
-- **feasibility:** S10B evaluates the exact requested point against instantaneous availability, static S/Q capability and temperature-dependent capability;
-- **selection:** S10C establishes a selected point only for an exact request that is fully proved feasible.
-
-No S10 stage infers plant-level allocation, command persistence, measured output, AC current or network loss.
-
-S11 preserves the next separation: S11A is static network authority, S11B is exact operating boundary-voltage authority, and S11C is the physical operating solve. S10C and S11C remain modeled target/state, not measured telemetry.
+The chain is dormant from the default production expected-energy runtime. Detailed S12–S14 responsibilities and exact source-copied contracts are in the [architecture](architecture/physics-architecture.md).
 
 ## S8 electrical contracts
 
@@ -182,22 +146,22 @@ Runs common-voltage MPPT aggregation on already transformed MPPT-input string cu
 
 ## Electrical reference planes
 
-Keep these physical planes distinct:
+Keep these reference planes distinct:
 
 1. module terminals;
-2. physical string source terminals;
-3. branch/string cable output;
-4. parallel collection junction;
-5. shared homerun / feeder output;
-6. inverter MPPT input terminals;
-7. inverter AC conversion/output boundary;
-8. future controller-dispatched AC output;
-9. downstream LV / transformer / MV / HV nodes;
-10. revenue-meter boundary.
+2. physical string terminals and direct branch output;
+3. parallel junction/shared feeder output where explicitly modelled;
+4. inverter MPPT input;
+5. inverter AC output (`inverter_ac_output`), including the S10C selected target;
+6. LV collection internal nodes;
+7. LV collection exit (`lv_ac_collection_exit`);
+8. transformer collection terminal;
+9. transformer network terminal;
+10. MV/HV network nodes;
+11. grid boundary;
+12. revenue-meter boundary.
 
-Do not collapse them into a generic site DC/AC value when intermediate state is available.
-
-Static equipment capability such as `Smax` is authority, not a conductor reference plane. Sandia pre-Paco potential is a model quantity, not a physical terminal measurement.
+Equipment authority and measurement/reference-plane authority are separate. Nominal voltage or `Smax` does not establish timestamped voltage or measurement location. Grid and revenue-meter boundaries are distinct objects, co-located only by explicit binding. An LV exit is a transformer terminal only through explicit topology. Sandia pre-Paco potential is a model counterfactual, not a terminal measurement.
 
 ## Deferred shared DC collection
 
@@ -315,7 +279,6 @@ Critical rules:
 - missing Q authority is different from explicit zero Q capability (`Qmin = Qmax = 0`);
 - S9-4A does not define operating P/Q/S, AC current, PF compliance, thermal derating, dispatch, cable loss, or transformer state.
 
-
 ### S9-4B — inverter P/Q/S capability-state evaluation
 
 Contract:
@@ -354,7 +317,6 @@ Rules:
 - unresolved S9-3B state propagates without fabricating P/Q/S;
 - no P reduction, Q clipping, dispatch, AC current, PF compliance, thermal derating, cable, transformer, or production integration occurs here.
 
-
 ### S9-4C — explicit inverter thermal-derating authority
 
 Contract:
@@ -384,7 +346,6 @@ S9-4C records `linear` as the downstream interpolation model for piecewise curve
 
 It does not use module/cell temperature, S9-4A, or S9-4B as inputs and does not modify power.
 
-
 ### S9-4D — temperature-dependent inverter capability evaluation
 
 Contract:
@@ -411,7 +372,6 @@ Its key semantics are:
 - no dispatch, P/Q/S modification, thermal-loss accounting, AC current or network physics.
 
 The final validator deterministically reconstructs the complete expected result from canonical parents, immutable thermal authority and admitted temperature state, with exact dtypes, provenance and diagnostics closure.
-
 
 ### S10A — explicit inverter active-power dispatch-request authority
 
@@ -510,7 +470,7 @@ S11C has no unbalanced phases, neutral, shunt, loads, transformer, voltage compl
 
 ## Legacy production compatibility path
 
-The validated S8/S9/S10/S11 chain is not automatically equivalent to the production runtime path.
+The validated S8–S14 chain is not automatically equivalent to the production runtime path.
 
 The legacy `calculate_dc_power()` compatibility path still retains aggregate percentage effects including soiling, LID, static mismatch, and DC wiring. Legacy `wiring_loss_ac_pct` / grid-cap behavior remains separate from dormant S11. Physical S11C loss is instantaneous `3R|I|²` on explicit segments, not an energy quantity or percentage.
 
@@ -527,19 +487,13 @@ Current limitations remain explicit:
 - snow is not yet implemented as a physical state model;
 - bypass-diode / substring electrical behaviour and multiple local maxima remain future electrical work.
 
+## Completed S12–S14 and next workstream
 
+S12A–M provide transformer authority, baseline/advanced load and core loss, explicit scalar/winding-resolved thermal evidence and coupled terminals. S13A–D provide MV/HV authority, boundary voltage, network solution and meter measurement authority. S14A–C provide exact instantaneous/interval benchmarks and delivery-loss accounting.
 
+S12K effective aggregate factors preserve side I²R/eddy sums without S12M reconstructing winding physics. OSL stays aggregate. S12M keeps harmonic loss separate from voltage-drop resistance and does not claim thermal iteration. Valid S12G-load-loss fallback stays resolved through S13C and S14A/B/C when downstream evidence closes. Fidelity and fallback flags remain visible; unresolved electrical boundaries remain unresolved.
 
-
-## Next build
-
-### S12 — transformer authority first
-
-S11 v1 is complete; no S11D physics increment is currently required. Proceed from the exact `lv_ac_collection_exit` boundary to explicit transformer equipment/topology authority before any operating transformer solve.
-
-Potential later transformer physics may require explicit terminal/reference planes, winding voltage bases, rated power, turns/voltage ratio, series impedance/copper loss, no-load/core loss, loading, and tap/control state. Do not lock these into an operating model or infer them from S11 exit voltage, CEC `Vac`, nominal site voltage, capacities, labels, geometry, or current site YAML.
-
-`lv_ac_collection_exit` is not automatically the transformer LV winding. Measurement reconciliation, energy integration, reporting/accounting aggregation, and production activation remain separate future work.
+The next major phase is production integration + site evidence onboarding. Follow P0–P6 in the [canonical activation roadmap](development/production-integration-roadmap.md); do not create another S-stage for migration.
 
 ## Non-negotiable project rules
 
@@ -570,7 +524,7 @@ Critical unresolved facts remain:
 - no authoritative S9-4A AC capability authority has been established for the installed inverters, so generic S9-4B cannot resolve Bracon Ash capability without additional equipment evidence and explicit Q requests;
 - no transformer or MV/HV collection topology is established by current configuration.
 
-Generic S11A/B/C therefore does not make Bracon Ash an authoritative high-fidelity LV model. Its legacy `wiring_loss_ac_pct` is not segment R/X authority. Do not infer any missing evidence from group IDs, counts, positions, capacities, geometry, `Paco`, CEC `Vac`, nominal voltage, transformer ratings, measured inverter output, or labels. See `docs/sites/bracon-ash.md`.
+Generic S8–S14 capability does not make Bracon Ash ready for the full chain. Transformer factory/construction/thermal/harmonic evidence, MV/HV parameters, grid voltage and explicit revenue-meter measurement bindings must be onboarded; no such authority is established by current site YAML. See the site record for the evidence boundary. Generic S11A/B/C therefore does not make Bracon Ash an authoritative high-fidelity LV model. Its legacy `wiring_loss_ac_pct` is not segment R/X authority. Do not infer any missing evidence from group IDs, counts, positions, capacities, geometry, `Paco`, CEC `Vac`, nominal voltage, transformer ratings, measured inverter output, or labels. See `docs/sites/bracon-ash.md`.
 
 ## Dependency lock
 
@@ -582,23 +536,11 @@ Do not upgrade pvlib as part of an unrelated physics increment. The pin exists b
 
 ## Validation expectation for future PRs
 
-At minimum, independently verify:
+During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`. Run optical/rear regressions when shared dependencies warrant them.
 
-- exact base and head SHAs;
-- changed-file scope;
-- exact replay / tamper resistance where upstream result objects are admitted;
-- focused new-stage tests;
-- adjacent S8/S9 regressions;
-- broader electrical regressions;
-- optical/rear regressions when dependencies may interact;
-- full backend unit suite;
-- frontend build;
-- dependency version;
-- Ruff / strict mypy on changed files where applicable;
-- syntax compilation and `git diff --check`;
-- fresh CI on the exact synthetic merge or exact merged `main`.
+GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
 
-Never merge solely because a local implementation report says tests passed.
+Preserve independent validator and canonical replay/tamper tests. Never merge solely because a local implementation report says tests passed.
 
 ## Operational note
 

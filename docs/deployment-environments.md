@@ -62,10 +62,6 @@ Current `cloudbuild.yaml` deploys the production Cloud Run API with:
 
 The `--min-instances=0` setting was introduced by the operations-only PR #71 before the S9-4A physics merge and did not change physics code or tests.
 
-
-
-
-
 ## CI gates
 
 CI currently validates:
@@ -73,27 +69,13 @@ CI currently validates:
 1. backend unit tests;
 2. frontend dependency installation and production build.
 
-The validated dormant component-physics/control chain now extends through **S11C balanced radial LV AC collection operating solution**.
+S8 through S14 generic component/control/network/meter physics is validated but not automatically production-active.
 
-Final reviewed CI for PR #86 was:
+Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
-- workflow run #217;
-- run ID `37544412809`;
-- base `3fb4c3181c283ecf62622865b88622ac7b24ae22`;
-- head `73dafc1f79c09ccd9fb61dd9ee7610cc2e62233c`;
-- synthetic merge `a8ea3ec4965e75f2ae67dae835a74dc619bf4d2e`;
-- Python 3.13.15;
-- `pvlib==0.15.2`;
-- backend `3040 passed in 527.89s`;
-- frontend success.
+Production still uses the legacy expected-energy path. Activation requires explicit site evidence, reference-plane alignment, operational safety and no double counting. Staging should be the first environment for future source-separated physical shadow execution, expected-energy validation and migration comparisons. Shadow execution is planned, not already deployed; P0 source isolation must precede it. See the [production-integration roadmap](development/production-integration-roadmap.md).
 
-PR #86 then merged as `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
-
-Treat this as historical validation evidence and re-check current CI before release decisions.
-
-Validated S8/S9/S10/S11 contracts remain dormant from production. Production activation requires a separately reviewed integration proving authoritative inputs, safe unresolved behavior, reference-plane alignment, telemetry compatibility, operational safety, and no double counting with legacy loss factors.
-
-Deployment configuration is not controller or LV-network authority. Legacy `grid_limit_kwac`, `wiring_loss_ac_pct`, Cloud Run settings, environment variables, and service configuration must not be promoted into dispatch requests, LV topology/R/X, operating voltage, or solved state.
+Deployment settings, `grid_limit_kwac`, `wiring_loss_ac_pct` and equipment labels are not dispatch, topology, R/X, temperature, grid-voltage or meter-measurement authority. Valid transformer fallback may resolve downstream physics/accounting, but must retain explicit fidelity and provenance.
 
 ## Configuration rules
 

@@ -22,26 +22,15 @@ The decision applies generically to every onboarded site. Reusable electrical mo
 
 Missing authority must remain explicit. An unresolved result is preferable to a numerically convenient invented value.
 
-
-
-
-
 ## Current implementation consequence
 
-The physics-first migration now has validated dormant electrical/control contracts through S11C:
+Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
-- S8 resolves physical string, MPPT mismatch and explicit direct-branch electrical behaviour;
-- S9 resolves inverter authority, conversion/accounting, static P/Q/S capability and explicit thermal capability;
-- S10A admits explicit active-power request authority;
-- S10B evaluates the exact requested P/Q/S point;
-- S10C selects only an exact request that is fully proven feasible.
-- S11A admits explicit balanced radial LV topology, terminal bindings and direct per-phase R+jX;
-- S11B admits exact timestamped collection-exit line-to-line RMS voltage;
-- S11C solves the balanced constant-PQ radial operating state and intrinsic instantaneous series losses.
+The physics-first approach has produced a validated dormant chain through S14: S8 strings/MPPT/direct DC branches, S9 inverter conversion/capability/thermal capability, S10 explicit request/feasibility/selection, S11 LV collection, S12 transformer, S13 MV/HV and meter boundary, S14 instantaneous/interval benchmarks and delivery-loss accounting.
 
-Canonical checkpoint: `6f6dbb34027f9e648fe8623aab37b14341f193c7`.
+These contracts do not automatically replace the legacy production calculation. Activation requires authoritative site evidence, aligned reference planes and no double counting.
 
-These contracts do not automatically replace legacy production calculations. Activation still requires explicit migration evidence showing reference-plane consistency and no double counting.
+Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
 
 ## Legacy coexistence rule
 
@@ -49,7 +38,7 @@ The compatibility production path still contains aggregate effects including sta
 
 Physical mismatch and direct-branch resistance now exist as validated independent contracts, but they must not be layered on top of the legacy percentages in production without an explicit migration decision.
 
-Physical S11C AC current/cabling now exists as dormant generic physics, but legacy `wiring_loss_ac_pct` remains compatibility logic. Production must never apply both to the same path without an explicit migration proving no double counting. The same rule applies to future transformer and network physics.
+Physical S11C AC current/cabling now exists as dormant generic physics, but legacy `wiring_loss_ac_pct` remains compatibility logic. Production must never apply both to the same path without an explicit migration proving no double counting. The same rule applies to implemented S12 transformer and S13 network physics.
 
 ## Physical reference-plane rule
 
@@ -64,7 +53,7 @@ Electrical quantities must retain their physical location. In particular:
 - selected/controller target and S11A terminal at `inverter_ac_output`;
 - S11C-solved LV internal nodes;
 - `lv_ac_collection_exit` at the end of S11;
-- future transformer / MV / HV / meter boundaries
+- transformer collection/network terminals, MV/HV nodes, grid boundary and revenue-meter boundary
 
 must not be collapsed into a single generic power state when the distinction matters to the mechanism being modelled.
 
@@ -117,17 +106,13 @@ Trade-offs:
 - migration spans many focused pull requests;
 - some sites remain unresolved at higher-fidelity layers until authoritative topology/equipment data is supplied.
 
-
-
-
-
 ## Next decision-compatible work
 
-Proceed to S12 transformer authority from the explicit `lv_ac_collection_exit` boundary. Begin with equipment/topology and reference-plane authority; add operating transformer physics only after the necessary winding bases, ratings, ratio, impedance/loss, loading, and any tap/control evidence are explicit.
+Controlled production migration and site-evidence onboarding follow the canonical [production-integration roadmap](../development/production-integration-roadmap.md). Start with P0 expected-energy source isolation before physical shadow activation.
 
-Do not equate `lv_ac_collection_exit` with a transformer LV winding unless future topology authority proves that physical identity. Do not infer transformer evidence from exit voltage, CEC `Vac`, nominal voltage, capacities, labels, geometry, or current site configuration.
+Alternative expected-model series must be isolated by model source. A shadow physical run must never overwrite or silently combine with the legacy compatibility series. Current `physics_sdm` remains the default legacy source; database source identity does not yet make all readers/catch-up source-safe.
 
-S11 demonstrates the decision pattern: S11A established static authority, S11B established an operating boundary, and only S11C performed the solve. S11 remains dormant from production and distinct from measured telemetry, energy integration, curtailment accounting, and plant-export allocation.
+Shadow execution, validation and explicit per-site cutover precede mechanism-specific legacy retirement. Preserve explicit unresolved states and defensible lower-fidelity models. Do not infer authority from ratings, counts, labels, export limits or observed output.
 
 ## Rejected alternatives
 
