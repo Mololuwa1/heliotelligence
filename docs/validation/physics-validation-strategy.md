@@ -92,20 +92,13 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
-WEATHER / QC
+UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
+(production-readiness validation still required)
 ↓
-SOLAR GEOMETRY / IRRADIANCE
-↓
-FRONT + REAR OPTICS / SHADING / IAM / SPECTRAL
-↓
-CANONICAL ELECTRICAL IRRADIANCE
-↓
-THERMAL
-↓
-MODULE ELECTRICAL
+ADMITTED MODULE ELECTRICAL STATE
 ↓
 S8 STRING / MPPT / PHYSICAL DC MISMATCH / DIRECT DC BRANCH
 ↓
@@ -124,7 +117,7 @@ S14 METER BENCHMARK + DELIVERY-LOSS ATTRIBUTION
 
 Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
 
-Generic validation does not establish site readiness or production activation.
+Generic validation does not establish site readiness or production activation. The current generic validation claim is strongest for the S8–S14 electrical chain; it must not be used to imply that the legacy weather/POA/module-thermal runtime is a canonical validated end-to-end upstream chain.
 
 ## Required invariants for S8/S9
 
@@ -195,6 +188,7 @@ Required invariants:
 - no inference from `Paco`, CEC/SAM `Vac`, `pnom_kwac`, grid limits, `model_ref`, groups, MPPT/string counts, topology position or legacy AC wiring loss;
 - `three_phase + single_phase_terminal` is invalid;
 - fixed Q limits must be both present or both absent;
+- fixed-Q evidence uses `Q > 0` = AC-network injection and `Q < 0` = absorption; source evidence using another convention must be transformed before S9-4A authority construction;
 - each fixed-Q magnitude must not exceed `Smax`;
 - missing fixed-Q authority is different from explicit zero Q capability;
 - no P/Q/S operating state, AC current, PF compliance, thermal derating, controller, cable or transformer physics appears in S9-4A.
@@ -373,9 +367,74 @@ S11C solved state remains modeled, not measured, and does not validate voltage c
 - Residual remains measured minus expected, never a hidden correction or automatic causal allocation.
 - Canonical replay/tamper rejection and independent validator monkeypatch proofs remain required.
 
+## Pre-shadow validation gates
+
+P0 source isolation is necessary but does not by itself make a physical shadow series trustworthy. Before P3/P4, add focused validation for the following:
+
+### Weather temporal semantics
+
+- distinguish instantaneous weather values from interval averages;
+- retain source interval and label semantics;
+- define the representative solar-position instant used for interval irradiance;
+- prove start/mid/end handling with sunrise/sunset cases rather than assuming period-end is physically representative.
+
+### Irradiance and optics ownership
+
+- a non-unity IAM must measurably change the electrical irradiance/power path exactly once;
+- measured-front POA on a bifacial site must not silently erase a separately admitted rear contribution;
+- front transposition, shading, IAM, spectral and rear contributions must have one owner each;
+- canonical optical stages must be tested in the same orchestration path intended for shadow execution.
+
+### Module thermal state
+
+The current legacy `physics/thermal.py` tests are not sufficient evidence for a canonical thermal stage. A canonical thermal increment should verify:
+
+- explicit temperature quantity and reference plane/basis;
+- measured module/backsheet temperature versus calculated cell temperature semantics;
+- physically consistent cell-to-module delta, including a regression that would fail the current 0.03 °C-at-1000-W/m² implementation when the intended basis is about 3 °C;
+- declared thermal-model family and parameter semantics;
+- no direct substitution of PVsyst `u_c/u_v` into a Faiman `u0/u1` model unless an explicit validated conversion/equivalence is demonstrated;
+- provenance, missing-evidence and lower-fidelity fallback semantics.
+
+### Mismatch coverage
+
+S8 common-voltage mismatch is not a complete proxy for all causes that may have been included in the legacy mismatch percentage. Validation must separately account for, or explicitly exclude:
+
+- module-to-module manufacturing/tolerance variability within a series string;
+- substring/bypass effects where relevant;
+- topology-driven string/MPPT mismatch already owned by S8.
+
+Do not retire the full legacy mismatch percentage until ownership closes.
+
+### S14B support density
+
+S14B currently records support sample count and `maximum_expected_sample_gap_seconds` but does not reject sparse support solely because the gap is large. Add deterministic daylight-edge regressions and then define an explicit admissibility policy, for example a maximum gap relative to interval duration or a required support cadence.
+
+Do not document a numerical sunrise/sunset error range as a project fact until it is reproduced by a checked-in regression or analysis.
+
+### Quantitative uncertainty
+
+Categorical `confidence` is provenance metadata, not numerical uncertainty. P4 validation should retain, where available:
+
+- meter accuracy class / numerical accuracy specification;
+- CT/PT or scaling-chain accuracy;
+- calibration evidence and applicability;
+- material model/input uncertainty or bounded sensitivity.
+
+Acceptance thresholds must account for admitted measurement/model uncertainty rather than interpreting every residual as model error.
+
+### Platform authorization
+
+Before shadow results are exposed outside the trusted development team, test that:
+
+- admin authorization does not depend on a browser-bundled shared `VITE_ADMIN_KEY`;
+- authenticated users cannot access another site's data without server-side membership/role authority;
+- each protected site-scoped route performs the same authorization decision;
+- negative cross-site access tests exist for expected energy, benchmarking, reports and other site data.
+
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). First prove P0 source isolation across writes, reads, aggregates and catch-up: alternative models cannot mix or overwrite each other. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). First prove P0 source isolation across writes, reads, aggregates and catch-up: alternative models cannot mix or overwrite each other. In parallel, close the pre-shadow validation gates above. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
