@@ -71,11 +71,27 @@ CI currently validates:
 
 S8 through S14 generic component/control/network/meter physics is validated but not automatically production-active.
 
-Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
-Production still uses the legacy expected-energy path. Activation requires explicit site evidence, reference-plane alignment, operational safety and no double counting. Staging should be the first environment for future source-separated physical shadow execution, expected-energy validation and migration comparisons. Shadow execution is planned, not already deployed; P0 source isolation must precede it. See the [production-integration roadmap](development/production-integration-roadmap.md).
+Production still uses the legacy expected-energy path. Activation requires explicit site evidence, reference-plane alignment, operational safety and no double counting. Staging should be the first environment for future source-separated physical shadow execution, expected-energy validation and migration comparisons. Shadow execution is planned, not already deployed; P0 source isolation must precede it, and the upstream thermal/irradiance/time-semantics, S14B density, uncertainty and access-control gates in the [production-integration roadmap](development/production-integration-roadmap.md) must be closed before the shadow model is treated as an end-to-end validation source.
 
 Deployment settings, `grid_limit_kwac`, `wiring_loss_ac_pct` and equipment labels are not dispatch, topology, R/X, temperature, grid-voltage or meter-measurement authority. Valid transformer fallback may resolve downstream physics/accounting, but must retain explicit fidelity and provenance.
+
+## Shadow access-control gate
+
+Staging isolation does not make application authorization sufficient by itself.
+
+Current repository facts that must be resolved before shadow data is exposed beyond the trusted development team:
+
+- normal protected API routers require Firebase authentication, but the reviewed site-scoped routes do not currently enforce `get_user_sites()` / `user_site_access` membership for the requested `site_id`;
+- admin frontend calls send `VITE_ADMIN_KEY` as `X-Admin-Key`; Vite `VITE_*` values are bundled into browser JavaScript and therefore cannot be treated as a secret authorization boundary.
+
+Required staging gate:
+
+1. admin actions use server-side user/role authorization rather than a browser-bundled shared secret;
+2. all site-scoped protected routes enforce server-side site membership/role checks;
+3. negative cross-site access tests cover expected energy, benchmarking, reports and other site data;
+4. the staging authorization model is verified before non-team users receive access to shadow outputs.
 
 ## Configuration rules
 
@@ -84,6 +100,7 @@ Deployment settings, `grid_limit_kwac`, `wiring_loss_ac_pct` and equipment label
 - staging and production must provide a non-default `SECRET_KEY`.
 - CORS origins are provided through comma-separated `CORS_ORIGINS`.
 - secrets are never committed to the repository.
+- browser-visible `VITE_*` values must never be treated as confidential authorization secrets.
 - frontend staging and production must point to their matching API environment.
 - physics equipment/topology authority must come from explicit configuration or validated data sources; deployment configuration must not invent missing electrical relationships.
 - deployment parameters such as Cloud Run scaling, grid/export limits, or service configuration must not be promoted into inverter physics authority.
