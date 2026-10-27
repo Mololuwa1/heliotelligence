@@ -4,11 +4,14 @@ GET /api/v1/benchmarking/{site_id}
     Query params:
       start   ISO-8601 datetime (required)
       end     ISO-8601 datetime (required)
+      source  expected-model identity (default: physics_sdm)
 
 Returns a single JSON object containing all four benchmarking metric groups:
   performance_ratio, losses, availability, yield_metrics
 
 Each group is the raw dict returned by the corresponding calculate_* function.
+This bundle includes the legacy loss waterfall: non-legacy source data returns
+422 rather than being interpreted with legacy percentage assumptions.
 
 All four functions are executed in parallel via asyncio.gather, each with its
 own AsyncSession to avoid concurrent access on a shared connection.
@@ -24,13 +27,17 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from heliotelligence.db.session import get_session_factory
+from heliotelligence.benchmarking.availability import calculate_availability
+from heliotelligence.benchmarking.losses import calculate_losses
+from heliotelligence.benchmarking.performance_ratio import calculate_pr
+from heliotelligence.benchmarking.yield_metrics import calculate_yield
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import load_sites
-from heliotelligence.benchmarking.performance_ratio import calculate_pr
-from heliotelligence.benchmarking.losses import calculate_losses
-from heliotelligence.benchmarking.availability import calculate_availability
-from heliotelligence.benchmarking.yield_metrics import calculate_yield
+from heliotelligence.db.session import get_session_factory
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,7 @@ async def get_benchmarking(
     site_id: str,
     start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
     end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Return all benchmarking metrics for a site over a time window.
 
@@ -71,6 +79,10 @@ async def get_benchmarking(
     422  if start >= end
     404  if no expected_energy data exists for the site in the window
     """
+    try:
+        source = validate_expected_energy_source(source)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if end <= start:
         raise HTTPException(status_code=422, detail="end must be after start")
 
@@ -83,36 +95,43 @@ async def get_benchmarking(
             text("""
                 SELECT 1 FROM expected_energy
                 WHERE site_id = :site_id
+                  AND source = :source
                   AND time >= :start AND time < :end
                 LIMIT 1
             """),
-            {"site_id": site_id, "start": start, "end": end},
+            {"site_id": site_id, "start": start, "end": end, "source": source},
         )
         if exists.fetchone() is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"No expected_energy data found for site {site_id} "
-                       f"in [{start.isoformat()}, {end.isoformat()})",
+                f"in [{start.isoformat()}, {end.isoformat()})",
             )
+
+    if source != LEGACY_EXPECTED_ENERGY_SOURCE:
+        raise HTTPException(
+            status_code=422,
+            detail="legacy loss waterfall supports only physics_sdm",
+        )
 
     capacity_kwp = _get_capacity_kwp(site_id)
 
-    _sites   = load_sites(settings.site_config_path)
-    _site    = next(
+    _sites = load_sites(settings.site_config_path)
+    _site = next(
         (s for s in _sites if str(uuid.uuid5(uuid.NAMESPACE_DNS, s.id)) == site_id),
         None,
     )
-    _groups  = _site.layout.inverter_groups if (_site and _site.layout) else []
+    _groups = _site.layout.inverter_groups if (_site and _site.layout) else []
     _tot_inv = sum(len(g.inverters) for g in _groups)
 
     # Each benchmarking function gets its own session so they can run concurrently.
     async def _pr():
         async with factory() as s:
-            return await calculate_pr(site_id, start, end, s)
+            return await calculate_pr(site_id, start, end, s, source=source)
 
     async def _losses():
         async with factory() as s:
-            return await calculate_losses(site_id, start, end, s)
+            return await calculate_losses(site_id, start, end, s, source=source)
 
     async def _avail():
         async with factory() as s:
@@ -120,9 +139,7 @@ async def get_benchmarking(
 
     async def _yield():
         async with factory() as s:
-            return await calculate_yield(
-                site_id, start, end, s, capacity_kwp=capacity_kwp
-            )
+            return await calculate_yield(site_id, start, end, s, capacity_kwp=capacity_kwp)
 
     async def _group_actuals():
         async with factory() as s:
@@ -149,16 +166,19 @@ async def get_benchmarking(
         e_act = sum(inv_actuals.get(inv_id, 0) for inv_id in g.inverters)
         share = len(g.inverters) / _tot_inv if _tot_inv else 0
         e_exp = e_exp_site * share
-        groups_out.append({
-            "id":             g.id,
-            "inverter_count": len(g.inverters),
-            "e_actual_kwh":   round(e_act, 2),
-            "e_expected_kwh": round(e_exp, 2),
-            "pr":             round(e_act / e_exp, 4) if e_exp > 0 else None,
-        })
+        groups_out.append(
+            {
+                "id": g.id,
+                "inverter_count": len(g.inverters),
+                "e_actual_kwh": round(e_act, 2),
+                "e_expected_kwh": round(e_exp, 2),
+                "pr": round(e_act / e_exp, 4) if e_exp > 0 else None,
+            }
+        )
 
     return dict(
         site_id=site_id,
+        expected_energy_source=source,
         start=start,
         end=end,
         performance_ratio=pr_result,

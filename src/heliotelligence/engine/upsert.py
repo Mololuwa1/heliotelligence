@@ -8,23 +8,27 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import timezone
+from datetime import UTC
 
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from heliotelligence.config.site import SiteConfig
+from heliotelligence.engine.expected_energy_source import (
+    LEGACY_EXPECTED_ENERGY_SOURCE,
+    validate_expected_energy_source,
+)
 
 logger = logging.getLogger(__name__)
-
-_SOURCE = "physics_sdm"
 
 
 async def upsert_expected_energy(
     site: SiteConfig,
     df: pd.DataFrame,
     session: AsyncSession,
+    *,
+    source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> int:
     """Upsert a DataFrame of physics results to expected_energy.
 
@@ -38,11 +42,14 @@ async def upsert_expected_energy(
           tier_used, fit_quality
     session : AsyncSession
         Live session; caller commits.
+    source : str
+        Alternative expected-model identity; defaults to legacy physics_sdm.
 
     Returns
     -------
     int — number of rows upserted.
     """
+    source = validate_expected_energy_source(source)
     if df.empty:
         return 0
 
@@ -50,13 +57,13 @@ async def upsert_expected_energy(
     for ts, row in df.iterrows():
         # Ensure timestamp is UTC-aware
         if hasattr(ts, "tzinfo") and ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
 
         rows.append(
             {
                 "time": ts,
                 "site_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, site.id)),
-                "source": _SOURCE,
+                "source": source,
                 "p_ac_kw": _float_or_none(row.get("p_ac_kw")),
                 "p_dc_kw": _float_or_none(row.get("p_dc_kw")),
                 "p_dc_stc_kw": _float_or_none(row.get("p_dc_stc_kw")),
@@ -91,9 +98,7 @@ async def upsert_expected_energy(
     """)
 
     await session.execute(stmt, rows)
-    logger.debug(
-        "Upserted %d rows to expected_energy for site %s.", len(rows), site.id
-    )
+    logger.debug("Upserted %d rows to expected_energy for site %s.", len(rows), site.id)
     return len(rows)
 
 
@@ -103,6 +108,7 @@ def _float_or_none(val) -> float | None:
         return None
     try:
         import math
+
         f = float(val)
         return None if math.isnan(f) else f
     except (TypeError, ValueError):
@@ -115,6 +121,7 @@ def _int_or_none(val) -> int | None:
         return None
     try:
         import math
+
         f = float(val)
         return None if math.isnan(f) else int(f)
     except (TypeError, ValueError):
