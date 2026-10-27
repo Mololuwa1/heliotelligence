@@ -72,10 +72,14 @@ COMPONENT_INTEGRATION_SEMANTICS = (
 METER_REFERENCE_PLANE = "revenue_meter_boundary"
 _ABS_TOL = 1e-6
 _REL_TOL = 1e-9
-_S12M_READY = {
-    "resolved_coupled_advanced_transformer_terminal_solution",
-    "resolved_deenergised_transformer_zero_advanced_transfer",
-}
+_S12M_FALLBACK = "resolved_coupled_transformer_terminal_solution_with_s12g_load_loss_fallback"
+_S12M_READY = frozenset(
+    {
+        _S12M_FALLBACK,
+        "resolved_coupled_advanced_transformer_terminal_solution",
+        "resolved_deenergised_transformer_zero_advanced_transfer",
+    }
+)
 
 _INSTANT_STATES = (
     "unresolved_instantaneous_benchmark_not_eligible",
@@ -100,6 +104,8 @@ _INSTANT_COLUMNS = (
     "contributing_transformer_count",
     "contributing_transformer_ids",
     "contributing_collection_exit_ids",
+    "s12m_fallback_transformer_ids",
+    "s12m_load_loss_fallback_present",
     "s14a_benchmark_eligible",
     "s14a_benchmark_state",
     "expected_revenue_meter_active_power_w",
@@ -146,6 +152,8 @@ _INTERVAL_COLUMNS = (
     "contributing_transformer_count",
     "contributing_transformer_ids",
     "contributing_collection_exit_ids",
+    "s12m_fallback_transformer_ids",
+    "s12m_load_loss_fallback_present",
     "s14b_benchmark_eligible",
     "s14b_benchmark_state",
     "interval_start_timestamp",
@@ -188,12 +196,14 @@ _INTERVAL_COLUMNS = (
     "revenue_meter_delivery_attribution_coverage_scope",
 )
 _I_BOOL = {
+    "s12m_load_loss_fallback_present",
     "s14a_benchmark_eligible",
     "delivery_component_rows_complete",
     "delivery_component_operating_states_resolved",
     "component_boundary_closure_satisfied",
 }
 _N_BOOL = {
+    "s12m_load_loss_fallback_present",
     "s14b_benchmark_eligible",
     "interval_delivery_component_rows_complete",
     "interval_delivery_component_states_resolved",
@@ -299,6 +309,7 @@ def _base(columns: tuple[str, ...], bools: set[str]) -> dict[str, object]:
     result["contributing_transformer_count"] = 0
     result["contributing_transformer_ids"] = ()
     result["contributing_collection_exit_ids"] = ()
+    result["s12m_fallback_transformer_ids"] = ()
     result["missing_component_transformer_ids"] = ()
     result["unresolved_component_transformer_ids"] = ()
     result["boundary_mismatch_transformer_ids"] = ()
@@ -327,9 +338,16 @@ def _point(parents: tuple[Any, ...], timestamp: pd.Timestamp, meter_id: str) -> 
     missing: list[str] = []
     unresolved: list[str] = []
     mismatch: list[str] = []
+    fallback_ids: list[str] = []
     values: list[tuple[float, ...]] = []
     for transformer_id, exit_id in zip(txs, exits, strict=True):
         lk, tk = (timestamp, exit_id), (timestamp, transformer_id)
+        if (
+            tk in s12m.states.index
+            and s12m.states.loc[tk]["transformer_advanced_operating_solution_state"]
+            == _S12M_FALLBACK
+        ):
+            fallback_ids.append(transformer_id)
         if lk not in s11c.collection_exit_states.index or tk not in s12m.states.index:
             missing.append(transformer_id)
             continue
@@ -360,6 +378,7 @@ def _point(parents: tuple[Any, ...], timestamp: pd.Timestamp, meter_id: str) -> 
         )
     result: dict[str, object] = {
         "transformers": txs,
+        "fallback": tuple(sorted(fallback_ids)),
         "exits": exits,
         "missing": tuple(missing),
         "unresolved": tuple(unresolved),
@@ -390,6 +409,8 @@ def _instant_record(parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]) -> 
         contributing_transformer_count=len(txs),
         contributing_transformer_ids=txs,
         contributing_collection_exit_ids=exits,
+        s12m_fallback_transformer_ids=point["fallback"],
+        s12m_load_loss_fallback_present=bool(point["fallback"]),
         s14a_benchmark_eligible=bool(row["benchmark_eligible"]),
         s14a_benchmark_state=row["revenue_meter_power_benchmark_state"],
         expected_revenue_meter_active_power_w=row["expected_active_power_w"],
@@ -399,9 +420,7 @@ def _instant_record(parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]) -> 
         unresolved_component_transformer_ids=unresolved,
         boundary_mismatch_transformer_ids=mismatch,
         delivery_component_rows_complete=bool(txs) and not missing,
-        delivery_component_operating_states_resolved=(
-            bool(txs) and not missing and not unresolved
-        ),
+        delivery_component_operating_states_resolved=(bool(txs) and not missing and not unresolved),
         component_boundary_closure_satisfied=(
             bool(txs) and not missing and not unresolved and not mismatch
         ),
@@ -521,6 +540,13 @@ def _interval_record(parents: tuple[Any, ...], key: tuple[pd.Timestamp, str]) ->
         record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[1]
         return record
     points = [_point(parents, timestamp, meter_id) for timestamp in times]
+    fallback_ids = tuple(
+        sorted({item for point in points for item in cast(tuple[str, ...], point["fallback"])})
+    )
+    record.update(
+        s12m_fallback_transformer_ids=fallback_ids,
+        s12m_load_loss_fallback_present=bool(fallback_ids),
+    )
     missing = tuple(
         dict.fromkeys(item for point in points for item in cast(tuple[str, ...], point["missing"]))
     )
@@ -692,9 +718,7 @@ def _validator_mapping(
         ):
             identifier = str(transformer_id)
             transformer_ids.append(identifier)
-            collection_exit_ids.append(
-                s12a.topology_by_id[identifier].s11_collection_exit_node_id
-            )
+            collection_exit_ids.append(s12a.topology_by_id[identifier].s11_collection_exit_node_id)
     return tuple(transformer_ids), tuple(collection_exit_ids)
 
 
@@ -709,6 +733,7 @@ def _validator_base(columns: tuple[str, ...], bools: set[str]) -> dict[str, obje
         contributing_transformer_count=0,
         contributing_transformer_ids=(),
         contributing_collection_exit_ids=(),
+        s12m_fallback_transformer_ids=(),
         missing_component_transformer_ids=(),
         unresolved_component_transformer_ids=(),
         boundary_mismatch_transformer_ids=(),
@@ -740,10 +765,17 @@ def _validator_point(
     missing: list[str] = []
     unresolved: list[str] = []
     mismatched: list[str] = []
+    fallback_transformers: list[str] = []
     component_rows: list[tuple[float, ...]] = []
     for transformer_id, exit_id in zip(transformer_ids, exit_ids, strict=True):
         lv_key = (timestamp, exit_id)
         transformer_key = (timestamp, transformer_id)
+        if transformer_key in s12m.states.index:
+            operating_state = s12m.states.loc[transformer_key][
+                "transformer_advanced_operating_solution_state"
+            ]
+            if operating_state == _S12M_FALLBACK:
+                fallback_transformers.append(transformer_id)
         if (
             lv_key not in s11c.collection_exit_states.index
             or transformer_key not in s12m.states.index
@@ -754,16 +786,13 @@ def _validator_point(
         transformer_state = s12m.states.loc[transformer_key]
         if (
             not bool(lv_state["lv_ac_operating_solution_resolved"])
-            or transformer_state["transformer_advanced_operating_solution_state"]
-            not in _S12M_READY
+            or transformer_state["transformer_advanced_operating_solution_state"] not in _S12M_READY
         ):
             unresolved.append(transformer_id)
             continue
         delivered = float(lv_state["p_delivered_at_collection_exit_w"])
         collection_input = float(transformer_state["collection_p_w"])
-        if not math.isclose(
-            delivered, collection_input, rel_tol=_REL_TOL, abs_tol=_ABS_TOL
-        ):
+        if not math.isclose(delivered, collection_input, rel_tol=_REL_TOL, abs_tol=_ABS_TOL):
             mismatched.append(transformer_id)
         component_rows.append(
             (
@@ -779,6 +808,7 @@ def _validator_point(
         )
     result: dict[str, object] = {
         "transformers": transformer_ids,
+        "fallback": tuple(sorted(fallback_transformers)),
         "exits": exit_ids,
         "missing": tuple(missing),
         "unresolved": tuple(unresolved),
@@ -813,13 +843,13 @@ def _validator_instant_record(
         contributing_transformer_count=len(transformer_ids),
         contributing_transformer_ids=transformer_ids,
         contributing_collection_exit_ids=exit_ids,
+        s12m_fallback_transformer_ids=point["fallback"],
+        s12m_load_loss_fallback_present=bool(point["fallback"]),
         s14a_benchmark_eligible=bool(benchmark["benchmark_eligible"]),
         s14a_benchmark_state=benchmark["revenue_meter_power_benchmark_state"],
         expected_revenue_meter_active_power_w=benchmark["expected_active_power_w"],
         measured_revenue_meter_active_power_w=benchmark["measured_active_power_w"],
-        s14a_active_power_residual_w=(
-            benchmark["active_power_residual_measured_minus_expected_w"]
-        ),
+        s14a_active_power_residual_w=(benchmark["active_power_residual_measured_minus_expected_w"]),
         delivery_component_rows_complete=bool(transformer_ids) and not missing,
         delivery_component_operating_states_resolved=(
             bool(transformer_ids) and not missing and not unresolved
@@ -908,9 +938,7 @@ def _validator_integrate(
         for index, (left_timestamp, right_timestamp) in enumerate(
             zip(timestamps, timestamps[1:], strict=False)
         ):
-            elapsed_hours = (
-                (right_timestamp - left_timestamp).value / 3_600_000_000_000.0
-            )
+            elapsed_hours = (right_timestamp - left_timestamp).value / 3_600_000_000_000.0
             if not math.isfinite(elapsed_hours) or elapsed_hours <= 0.0:
                 return None
             for position, energy_values in enumerate(segment_energies):
@@ -964,6 +992,17 @@ def _validator_interval_record(
         record["revenue_meter_interval_delivery_attribution_state"] = _INTERVAL_STATES[1]
         return record
     points = [_validator_point(parents, timestamp, meter_id) for timestamp in timestamps]
+    fallback_transformers = tuple(
+        sorted(
+            {
+                transformer
+                for snapshot in points
+                for transformer in cast(tuple[str, ...], snapshot["fallback"])
+            }
+        )
+    )
+    record["s12m_fallback_transformer_ids"] = fallback_transformers
+    record["s12m_load_loss_fallback_present"] = bool(fallback_transformers)
     missing = tuple(
         dict.fromkeys(
             transformer
@@ -1010,9 +1049,7 @@ def _validator_interval_record(
             aggregates = point.get("totals")
             if aggregates is None:
                 raise ValueError
-            source, _, lv_loss, _, _, tx_network, tx_loss, _ = cast(
-                tuple[float, ...], aggregates
-            )
+            source, _, lv_loss, _, _, tx_network, tx_loss, _ = cast(tuple[float, ...], aggregates)
             expected_power = float(
                 parents[4].revenue_meter_states.loc[(timestamp, meter_id)][
                     "expected_p_at_revenue_meter_w"
@@ -1078,16 +1115,14 @@ def _validator_frame(
     floats = _N_FLOAT if interval else _I_FLOAT
     expected = pd.DataFrame.from_records(records, columns=columns, index=index)
     expected.index = index
-    expected["contributing_transformer_count"] = expected[
-        "contributing_transformer_count"
-    ].astype("int64")
+    expected["contributing_transformer_count"] = expected["contributing_transformer_count"].astype(
+        "int64"
+    )
     for column in booleans:
         expected[column] = expected[column].astype("bool")
     for column in floats:
         expected[column] = expected[column].astype("float64")
-    object_columns = (
-        set(columns) - booleans - floats - {"contributing_transformer_count"}
-    )
+    object_columns = set(columns) - booleans - floats - {"contributing_transformer_count"}
     for column in object_columns:
         expected[column] = expected[column].astype("object")
     return expected
@@ -1106,20 +1141,14 @@ def _validator_diagnostics(
         revenue_meter_count=len(s13a.revenue_meter_boundary_by_id),
         instantaneous_row_count=len(instant),
         instantaneous_benchmark_eligible_count=int(instant["s14a_benchmark_eligible"].sum()),
-        instantaneous_attribution_resolved_count=int(
-            (instant_states == _INSTANT_STATES[-1]).sum()
-        ),
+        instantaneous_attribution_resolved_count=int((instant_states == _INSTANT_STATES[-1]).sum()),
         instantaneous_attribution_unresolved_count=int(
             (instant_states != _INSTANT_STATES[-1]).sum()
         ),
         interval_row_count=len(interval),
         interval_benchmark_eligible_count=int(interval["s14b_benchmark_eligible"].sum()),
-        interval_attribution_resolved_count=int(
-            (interval_states == _INTERVAL_STATES[-1]).sum()
-        ),
-        interval_attribution_unresolved_count=int(
-            (interval_states != _INTERVAL_STATES[-1]).sum()
-        ),
+        interval_attribution_resolved_count=int((interval_states == _INTERVAL_STATES[-1]).sum()),
+        interval_attribution_unresolved_count=int((interval_states != _INTERVAL_STATES[-1]).sum()),
         contributing_transformer_link_count=link_count,
         instantaneous_state_counts=tuple(
             (state, int((instant_states == state).sum())) for state in _INSTANT_STATES

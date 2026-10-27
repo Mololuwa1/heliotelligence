@@ -245,16 +245,12 @@ def test_nonfinite_residual_boundaries_are_controlled_and_finite_case_resolves()
 
 def test_nonfinite_residual_publication_tampering_is_rejected() -> None:
     parents = module._parents(_values())
-    bounded_parents, result = _numerical_boundary_result(
-        parents, -1.0e308, 0.0, 1.0e308, 0.0
-    )
+    bounded_parents, result = _numerical_boundary_result(parents, -1.0e308, 0.0, 1.0e308, 0.0)
     for value in (math.inf, 1.0):
         changed = result.states.copy(deep=True)
         changed.iloc[
             0,
-            changed.columns.get_loc(
-                "active_power_residual_measured_minus_expected_w"
-            ),
+            changed.columns.get_loc("active_power_residual_measured_minus_expected_w"),
         ] = value
         with pytest.raises(RuntimeError, match="independent exact closure"):
             module._validate_result(bounded_parents, replace(result, states=changed))
@@ -387,3 +383,21 @@ def test_schema_order_and_source_exclusions_are_explicit() -> None:
     assert "efficiency_pct" not in source
     assert "calculate_topology_mv_hv_operating_solution" in source
     assert "expected_p_at_revenue_meter_w" in source
+
+
+def test_downstream_s12m_fallback_resolves_instantaneous_meter_benchmark() -> None:
+    values = _values(fallback=True, measured_p_offset=17.0)
+    s12m = values["transformer_advanced_operating_solution"].states.iloc[0]
+    assert s12m["terminal_solution_fidelity"] == "coupled_s12g_load_loss_fallback"
+    assert values["mv_hv_operating_solution"].revenue_meter_states.iloc[0][
+        "mv_hv_operating_solution_resolved"
+    ]
+    result = calculate_topology_revenue_meter_power_benchmark(**values)
+    row = result.states.iloc[0]
+    assert row["revenue_meter_power_benchmark_state"] == (
+        "resolved_instantaneous_revenue_meter_power_benchmark"
+    )
+    assert row["active_power_residual_measured_minus_expected_w"] == pytest.approx(17.0)
+    assert row["active_power_residual_measured_minus_expected_w"] == pytest.approx(
+        row["measured_active_power_w"] - row["expected_active_power_w"]
+    )

@@ -90,8 +90,15 @@ def _values(
     energised: bool | None = True,
     boundary_voltage: float | None = None,
     meter_node: str = "grid-node",
+    fallback: bool = False,
 ) -> dict[str, Any]:
-    values = _s12m_context(p=p, q=q, energised=energised)
+    values = _s12m_context(
+        p=p,
+        q=q,
+        energised=energised,
+        winding_temperature=None if fallback else 75.0,
+        winding_temperatures=(95.0, 85.0) if fallback else None,
+    )
     s12m = calculate_topology_transformer_advanced_operating_solution(**values)
     values["transformer_advanced_operating_solution"] = s12m
     topology = values["transformer_static_authority"].topology_by_id["tx-1"]
@@ -566,6 +573,8 @@ def test_result_schemas_and_index_order_are_deterministic() -> None:
                 "transformer_energised": "boolean",
                 "p_network_terminal_injection_w": "float64",
                 "s12m_operating_state": "object",
+                "s12m_terminal_solution_fidelity": "object",
+                "s12m_load_loss_fallback_applied": "boolean",
             },
         ),
         (
@@ -734,8 +743,277 @@ def test_validator_closes_public_nonconvergence_diagnostics(
     assert row["solver_iteration_count"] == 1
     assert math.isfinite(row["solver_max_voltage_delta_v"])
     frame = result.network_exit_states.copy(deep=True)
-    frame.iloc[0, frame.columns.get_loc("solver_max_voltage_delta_v")] = float(
-        row["solver_max_voltage_delta_v"]
-    ) + 1.0
+    frame.iloc[0, frame.columns.get_loc("solver_max_voltage_delta_v")] = (
+        float(row["solver_max_voltage_delta_v"]) + 1.0
+    )
     with pytest.raises(RuntimeError, match="independent exact closure"):
         module._validate_result(parents, replace(result, network_exit_states=frame))
+
+
+_FIDELITY_CASES: dict[str, tuple[dict[str, Any], Any]] = {}
+
+
+def _fidelity_case(mode: str = "fallback") -> tuple[dict[str, Any], Any]:
+    """Real canonical S12M→S13C chain, shared by downstream fidelity regressions."""
+    if mode not in _FIDELITY_CASES:
+        options: dict[str, Any] = {"fallback": mode != "advanced"}
+        if mode == "deenergised":
+            options.update(p=0.0, energised=False, boundary_voltage=11_000.0)
+        if mode == "mismatch":
+            options["boundary_voltage"] = 9000.0
+        values = _values(**options)
+        result = calculate_topology_mv_hv_operating_solution(**values)
+        values["mv_hv_operating_solution"] = result
+        _FIDELITY_CASES[mode] = values, result
+    return _FIDELITY_CASES[mode]
+
+
+def _fidelity_parents(values: dict[str, Any]) -> tuple[Any, Any, Any]:
+    return (
+        values["transformer_advanced_operating_solution"],
+        values["mv_hv_network_authority"],
+        values["mv_hv_grid_boundary_voltage_authority"],
+    )
+
+
+def _mixed_fidelity_parents() -> tuple[Any, Any, Any]:
+    """Controlled two-terminal boundary assembled from real advanced/fallback solves."""
+    from heliotelligence.physics import transformer_advanced_operating_solution as s12m_module
+    from tests.unit.test_physics import test_mv_hv_network_authority as network_support
+
+    advanced, _ = _fidelity_case("advanced")
+    fallback, _ = _fidelity_case()
+    frames = []
+    for identifier, values in [("tx-a", advanced), ("tx-b", fallback)]:
+        frame = values["transformer_advanced_operating_solution"].states.copy(deep=True)
+        frame.index = pd.MultiIndex.from_tuples(
+            [(timestamp, identifier) for timestamp, _ in frame.index],
+            names=frame.index.names,
+        )
+        frames.append(frame)
+    frame = pd.concat(frames).sort_index()
+    s12m = replace(
+        advanced["transformer_advanced_operating_solution"],
+        states=frame,
+        diagnostics=s12m_module._diagnostics(frame, 2, 1),
+    )
+    values = network_support._inputs()
+    values.update(network_support._parents(("tx-a", "tx-b")))
+    values["mv_hv_node_by_id"] = {
+        "ta": _node("ta", "transformer_terminal"),
+        "tb": _node("tb", "transformer_terminal"),
+        "grid-node": _node("grid-node", "network_exit"),
+    }
+    values["mv_hv_segment_by_id"] = {
+        "a": network_support._segment("a", "ta", "grid-node"),
+        "b": network_support._segment("b", "tb", "grid-node"),
+    }
+    values["mv_hv_grid_boundary_by_id"] = {"grid": network_support._grid("grid", "grid-node")}
+    values["revenue_meter_boundary_by_id"] = {"meter": network_support._meter("meter", "grid-node")}
+    values["mv_hv_transformer_terminal_binding_by_transformer_id"] = {
+        "tx-a": network_support._binding("tx-a", "ta"),
+        "tx-b": network_support._binding("tx-b", "tb"),
+    }
+    network = module._call(resolve_topology_mv_hv_network_authority, values)
+    values["mv_hv_network_authority"] = network
+    timestamp = frame.index[0][0]
+    voltage = float(frame.iloc[0]["network_terminal_voltage_line_to_line_rms_v"])
+    values["grid_boundary_voltage_by_key"] = {
+        (timestamp, "grid"): MvHvGridBoundaryVoltageState(
+            voltage, "line_to_line_rms", "grid_interconnection_boundary", "SCADA", "high"
+        )
+    }
+    boundary = module._call(resolve_topology_mv_hv_grid_boundary_voltage_authority, values)
+    return s12m, network, boundary
+
+
+@pytest.mark.parametrize(
+    "mode,fidelity,fallback",
+    [
+        ("advanced", "coupled_advanced_load_loss", False),
+        ("fallback", "coupled_s12g_load_loss_fallback", True),
+        ("deenergised", "deenergised_zero", False),
+    ],
+)
+def test_downstream_resolved_transformer_fidelity_is_preserved(
+    mode: str,
+    fidelity: str,
+    fallback: bool,
+) -> None:
+    values, result = _fidelity_case(mode)
+    upstream = values["transformer_advanced_operating_solution"].states.iloc[0]
+    tx = result.transformer_terminal_states.iloc[0]
+    assert tx["s12m_injection_ready"]
+    assert tx["s12m_operating_state"] == upstream["transformer_advanced_operating_solution_state"]
+    assert (
+        tx["s12m_terminal_solution_fidelity"] == fidelity == upstream["terminal_solution_fidelity"]
+    )
+    assert bool(tx["s12m_load_loss_fallback_applied"]) == fallback
+    assert tx["p_network_terminal_injection_w"] == upstream["p_network_terminal_w"]
+    assert tx["q_network_terminal_injection_var"] == upstream["q_network_terminal_var"]
+    assert result.network_exit_states.iloc[0]["mv_hv_operating_solution_resolved"]
+    assert result.revenue_meter_states.iloc[0]["mv_hv_operating_solution_resolved"]
+    meter = result.revenue_meter_states.iloc[0]
+    assert meter["expected_p_at_revenue_meter_w"] == pytest.approx(
+        upstream["p_network_terminal_w"],
+        rel=module.EQUATION_REL_TOL,
+        abs=module.EQUATION_ABS_TOL,
+    )
+    assert meter["expected_q_at_revenue_meter_var"] == pytest.approx(
+        upstream["q_network_terminal_var"],
+        rel=module.EQUATION_REL_TOL,
+        abs=module.EQUATION_ABS_TOL,
+    )
+    assert result.network_exit_states.iloc[0]["transformer_loss_treatment"] == (
+        "transformer_losses_owned_by_s12m_not_reapplied_in_s13c"
+    )
+    if mode != "deenergised":
+        assert tx["terminal_voltage_consistency_applicable"]
+        assert tx["terminal_voltage_magnitude_consistency_satisfied"]
+        assert (
+            tx["s12m_network_terminal_voltage_line_to_line_rms_v"]
+            == upstream["network_terminal_voltage_line_to_line_rms_v"]
+        )
+        assert math.isclose(
+            tx["solved_s13_terminal_voltage_line_to_line_rms_v"],
+            upstream["network_terminal_voltage_line_to_line_rms_v"],
+            rel_tol=module.TERMINAL_VOLTAGE_REL_TOL,
+            abs_tol=module.TERMINAL_VOLTAGE_ABS_TOL_V,
+        )
+    else:
+        assert not tx["terminal_voltage_consistency_applicable"]
+        assert pd.isna(tx["s12m_network_terminal_voltage_line_to_line_rms_v"])
+
+
+def test_downstream_fallback_does_not_bypass_terminal_voltage_mismatch() -> None:
+    values, result = _fidelity_case("mismatch")
+    tx = result.transformer_terminal_states.iloc[0]
+    assert tx["s12m_injection_ready"]
+    assert tx["terminal_voltage_consistency_applicable"]
+    assert not tx["terminal_voltage_magnitude_consistency_satisfied"]
+    assert result.network_exit_states.iloc[0]["mv_hv_operating_state"] == (
+        "unresolved_s12m_s13_transformer_terminal_voltage_mismatch"
+    )
+    module._validate_result(_fidelity_parents(values), result)
+
+
+def test_downstream_mixed_advanced_and_fallback_tree_resolves() -> None:
+    parents = _mixed_fidelity_parents()
+    result = module._build_result(parents)
+    module._validate_result(parents, result)
+    tree = result.network_exit_states.iloc[0]
+    assert tree["mv_hv_operating_solution_resolved"]
+    assert tree["s12m_ready_transformer_count"] == 2
+    assert tree["transformer_injected_p_total_w"] == pytest.approx(
+        parents[0].states["p_network_terminal_w"].sum(),
+        rel=module.EQUATION_REL_TOL,
+        abs=module.EQUATION_ABS_TOL,
+    )
+    assert tree["transformer_injected_q_total_var"] == pytest.approx(
+        parents[0].states["q_network_terminal_var"].sum(),
+        rel=module.EQUATION_REL_TOL,
+        abs=module.EQUATION_ABS_TOL,
+    )
+    assert result.transformer_terminal_states["s12m_load_loss_fallback_applied"].tolist() == [
+        False,
+        True,
+    ]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("terminal_solution_fidelity", "coupled_advanced_load_loss"),
+        ("load_loss_fallback_applied", False),
+        ("p_network_terminal_w", 1.0),
+    ],
+)
+def test_downstream_fallback_s12m_canonical_replay_is_retained(field: str, value: object) -> None:
+    values, _ = _fidelity_case()
+    parent = values["transformer_advanced_operating_solution"]
+    frame = parent.states.copy(deep=True)
+    frame.at[frame.index[0], field] = value
+    with pytest.raises(ValueError, match="S12M.*canonical replay"):
+        calculate_topology_mv_hv_operating_solution(
+            **dict(values, transformer_advanced_operating_solution=replace(parent, states=frame))
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("s12m_terminal_solution_fidelity", "coupled_advanced_load_loss"),
+        ("s12m_load_loss_fallback_applied", False),
+    ],
+)
+def test_downstream_fidelity_fields_are_independently_validated(field: str, value: object) -> None:
+    values, result = _fidelity_case()
+    frame = result.transformer_terminal_states.copy(deep=True)
+    frame.at[frame.index[0], field] = value
+    with pytest.raises(RuntimeError, match="independent exact closure"):
+        module._validate_result(
+            _fidelity_parents(values), replace(result, transformer_terminal_states=frame)
+        )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "unresolved_advanced_transformer_fixed_point_nonconvergence",
+        "unresolved_nonfinite_advanced_transformer_operating_state",
+        "unresolved_upstream_s12k_corrected_load_loss",
+    ],
+)
+def test_downstream_unresolved_s12m_is_not_admitted_from_energisation(state: str) -> None:
+    values, _ = _fidelity_case()
+    s12m, network, boundary = _fidelity_parents(values)
+    frame = s12m.states.copy(deep=True)
+    frame.at[frame.index[0], "transformer_advanced_operating_solution_state"] = state
+    parents = replace(s12m, states=frame), network, boundary
+    result = module._build_result(parents)
+    module._validate_result(parents, result)
+    assert not result.transformer_terminal_states.iloc[0]["s12m_injection_ready"]
+    assert result.network_exit_states.iloc[0]["mv_hv_operating_state"] == (
+        "unresolved_upstream_s12m_transformer_operating_solution"
+    )
+
+
+def test_downstream_fallback_validator_stays_independent(monkeypatch: pytest.MonkeyPatch) -> None:
+    values, result = _fidelity_case()
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production readiness/solver used by validator")
+
+    for name in ("_build_result", "_solve_tree", "_transformer_frame", "_make_frame"):
+        monkeypatch.setattr(module, name, fail)
+    module._validate_result(_fidelity_parents(values), result)
+
+
+def test_downstream_missing_s12m_has_no_fabricated_fidelity() -> None:
+    values, _ = _fidelity_case()
+    s12m, network, boundary = _fidelity_parents(values)
+    parents = replace(s12m, states=s12m.states.iloc[:0].copy(deep=True)), network, boundary
+    result = module._build_result(parents)
+    module._validate_result(parents, result)
+    row = result.transformer_terminal_states.iloc[0]
+    assert not row["s12m_row_present"]
+    assert not row["s12m_injection_ready"]
+    assert row["s12m_terminal_solution_fidelity"] == ""
+    assert pd.isna(row["s12m_load_loss_fallback_applied"])
+
+
+def test_downstream_disconnected_terminal_retains_fallback_audit_only() -> None:
+    values, _ = _fidelity_case()
+    disconnected = dict(values, mv_hv_segment_by_id={})
+    network = module._call(resolve_topology_mv_hv_network_authority, disconnected)
+    disconnected["mv_hv_network_authority"] = network
+    boundary = module._call(resolve_topology_mv_hv_grid_boundary_voltage_authority, disconnected)
+    parents = values["transformer_advanced_operating_solution"], network, boundary
+    result = module._build_result(parents)
+    module._validate_result(parents, result)
+    row = result.transformer_terminal_states.iloc[0]
+    assert not row["transformer_connected_to_network_exit"]
+    assert row["s12m_injection_ready"]
+    assert row["s12m_terminal_solution_fidelity"] == "coupled_s12g_load_loss_fallback"
+    assert row["s12m_load_loss_fallback_applied"]
+    assert not row["mv_hv_operating_solution_resolved"]

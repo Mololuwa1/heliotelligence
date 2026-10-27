@@ -407,3 +407,42 @@ def test_empty_schema_dtypes_and_source_exclusions() -> None:
     assert "revenue_meter_power_benchmark" not in source
     assert "percentage" not in source
     assert "nearest" in module.TIMESTAMP_ALIGNMENT_SEMANTICS
+
+
+def test_downstream_fallback_support_integrates_without_special_adjustment() -> None:
+    values = _s14a_values(
+        fallback=True,
+        temporal="interval_average_ending_at_timestamp",
+        interval=1800.0,
+    )
+    assert values["transformer_advanced_operating_solution"].states.iloc[0][
+        "load_loss_fallback_applied"
+    ]
+    parents = module._parents(values)
+    expected = parents[1].revenue_meter_states.iloc[0]
+    p, q = (
+        float(expected["expected_p_at_revenue_meter_w"]),
+        float(expected["expected_q_at_revenue_meter_var"]),
+    )
+    # Stationary boundary support is taken from the real canonical fallback solve.
+    bounded, result = _bounded(
+        parents,
+        [(1800.0, p, q, True), (900.0, p, q, True), (0.0, p, q, True)],
+        duration=1800.0,
+        measured_p=p + 10.0,
+        measured_q=q,
+    )
+    module._validate_result(bounded, result)
+    row = result.states.iloc[0]
+    end = row.name[0]
+    assert row["expected_interval_sample_timestamps"] == (
+        end - pd.Timedelta(minutes=30),
+        end - pd.Timedelta(minutes=15),
+        end,
+    )
+    assert row["revenue_meter_interval_benchmark_state"] == (
+        "resolved_interval_average_revenue_meter_energy_benchmark"
+    )
+    assert row["expected_active_energy_wh"] == pytest.approx(p * 0.5)
+    assert row["measured_active_energy_wh"] == pytest.approx((p + 10.0) * 0.5)
+    assert row["active_energy_residual_measured_minus_expected_wh"] == pytest.approx(5.0)
