@@ -20,22 +20,15 @@ The future platform hierarchy is:
 
 Organisation/client and portfolio management sit above site-level physics. Reusable physics functions must consume explicit site/equipment configuration and must not encode reference-site assumptions.
 
-## Canonical physical chain
+## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
-WEATHER / QC
+UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
+(production integration not yet canonical end to end)
 ↓
-SOLAR GEOMETRY / IRRADIANCE
-↓
-FRONT + REAR OPTICS / SHADING / IAM / SPECTRAL
-↓
-CANONICAL ELECTRICAL IRRADIANCE
-↓
-THERMAL
-↓
-MODULE ELECTRICAL
+ADMITTED MODULE ELECTRICAL STATE
 ↓
 S8 STRING / MPPT / PHYSICAL DC MISMATCH / DIRECT DC BRANCH
 ↓
@@ -52,11 +45,25 @@ S13 MV/HV COLLECTION + GRID/REVENUE-METER BOUNDARY
 S14 METER BENCHMARK + DELIVERY-LOSS ATTRIBUTION
 ```
 
-This is a validated component-physics chain, not yet the default production expected-energy runtime.
+The generic **S8–S14 electrical chain is validated**, but the full upstream weather → irradiance/optics → module-thermal → electrical production path is not yet a single canonical end-to-end chain. The current default expected-energy runtime remains a compatibility path.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
 Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
+
+## Upstream production-readiness boundary
+
+The repository contains reusable irradiance, shading, IAM, spectral and module-electrical capabilities, but current production orchestration does not execute them as one canonical admitted chain. The following are current architectural blockers for a meaningful end-to-end shadow model:
+
+- **Weather time basis:** interval-labelled weather is stored at period-end, while solar position is evaluated at the stored timestamp without an admitted start/mid/end representative-instant policy.
+- **Legacy IAM ownership:** `calculate_poa()` publishes IAM-corrected beam output but builds `poa_total` from uncorrected front POA, so IAM does not affect production electrical irradiance.
+- **Measured-front bifacial ownership:** accepting measured front POA currently sets rear contribution to zero.
+- **Module thermal authority:** no canonical module-temperature authority/result exists. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
+- **Module population variability:** S8-1 is homogeneous string scaling. It does not represent module-to-module manufacturing/tolerance variation inside a series string.
+- **Interval benchmark support density:** S14B reports sample count and maximum gap but currently has no density/gap eligibility threshold.
+- **Quantitative uncertainty:** S13D provides source/confidence metadata, not meter accuracy class or numerical uncertainty propagation.
+
+These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation may proceed independently, but P3 shadow execution and P4 accuracy claims must address them explicitly.
 
 ## Electrical reference planes
 
@@ -83,16 +90,16 @@ Equipment authority and measurement/reference-plane authority are separate. Nomi
 |---|---|---|---|
 | Organisation/client | planned | Not a physics layer | Ownership/access boundary above portfolios |
 | Portfolio | planned | Site models remain independent | Composition and analytics across sites |
-| Weather / QC | implemented | Database-backed weather with existing quality handling | Multi-source resolver refinement where needed |
-| Solar geometry / decomposition | implemented | pvlib-based geometry and component resolution | Continue evidence-driven validation |
-| Front POA | implemented | Component-resolved irradiance chain | Maintain boundary/provenance clarity |
-| Horizon / near shading | implemented for validated coverage | Explicit geometry authority and visibility state | Extend geometry coverage only with validated contracts |
-| IAM / optics | implemented | Physical IAM / optical-effective state | Retain and validate by module/site evidence |
-| Rear / bifacial | implemented for supported fixed-row coverage | Infinite-sheds / fixed-row rear chain with optical response | Future arbitrary 3D/terrain/tracker extensions |
-| Spectral correction | implemented | Component-resolved spectral response | Retain/refine where evidence requires |
+| Weather / QC | implemented ingestion; temporal authority incomplete | Database-backed weather with source timestamps; Solcast/SCADA are stored at period-end | Define canonical interval-labelled weather semantics and representative solar-position instant |
+| Solar geometry / decomposition | reusable capability exists; production integration needs hardening | pvlib-based geometry/component resolution | Prove time alignment and single ownership in physical shadow path |
+| Front POA | reusable capability exists; legacy runtime has integration defects | Perez/modelled or measured-front compatibility path | Correct/replace legacy total-POA ownership before P3 |
+| Horizon / near shading | implemented for validated generic coverage | Explicit geometry authority and visibility state | Wire canonical shading into the physical shadow path exactly once |
+| IAM / optics | generic optical capability exists; legacy POA path defective | Legacy `calculate_poa` computes beam IAM but does not apply it to `poa_total` | Physical shadow must use a canonical IAM/optical-effective irradiance handoff |
+| Rear / bifacial | implemented for supported generic fixed-row coverage; measured-POA shortcut incomplete | Infinite-sheds/fixed-row rear model, but measured-front shortcut forces rear to zero | Define measured-front plus rear-model boundary and preserve rear contribution |
+| Spectral correction | generic capability exists | Component-resolved spectral response; legacy wrapper is optional and not active without required inputs | Retain one explicit spectral owner with evidence |
 | Soiling | legacy approximation | Aggregate production compatibility percentage | Time-varying physical or measured state |
 | Snow | not implemented | No canonical snow state | Explicit stateful snow model |
-| Thermal | implemented | Existing measured / Faiman / fallback hierarchy | Improve only through validated authority |
+| Module thermal | **legacy runtime only; canonical stage pending** | Measured/Faiman/NOCT compatibility hierarchy in `physics/thermal.py` | Build admitted module/cell thermal state; resolve cell-module offset and PVsyst/Faiman parameter semantics before P3 |
 | Module parameter lookup | implemented | CEC / local / datasheet / fallback tiers | Maintain traceable parameter provenance |
 | Module electrical | implemented | De Soto / single-diode + voltage-dependent state | Extend bypass/sub-string behaviour later |
 | Physical string I-V | implemented | S8-1 homogeneous series scaling | Add partial-shading/bypass complexity later |
@@ -204,7 +211,7 @@ S9-4A is independent of timestamped operating state. It accepts only explicit in
 
 It rejects inference from `Paco`, `pnom_kwac`, grid limits, CEC/SAM `Vac`, `model_ref`, inverter groups, MPPT/string counts, topology position, and legacy AC wiring loss.
 
-`three_phase + single_phase_terminal` is invalid. Missing fixed-Q authority remains distinct from explicit zero Q capability.
+`three_phase + single_phase_terminal` is invalid. S9-4A fixed-Q evidence uses the project convention `Q > 0` = injection into the AC network and `Q < 0` = absorption; source evidence expressed under another convention must be transformed before authority construction. Missing fixed-Q authority remains distinct from explicit zero Q capability.
 
 ### P/Q/S capability-state evaluation
 

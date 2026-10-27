@@ -24,11 +24,11 @@ Missing authority must remain explicit. An unresolved result is preferable to a 
 
 ## Current implementation consequence
 
-Current canonical code checkpoint: `d8f8d7eb44e2e611be03c09ca0f3cfda7846b42a` (PR #115 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
-The physics-first approach has produced a validated dormant chain through S14: S8 strings/MPPT/direct DC branches, S9 inverter conversion/capability/thermal capability, S10 explicit request/feasibility/selection, S11 LV collection, S12 transformer, S13 MV/HV and meter boundary, S14 instantaneous/interval benchmarks and delivery-loss accounting.
+The physics-first approach has produced a validated dormant **electrical** chain through S14 from admitted module electrical state: S8 strings/MPPT/direct DC branches, S9 inverter conversion/capability/thermal capability, S10 explicit request/feasibility/selection, S11 LV collection, S12 transformer, S13 MV/HV and meter boundary, S14 instantaneous/interval benchmarks and delivery-loss accounting. This does not certify the current legacy weather/POA/module-thermal runtime as a canonical end-to-end upstream physical chain.
 
-These contracts do not automatically replace the legacy production calculation. Activation requires authoritative site evidence, aligned reference planes and no double counting.
+These contracts do not automatically replace the legacy production calculation. Activation requires authoritative site evidence, aligned reference planes and no double counting. Physical shadow activation also requires explicit weather-time semantics, correct optical ownership, a canonical module-thermal boundary, quantified S14B support-density policy, uncertainty evidence and adequate platform authorization.
 
 Evidence determines fidelity; fidelity determines available physics. Missing advanced evidence must not destroy a valid lower-fidelity physical solution where an independently valid lower-fidelity model exists. Fallback must never be relabelled as advanced fidelity. It must be explicit, physically valid, provenance-bearing and contractually distinguishable; arbitrary numerical fallback is not permitted.
 
@@ -82,7 +82,7 @@ Do not infer:
 - inverter capability from grid/export limits;
 - equipment capability from model labels, groups, topology position, MPPT count or string count.
 
-Missing Q authority and explicit zero Q capability are different states.
+Missing Q authority and explicit zero Q capability are different states. Fixed-Q evidence uses the project convention positive Q = injection and negative Q = absorption; evidence using another convention must be transformed before S9-4A authority construction.
 
 S9-4B now classifies requested P/Q/S operating capability without silently dispatching or curtailing P or Q. It treats positive Q as injection, negative Q as absorption, preserves missing request separately from Q=0, and keeps static full-capability authority independent of request availability.
 
@@ -112,7 +112,7 @@ Controlled production migration and site-evidence onboarding follow the canonica
 
 Alternative expected-model series must be isolated by model source. A shadow physical run must never overwrite or silently combine with the legacy compatibility series. Current `physics_sdm` remains the default legacy source; database source identity does not yet make all readers/catch-up source-safe.
 
-Shadow execution, validation and explicit per-site cutover precede mechanism-specific legacy retirement. Preserve explicit unresolved states and defensible lower-fidelity models. Do not infer authority from ratings, counts, labels, export limits or observed output.
+Shadow execution, validation and explicit per-site cutover precede mechanism-specific legacy retirement. P0 source isolation may proceed before all upstream readiness work is complete, but P3/P4 must not treat those gaps as implicitly resolved. Preserve explicit unresolved states and defensible lower-fidelity models. Do not infer authority from ratings, counts, labels, export limits or observed output.
 
 ## Rejected alternatives
 
