@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #118 merge 04f0cf338ab86980c040e5b6fbda6942a3c28681
+PR #119 merge 580327062d0f984c82888c5d394d60e380afaa86
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -18,11 +18,11 @@ weather/irradiance/module-thermal production integration still has open gates
 Production:
 legacy expected-energy path remains active
 Next:
-P0 complete; generic module thermal implemented in this increment, dormant
-Next: weather/irradiance temporal and optical hardening; no shadow activation
+P0 complete; module thermal and weather-time/irradiance boundary generic, dormant
+Next: site evidence, mismatch completeness, density, uncertainty and authorization; no shadow activation
 ```
 
-Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -40,7 +40,7 @@ Read the canonical [production-integration roadmap](development/production-integ
 
 Do not describe the full weather-to-meter chain as production-validated yet.
 
-- **Weather time semantics:** Solcast `period_end` is stored directly and SCADA period-start timestamps are normalised to period-end, while the legacy POA runtime evaluates solar position at the stored timestamp. There is no canonical interval-labelled weather-time authority.
+- **Weather time semantics:** Solcast `period_end` is stored directly and SCADA period-start timestamps are normalised to period-end, while the legacy POA runtime evaluates solar position at the stored timestamp. Generic explicit weather-time authority and observation-keyed SPA alignment now exist; source-specific binding and production integration remain absent.
 - **IAM integration defect:** legacy `calculate_poa()` computes IAM-corrected beam irradiance but assembles `poa_total` from uncorrected `poa_front`.
 - **Measured-front bifacial gap:** the measured-POA shortcut explicitly sets rear irradiance to zero.
 - **Module thermal integration remains dormant:** the generic canonical authority/state contract now exists, but `physics/thermal.py` remains the active legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
@@ -50,7 +50,7 @@ Do not describe the full weather-to-meter chain as production-validated yet.
 - **Platform access control is not shadow-ready:** the frontend sends `VITE_ADMIN_KEY`, which is browser-bundled, and ordinary site-scoped protected routes reviewed so far authenticate users but do not enforce `user_site_access` membership.
 - **S9-4A fixed-Q sign semantics are not locally declared:** downstream convention is positive Q injection / negative Q absorption; source evidence using another convention must be transformed before S9-4A construction.
 
-P0 is complete. Generic module thermal implementation does not close site admission, weather-time/thermal-POA handoff or production integration. P3 shadow execution and P4 accuracy claims must not pass the remaining gates by implication.
+P0 is complete. Generic module thermal plus weather-time/irradiance-boundary implementation does not close site admission, calibrated thermal-POA selection or production integration. P3 shadow execution and P4 accuracy claims must not pass the remaining gates by implication.
 
 ## Canonical module thermal authority/state
 
@@ -60,9 +60,19 @@ P0 is complete. Generic module thermal implementation does not close site admiss
 
 The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit parameter provenance. It produces 52.1°C for 50°C, 700 W/m², E_ref=1000 W/m² and deltaT=3°C. The separate legacy path still produces 50.021°C. Native model families are never silently converted. The independent validator reconstructs equations and diagnostics without production builders or pvlib calls.
 
-Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. This contract does not establish instantaneous versus interval-start/midpoint/end weather semantics, thermal-zone mapping or Bracon Ash sensor placement/calibration. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
+Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Recommended sequence: P0 complete → generic module thermal (this increment) → weather/irradiance temporal + optical hardening → mismatch coverage → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and canonical irradiance boundary (this increment). Remaining sequence: site evidence binding plus mismatch coverage → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
+
+## Weather-time and irradiance handoff recovery notes
+
+Generic `weather_time_authority.py`, `solar_geometry_time_alignment.py` and `irradiance_boundary_state.py` contracts are now implemented but dormant. An explicit weather authority distinguishes instantaneous snapshots from interval averages and declares start/midpoint/end labels and duration. Interval geometry uses an explicit midpoint approximation, not interval integration. NREL-SPA runs at the evaluation instant while public optical rows keep the original observation timestamp and receiver ID.
+
+The boundary replays existing canonical optical results: incident broadband front/rear, front optical-effective, bifacial electrical-equivalent and final spectral electrical-equivalent irradiance remain separate planes. IAM and shading are owned once by the upstream front-effective chain; bifacial and spectral response remain upstream-owned. The module-electrical handoff copies the resolved spectral result, including explicit disabled admission; unknown unresolved spectral evidence never silently becomes factor one.
+
+Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. No canonical primitive, legacy runtime, collector, timestamp storage, thermal schema or expected-energy source is changed or activated.
+
+Exact weather observations remain the row identity. An end-labelled 11:00 one-hour average evaluates geometry at 10:30, with approximation=True; an instantaneous 10:00 observation evaluates at 10:00 with approximation=False. DST arithmetic uses elapsed duration and retains the public timezone/order. Never bind semantics merely from a source name or a measured POA field name. See the [architecture](architecture/physics-architecture.md#weather-time-and-canonical-irradiance-boundary) for canonical IDs and the [site record](sites/bracon-ash.md#weather-and-front-poa-evidence-onboarding) for missing evidence.
 
 ## Recovery rule
 

@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681`, PR #118 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86`, PR #119 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -32,7 +32,7 @@ fetch_weather
 
 Known production-path gaps that must be tracked explicitly are:
 
-- Solcast stores `period_end` directly and SCADA period-start data is normalised to period-end, while `calculate_poa()` evaluates solar position at the stored timestamp. There is no canonical authority declaring whether interval irradiance should be evaluated at start, midpoint, end, or another representative instant.
+- Solcast stores `period_end` directly and SCADA period-start data is normalised to period-end, while `calculate_poa()` evaluates solar position at the stored timestamp. Generic weather-time authority and midpoint SPA alignment now exist separately; source-specific admission and runtime integration remain required.
 - `calculate_poa()` computes `poa_direct_iam` and publishes it as `poa_direct`, but `poa_total` is assembled from the earlier uncorrected `poa_front`; IAM therefore does not reduce the irradiance sent to thermal/DC power.
 - When measured front `poa_wm2` is accepted, the legacy shortcut sets `poa_rear = 0`, so a bifacial site's rear contribution is omitted on that path.
 - `physics/thermal.py` is a legacy cell-temperature runtime, not a canonical admitted module-thermal stage. Its measured-module path uses `_DELTA_T_COEFF = 0.03 / 1000`, yielding 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C.
@@ -78,8 +78,8 @@ Exit decision: a per-site coverage matrix proves which timestamps and paths can 
 
 P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source is treated as an end-to-end site shadow, all of the following must be implemented or explicitly bounded by an approved lower-fidelity contract:
 
-1. **Weather temporal semantics:** define the meaning of interval-labelled weather timestamps and the solar-position instant used by transposition/optics.
-2. **Irradiance/optics ownership:** prove transposition, shading, IAM, spectral and front/rear contributions are each applied exactly once. The current legacy IAM and measured-front bifacial behaviours above are not acceptable physical-shadow semantics.
+1. **Weather temporal semantics — generic authority implemented, dormant:** explicitly admit snapshot/interval labels, duration and representative geometry policy for each source/site; storage labels alone do not prove averaging semantics.
+2. **Irradiance/optics ownership — generic boundary implemented, dormant:** replay canonical raw, optical-effective, bifacial and final spectral results with exact observation/receiver keys. IAM/shading/bifacial/spectral factors are owned once upstream; measured front never erases rear. Site measurement/receiver evidence and calibrated thermal POA selection remain open. Legacy defects above are unchanged.
 3. **Canonical module thermal state — generic contract implemented, dormant:** the new authority/state modules distinguish cell/module-back evidence, explicit reference-irradiance deltaT conversion and native PVsyst/Faiman families. They avoid the legacy offset and model-family defects without altering compatibility numerics. Site evidence, zone binding and thermal POA/time admission remain required before activation.
 4. **Mismatch coverage:** distinguish S8 common-voltage string/MPPT mismatch from module-to-module manufacturing/tolerance variation inside a series string. Do not retire the full legacy mismatch percentage until ownership of all material mechanisms is established.
 5. **S14B support density:** add an explicit expected-sample density / maximum-gap eligibility policy. The existing `maximum_expected_sample_gap_seconds` diagnostic is not currently a gate. Quantify sunrise/sunset sensitivity with deterministic regressions before adopting numerical thresholds.
@@ -87,14 +87,16 @@ P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source 
 7. **Platform access control:** remove browser-bundled admin secrets as an authorization boundary and enforce server-side site authorization for site-scoped routes before shadow data is exposed beyond the trusted development team.
 8. **S9-4A Q semantics:** explicitly declare the fixed-Q sign convention for `reactive_power_min_var/reactive_power_max_var` and require source evidence using another convention to be transformed before authority construction.
 
-P0 is complete. The generic canonical module thermal pre-shadow implementation gate is closed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
+P0 is complete. Generic module thermal was completed in PR #119; generic weather-time and canonical irradiance boundary are completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
 
 ```text
 P0 source isolation — COMPLETE
 ↓
-canonical module thermal authority/state — THIS INCREMENT (generic, dormant)
+canonical module thermal authority/state — COMPLETE GENERICALLY (PR #119, dormant)
 ↓
-weather/irradiance temporal + optical hardening
+weather-time authority + canonical irradiance boundary — THIS INCREMENT (generic, dormant)
+↓
+site weather/optics/thermal evidence binding + calibrated thermal POA selection
 ↓
 mismatch coverage
 ↓
@@ -135,17 +137,25 @@ Retire each percentage only after its physical replacement owns the same mechani
 
 Exit decision: mechanism-specific ownership and retirement evidence, with uncovered mechanisms retained explicitly.
 
+## Weather-time and canonical irradiance boundary
+
+Generic `weather_time_authority.py`, `solar_geometry_time_alignment.py` and `irradiance_boundary_state.py` contracts are now implemented but dormant. An explicit weather authority distinguishes instantaneous snapshots from interval averages and declares start/midpoint/end labels and duration. Interval geometry uses an explicit midpoint approximation, not interval integration. NREL-SPA runs at the evaluation instant while public optical rows keep the original observation timestamp and receiver ID.
+
+The boundary replays existing canonical optical results: incident broadband front/rear, front optical-effective, bifacial electrical-equivalent and final spectral electrical-equivalent irradiance remain separate planes. IAM and shading are owned once by the upstream front-effective chain; bifacial and spectral response remain upstream-owned. The module-electrical handoff copies the resolved spectral result, including explicit disabled admission; unknown unresolved spectral evidence never silently becomes factor one.
+
+Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. No canonical primitive, legacy runtime, collector, timestamp storage, thermal schema or expected-energy source is changed or activated.
+
 ## Migration ledger
 
 All candidate replacements below are validated generic capabilities unless stated otherwise; none is automatically active in the default expected-energy runtime.
 
 | Legacy mechanism | Current compatibility implementation | Candidate physical replacement | Activation prerequisite | Current status |
 |---|---|---|---|---|
-| Weather time semantics | Solcast/SCADA stored at period-end; solar position evaluated at stored timestamp | Explicit interval-labelled weather time authority and representative-instant policy | Source interval semantics, cadence and deterministic time alignment | Missing canonical authority |
-| Front transposition / POA | Legacy Perez or measured-front shortcut | Canonical front irradiance/transposition state | Exact source/boundary semantics and single transposition owner | Integration hardening required |
+| Weather time semantics | Solcast/SCADA stored at period-end; solar position evaluated at stored timestamp | Explicit interval-labelled weather time authority and representative-instant policy | Source interval semantics, cadence and deterministic time alignment | Generic authority implemented, dormant; source/site binding pending |
+| Front transposition / POA | Legacy Perez or measured-front shortcut | Canonical front irradiance/transposition state | Exact source/boundary semantics and single transposition owner | Generic canonical boundary implemented, dormant; site integration pending |
 | Shading authority | Legacy runtime does not execute the canonical shading chain end to end | Canonical horizon/near-shading authority and optical state | Geometry/evidence coverage and exactly one shading owner | Generic capability exists; runtime integration pending |
-| IAM | Beam IAM computed in legacy `calculate_poa` but not applied to `poa_total` | Canonical IAM/optical-effective irradiance | Correct total-irradiance ownership and regression proving beam IAM affects electrical input exactly once | Confirmed legacy integration defect |
-| Bifacial rear | Legacy infinite-sheds path when modelled; measured-front shortcut forces rear to zero | Canonical front/rear optical combination | Explicit measured-front versus rear-model boundary and rear evidence | Confirmed measured-POA compatibility gap |
+| IAM | Beam IAM computed in legacy `calculate_poa` but not applied to `poa_total` | Canonical IAM/optical-effective irradiance | Correct total-irradiance ownership and regression proving beam IAM affects electrical input exactly once | Legacy defect unchanged; canonical boundary replays upstream IAM exactly once |
+| Bifacial rear | Legacy infinite-sheds path when modelled; measured-front shortcut forces rear to zero | Canonical front/rear optical combination | Explicit measured-front versus rear-model boundary and rear evidence | Legacy gap unchanged; canonical boundary preserves measured front and raw rear separately |
 | Module thermal | Legacy measured/Faiman/NOCT cell-temperature runtime | Canonical admitted module/cell thermal state | Quantity/model/parameter provenance; correct cell-module relation; PVsyst/Faiman semantic alignment | Generic authority/state implemented, dormant; site admission and integration pending |
 | Module tolerance / series variation | Collapsed into aggregate legacy mismatch percentage | Explicit module-population/series variability where required, combined with S8 network mismatch without double counting | Datasheet/manufacturing tolerance authority or measured module population model | Not covered by homogeneous S8-1 |
 | Spectral treatment | Optional legacy spectral helper; pipeline omits required precipitable water | Canonical component spectral/electrical irradiance handoff | Spectral evidence and exactly one irradiance correction owner | Generic handoff exists; integration pending |

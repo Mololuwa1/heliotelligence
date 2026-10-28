@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -55,7 +55,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 The repository contains reusable irradiance, shading, IAM, spectral and module-electrical capabilities, but current production orchestration does not execute them as one canonical admitted chain. The following are current architectural blockers for a meaningful end-to-end shadow model:
 
-- **Weather time basis:** interval-labelled weather is stored at period-end, while solar position is evaluated at the stored timestamp without an admitted start/mid/end representative-instant policy.
+- **Weather time integration:** the generic time authority and SPA alignment now admit snapshot/interval labels explicitly, but legacy production still evaluates stored timestamps and source/site binding remains required.
 - **Legacy IAM ownership:** `calculate_poa()` publishes IAM-corrected beam output but builds `poa_total` from uncorrected front POA, so IAM does not affect production electrical irradiance.
 - **Measured-front bifacial ownership:** accepting measured front POA currently sets rear contribution to zero.
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
@@ -73,7 +73,7 @@ Static types are `PvsystCellThermalAuthority`, `FaimanThermalAuthority` and `Mod
 
 `ModuleTemperatureEvidence` declares cell or module-back quantity and sensor/aggregated-sensor/documented-external-estimate kind. Method, location and aggregation descriptions are preserved where supplied; an external estimate is not relabelled as a sensor reading. `ModuleThermalMeasurementState` may carry both channels at an exact timestamp. Direct cell evidence wins while the unused channel's provenance remains visible.
 
-The resolver requires an explicit `thermal_zone_id` and exactly aligned timezone-aware, unique, NaT-free input Series; order is preserved. Present POA/wind must be finite and non-negative, ambient/evidence temperatures above absolute zero, all numeric authority non-Boolean and finite. NaN environmental inputs remain missing. Thermal POA is supplied **total incident broadband irradiance for thermal balance**, not automatically electrical-effective irradiance. This contract does not establish whether source weather represents instantaneous, interval-start, midpoint or interval-end conditions. Zone-to-module/site mapping and upstream irradiance authority remain separate onboarding/integration responsibilities.
+The resolver requires an explicit `thermal_zone_id` and exactly aligned timezone-aware, unique, NaT-free input Series; order is preserved. Present POA/wind must be finite and non-negative, ambient/evidence temperatures above absolute zero, all numeric authority non-Boolean and finite. NaN environmental inputs remain missing. Thermal POA is supplied **total incident broadband irradiance for thermal balance**, not automatically electrical-effective irradiance. This thermal contract does not itself establish weather semantics; those now belong to separately admitted weather-time authority and alignment. Zone-to-module/site mapping and upstream irradiance authority remain separate onboarding/integration responsibilities.
 
 Timestamp precedence is direct cell evidence → measured module-back plus explicit conversion/POA → explicit native PVsyst/Faiman model → a specific unresolved reason. No whole-series completeness threshold, filling, persistence or interpolation is applied. A zero wind coefficient removes the wind term algebraically without fabricating a wind observation. Nonzero coefficients require wind evidence.
 
@@ -102,6 +102,44 @@ Contract IDs:
 
 The generic thermal gate is implemented; Bracon Ash admission and production integration are not. The legacy offset and legacy PVsyst/Faiman mismatch remain in compatibility code until controlled migration. Current `physics_sdm` numerical behaviour is unchanged.
 
+## Weather-time and canonical irradiance boundary
+
+The dormant `WeatherTimeBasisAuthority` declares `instantaneous_snapshot` with label `instant`, no interval duration and `observation_timestamp` geometry, or `interval_average` with explicit positive duration, interval-start/midpoint/end label and `interval_midpoint_approximation`. Unsupported combinations, padded provenance, Boolean/nonfinite durations and invalid timezone/duplicate/NaT indexes are rejected. Durations must permit exact nanosecond boundaries and midpoint in pandas. No duration is inferred from adjacent rows or source names.
+
+`resolve_weather_time_state` retains supplied order and timezone. For a one-hour interval, 10:00 start, 10:30 midpoint and 11:00 end labels all describe [10:00,11:00] with evaluation at 10:30. Arithmetic represents elapsed physical time across DST. Instantaneous rows have NaT interval boundaries and approximation=False; averages explicitly publish approximation=True. Midpoint transposition is not mathematically identical to integrating nonlinear geometry through an interval.
+
+`calculate_time_aligned_solar_geometry` invokes the existing canonical `nrel_spa` model at evaluation instants and replays its output under original observation keys, retaining evaluation time and temporal provenance. It does not introduce another astronomical model. Downstream canonical optics consume those explicit geometry values; the boundary verifies their replay against alignment.
+
+`resolve_canonical_irradiance_boundary` admits explicit receivers and canonical `OpticalStateResult`, `FrontEffectiveIrradianceResult`, `BifacialEquivalentIrradianceResult` and `SpectralResponseResult` with exact matching `(observation_timestamp, receiver_id)` row universe, timezone and order. It compares parent identity/replayed fields and checks flags, metadata and diagnostics. It does not rebuild optics, change timestamp storage, nearest-match, resample or interpolate.
+
+The distinct published planes are:
+
+- `modeled_front_incident_poa_wm2` / `poa_front_global_raw_wm2`: incident broadband front, before IAM/electrical response;
+- `modeled_rear_incident_poa_wm2` / `poa_rear_global_raw_wm2`: canonical raw rear, before rear optical/bifacial response; NaN for missing rear or monofacial not-applicable, distinguished by state;
+- `measured_front_incident_poa_wm2`: separate nonnegative/missing observations, requiring receiver-specific `FrontPoaMeasurementAuthority` for `front_surface_incident_broadband_poa`, source/confidence/method and plane description;
+- `front_optical_effective_irradiance_wm2`: exact upstream front-effective replay, already owning shading and IAM;
+- `bifacial_electrical_equivalent_irradiance_wm2`: upstream bifacial response, never multiplied again;
+- `module_electrical_irradiance_wm2`: exact `SpectralResponseResult.spectral_electrical_equivalent_irradiance_wm2` when its resolved flag is true. Explicit spectral disabled is admitted factor-one behaviour; unknown unresolved spectral state never falls back to the pre-spectral value.
+
+Measured front does not select a truth, calibrate the model, imply a front+rear total, erase rear or repair missing optical authority. A real canonical rear of 120 W/m² remains 120 alongside measured front 800 W/m². No 920 W/m² input is selected automatically. `total_incident_broadband_both_surfaces_wm2` sums only resolved modelled front and rear as a diagnostic when both apply.
+
+Thermal candidates preserve front and front+rear incident broadband quantities separately from electrical-effective irradiance. `module_thermal_poa_handoff_wm2` remains NaN, resolved=False, state `unresolved_no_explicit_thermal_poa_basis_authority`. The admitted thermal model's calibration basis must justify selection later; this increment does not modify PR #119's authority schema or infer that relationship.
+
+Ownership flags indicate that the corresponding resolved upstream contract owns the mechanism, including explicit no-op spectral admission. They do not apply another factor. Monofacial electrical output can resolve with rear not applicable; bifacial missing rear remains unresolved and NaN. Optional measured evidence and intentionally deferred thermal selection do not block an otherwise resolved canonical electrical boundary.
+
+Independent validators reconstruct temporal boundaries/approximation, directly replay canonical SPA, and verify boundary field identity, ownership, states/schema and diagnostics without calling boundary record/frame/diagnostic builders or recomputing IAM/shading/bifacial/spectral physics.
+
+Canonical IDs:
+
+- weather contract: `explicit_weather_observation_interval_and_solar_geometry_evaluation_time_authority_v1`;
+- weather model: `instantaneous_or_interval_average_label_to_explicit_representative_solar_geometry_time_v1`;
+- alignment contract: `admitted_weather_time_authority_to_observation_keyed_nrel_spa_solar_geometry_v1`;
+- alignment model: `explicit_evaluation_instants_observation_keyed_nrel_spa_replay_v1`;
+- boundary contract: `admitted_time_aligned_canonical_optical_bifacial_and_spectral_results_to_module_irradiance_boundary_v1`;
+- boundary model: `reference_plane_preserving_incident_optical_and_spectral_irradiance_handoff_v1`.
+
+No site is automatically admitted, no physical shadow source is defined, and the legacy weather/POA/thermal runtime remains active and numerically unchanged.
+
 ## Electrical reference planes
 
 Keep these reference planes distinct:
@@ -127,12 +165,12 @@ Equipment authority and measurement/reference-plane authority are separate. Nomi
 |---|---|---|---|
 | Organisation/client | planned | Not a physics layer | Ownership/access boundary above portfolios |
 | Portfolio | planned | Site models remain independent | Composition and analytics across sites |
-| Weather / QC | implemented ingestion; temporal authority incomplete | Database-backed weather with source timestamps; Solcast/SCADA are stored at period-end | Define canonical interval-labelled weather semantics and representative solar-position instant |
+| Weather / QC | ingestion plus generic temporal authority implemented, dormant | Explicit snapshot/interval authority and observation-keyed SPA; legacy storage unchanged | Bind actual source/site time evidence before integration |
 | Solar geometry / decomposition | reusable capability exists; production integration needs hardening | pvlib-based geometry/component resolution | Prove time alignment and single ownership in physical shadow path |
 | Front POA | reusable capability exists; legacy runtime has integration defects | Perez/modelled or measured-front compatibility path | Correct/replace legacy total-POA ownership before P3 |
 | Horizon / near shading | implemented for validated generic coverage | Explicit geometry authority and visibility state | Wire canonical shading into the physical shadow path exactly once |
 | IAM / optics | generic optical capability exists; legacy POA path defective | Legacy `calculate_poa` computes beam IAM but does not apply it to `poa_total` | Physical shadow must use a canonical IAM/optical-effective irradiance handoff |
-| Rear / bifacial | implemented for supported generic fixed-row coverage; measured-POA shortcut incomplete | Infinite-sheds/fixed-row rear model, but measured-front shortcut forces rear to zero | Define measured-front plus rear-model boundary and preserve rear contribution |
+| Rear / bifacial | implemented for supported generic fixed-row coverage; measured-POA shortcut incomplete | Infinite-sheds/fixed-row rear model, but measured-front shortcut forces rear to zero | Generic boundary preserves measured-front/modelled-rear planes; site binding and runtime integration pending |
 | Spectral correction | generic capability exists | Component-resolved spectral response; legacy wrapper is optional and not active without required inputs | Retain one explicit spectral owner with evidence |
 | Soiling | legacy approximation | Aggregate production compatibility percentage | Time-varying physical or measured state |
 | Snow | not implemented | No canonical snow state | Explicit stateful snow model |

@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -36,7 +36,7 @@ S12 includes winding-resolved load-loss correction and coupled terminal solving.
 
 Do **not** read this as proof that the full weather-to-meter production chain is validated. Upstream production weather/irradiance/thermal integration still has unresolved migration work:
 
-- weather rows can represent interval-labelled data, but the production POA runtime evaluates solar position at the stored timestamp without a canonical interval-time authority;
+- weather rows can represent interval-labelled data; explicit generic weather-time authority and observation-keyed SPA alignment now exist, but production still evaluates the stored timestamp without that admission;
 - legacy `calculate_poa()` computes beam IAM but does not apply it to `poa_total`;
 - the legacy measured-front-POA shortcut sets rear contribution to zero, so bifacial rear energy is lost on that path;
 - the production module/cell-temperature runtime remains legacy; a separate canonical module thermal authority/state contract is now implemented generically but is dormant;
@@ -62,10 +62,10 @@ Bracon Ash's configured equipment counts and groups do not provide complete elec
 
 ## Pre-shadow readiness gates
 
-P0 expected-energy source isolation is complete. The generic canonical module thermal gate is implemented in this increment, but **P3 shadow execution must not begin merely because those reusable contracts exist**. Before physical shadow results are treated as an end-to-end site model, the project must close or explicitly bound:
+P0 expected-energy source isolation is complete. The generic canonical module thermal gate was completed in PR #119, but **P3 shadow execution must not begin merely because those reusable contracts exist**. Before physical shadow results are treated as an end-to-end site model, the project must close or explicitly bound:
 
-1. weather interval/timestamp semantics;
-2. transposition/optics ownership, including IAM and bifacial rear treatment;
+1. site weather-source temporal evidence binding to the new explicit authority;
+2. site optics/measurement coverage and integration of the new canonical boundary, whose optical ownership is already explicit;
 3. site thermal evidence admission and later integration of the new canonical contract; legacy thermal defects remain isolated in production compatibility code;
 4. the coverage gap between homogeneous S8 string scaling and real module-to-module tolerance/series mismatch;
 5. an S14B expected-sample density / maximum-gap eligibility policy, backed by deterministic sunrise/sunset regressions;
@@ -75,7 +75,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 
 ## Next major phase — production integration
 
-The next readiness sequence addresses weather/irradiance temporal and optical hardening, mismatch coverage, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, mismatch coverage, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 
@@ -83,7 +83,15 @@ The [production-integration roadmap](docs/development/production-integration-roa
 
 The dormant `module_thermal_authority.py` / `module_thermal_state.py` contract resolves an explicit thermal zone per timestamp: direct cell evidence, measured module-back temperature with explicit conversion, or a native PVsyst/Faiman model. PVsyst `u_c/u_v` are never passed to Faiman `u0/u1`. With supplied deltaT=3°C at E_ref=1000 W/m², module-back 50°C gives cell 53°C at 1000 W/m² and 52.1°C at 700 W/m². Those parameters are evidence, not site defaults.
 
-Thermal POA is admitted total incident broadband irradiance, not automatically electrical-effective irradiance. Weather time semantics and zone-to-module binding remain external. Bracon Ash is not automatically thermally admitted. The active `physics/thermal.py` path and `physics_sdm` numerics are unchanged, including its legacy 50.021°C result for the separate 700 W/m² example.
+Thermal POA is admitted total incident broadband irradiance, not automatically electrical-effective irradiance. The new weather-time contract supplies explicit temporal semantics only when admitted by a caller; source evidence and zone-to-module binding remain external. Bracon Ash is not automatically thermally admitted. The active `physics/thermal.py` path and `physics_sdm` numerics are unchanged, including its legacy 50.021°C result for the separate 700 W/m² example.
+
+## Weather-time and canonical irradiance boundary
+
+Generic `weather_time_authority.py`, `solar_geometry_time_alignment.py` and `irradiance_boundary_state.py` contracts are now implemented but dormant. An explicit weather authority distinguishes instantaneous snapshots from interval averages and declares start/midpoint/end labels and duration. Interval geometry uses an explicit midpoint approximation, not interval integration. NREL-SPA runs at the evaluation instant while public optical rows keep the original observation timestamp and receiver ID.
+
+The boundary replays existing canonical optical results: incident broadband front/rear, front optical-effective, bifacial electrical-equivalent and final spectral electrical-equivalent irradiance remain separate planes. IAM and shading are owned once by the upstream front-effective chain; bifacial and spectral response remain upstream-owned. The module-electrical handoff copies the resolved spectral result, including explicit disabled admission; unknown unresolved spectral evidence never silently becomes factor one.
+
+Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. No canonical primitive, legacy runtime, collector, timestamp storage, thermal schema or expected-energy source is changed or activated.
 
 ## Future physics extensions
 

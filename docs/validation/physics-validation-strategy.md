@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -371,19 +371,26 @@ S11C solved state remains modeled, not measured, and does not validate voltage c
 
 P0 source isolation is necessary but does not by itself make a physical shadow series trustworthy. Before P3/P4, add focused validation for the following:
 
-### Weather temporal semantics
+### Weather temporal semantics — generic contract implemented
 
 - distinguish instantaneous weather values from interval averages;
 - retain source interval and label semantics;
 - define the representative solar-position instant used for interval irradiance;
-- prove start/mid/end handling with sunrise/sunset cases rather than assuming period-end is physically representative.
+- prove start/mid/end interval equivalence, explicit midpoint approximation, DST physical elapsed duration, unsorted-index preservation and invalid-combination rejection; compare morning midpoint SPA directly against both midpoint and endpoint references at the existing solar-model tolerance.
 
-### Irradiance and optics ownership
+Generic contracts are now implemented but do not establish source/site temporal evidence or integrate nonlinear geometry across an interval.
+
+### Irradiance and optics ownership — generic boundary implemented
 
 - a non-unity IAM must measurably change the electrical irradiance/power path exactly once;
 - measured-front POA on a bifacial site must not silently erase a separately admitted rear contribution;
 - front transposition, shading, IAM, spectral and rear contributions must have one owner each;
-- canonical optical stages must be tested in the same orchestration path intended for shadow execution.
+- real canonical optical chains feed the new boundary in focused regressions; no shadow orchestration is activated;
+- measured front 800 W/m² coexists with canonical rear 120 W/m² without replacement/zeroing or automatic 920 W/m² handoff;
+- explicit spectral disabled resolves its admitted no-op while unknown unresolved spectral state stays unresolved;
+- exact timestamp/receiver/timezone/order mismatches, public-field tampering and diagnostic changes are rejected by independent replay.
+
+Thermal incident candidates remain separate from spectral electrical irradiance. Calibrated module-thermal POA selection is intentionally deferred, not silently inferred from a diagnostic sum. Site evidence and actual production integration remain open.
 
 ### Module thermal state
 
@@ -440,7 +447,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, while the next workstream is weather/irradiance temporal + optical hardening followed by the remaining pre-shadow gates above. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is site evidence binding plus mismatch completeness, S14B density, quantitative uncertainty and platform authorization before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
