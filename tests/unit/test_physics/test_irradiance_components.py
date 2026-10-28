@@ -26,6 +26,7 @@ _COLUMNS = [
     "ghi_provenance",
     "dhi_provenance",
     "dni_provenance",
+    "decomposition_evaluation_time",
 ]
 
 
@@ -68,7 +69,7 @@ def test_complete_supplied_triplet_is_preserved_without_decomposition() -> None:
     assert not row["decomposition_applied"]
     assert row["component_resolution_state"] == "supplied_complete"
     assert row["decomposition_model"] == "not_applied"
-    assert [row[name] for name in _COLUMNS[10:]] == ["supplied"] * 3
+    assert [row[name] for name in _COLUMNS[10:13]] == ["supplied"] * 3
 
 
 @pytest.mark.parametrize(
@@ -106,14 +107,10 @@ def test_r1a_true_zenith_composes_with_r1b_erbs() -> None:
     result = resolve_horizontal_irradiance_components(
         ghi, missing, missing.copy(), geometry["solar_zenith_deg"]
     )
-    expected = pvlib.irradiance.erbs(
-        ghi, geometry["solar_zenith_deg"], index
-    )
+    expected = pvlib.irradiance.erbs(ghi, geometry["solar_zenith_deg"], index)
     np.testing.assert_allclose(result["dhi_wm2"], expected["dhi"], rtol=0, atol=0)
     np.testing.assert_allclose(result["dni_wm2"], expected["dni"], rtol=0, atol=0)
-    assert not geometry["solar_zenith_deg"].equals(
-        geometry["apparent_solar_zenith_deg"]
-    )
+    assert not geometry["solar_zenith_deg"].equals(geometry["apparent_solar_zenith_deg"])
 
 
 @pytest.mark.parametrize(
@@ -135,7 +132,7 @@ def test_partial_inputs_remain_unresolved_and_missing(
     assert not row["decomposition_applied"]
     assert row["component_resolution_state"] == "unresolved_partial_input"
     assert row["decomposition_model"] == "not_applied"
-    assert [row[name] for name in _COLUMNS[10:]] == provenance
+    assert [row[name] for name in _COLUMNS[10:13]] == provenance
     for supplied, name in zip((ghi, dhi, dni), _COLUMNS[:3], strict=True):
         assert pd.isna(row[name]) if pd.isna(supplied) else row[name] == supplied
 
@@ -149,13 +146,11 @@ def test_all_missing_is_distinct_and_not_zero_filled() -> None:
     assert result[["ghi_wm2", "dhi_wm2", "dni_wm2"]].isna().all().all()
     assert pd.isna(row["direct_horizontal_wm2"])
     assert pd.isna(row["closure_residual_wm2"])
-    assert [row[name] for name in _COLUMNS[10:]] == ["missing"] * 3
+    assert [row[name] for name in _COLUMNS[10:13]] == ["missing"] * 3
 
 
 def test_direct_horizontal_uses_true_zenith_and_nonnegative_projection() -> None:
-    result = _resolve(
-        [800.0, 100.0], [150.0, 25.0], [700.0, 300.0], [30.0, 110.0]
-    )
+    result = _resolve([800.0, 100.0], [150.0, 25.0], [700.0, 300.0], [30.0, 110.0])
     assert result.iloc[0]["direct_horizontal_wm2"] == pytest.approx(
         700.0 * np.cos(np.deg2rad(30.0))
     )
@@ -174,8 +169,7 @@ def test_erbs_closure_uses_actual_reference_outputs() -> None:
     result = _resolve([650.0], [np.nan], [np.nan], [45.0])
     row = result.iloc[0]
     expected = row["ghi_wm2"] - (
-        row["dhi_wm2"]
-        + row["dni_wm2"] * max(np.cos(np.deg2rad(45.0)), 0.0)
+        row["dhi_wm2"] + row["dni_wm2"] * max(np.cos(np.deg2rad(45.0)), 0.0)
     )
     assert row["closure_residual_wm2"] == pytest.approx(expected, abs=1e-12)
 
@@ -244,9 +238,7 @@ def test_invalid_solar_zenith_is_rejected(value: object) -> None:
 
 @pytest.mark.parametrize("value", [0.0, 180.0])
 def test_solar_zenith_boundaries_are_accepted(value: float) -> None:
-    assert _resolve([500.0], [100.0], [600.0], [value]).iloc[0][
-        "solar_zenith_deg"
-    ] == value
+    assert _resolve([500.0], [100.0], [600.0], [value]).iloc[0]["solar_zenith_deg"] == value
 
 
 @pytest.mark.parametrize("position", range(4))
@@ -272,9 +264,7 @@ def test_indexes_must_match_exactly() -> None:
 
 @pytest.mark.parametrize("position", [1, 2, 3])
 def test_each_secondary_index_must_be_a_datetime_index(position: int) -> None:
-    canonical = pd.DatetimeIndex(
-        ["2026-06-21 12:00"], tz="UTC", name="physical_time"
-    )
+    canonical = pd.DatetimeIndex(["2026-06-21 12:00"], tz="UTC", name="physical_time")
     generic = pd.Index(
         [pd.Timestamp("2026-06-21 12:00", tz="UTC")],
         dtype=object,
@@ -283,25 +273,25 @@ def test_each_secondary_index_must_be_a_datetime_index(position: int) -> None:
     assert canonical.equals(generic)
     indexes: list[pd.Index] = [canonical] * 4
     indexes[position] = generic
-    inputs = [pd.Series([value], index=index) for value, index in zip(
-        (500.0, 100.0, 600.0, 30.0), indexes, strict=True
-    )]
+    inputs = [
+        pd.Series([value], index=index)
+        for value, index in zip((500.0, 100.0, 600.0, 30.0), indexes, strict=True)
+    ]
     with pytest.raises(ValueError, match="DatetimeIndex"):
         resolve_horizontal_irradiance_components(*inputs)
 
 
 @pytest.mark.parametrize("position", [1, 2, 3])
 def test_each_secondary_index_name_must_match(position: int) -> None:
-    canonical = pd.DatetimeIndex(
-        ["2026-06-21 12:00"], tz="UTC", name="physical_time"
-    )
+    canonical = pd.DatetimeIndex(["2026-06-21 12:00"], tz="UTC", name="physical_time")
     different_name = canonical.rename("different_name")
     assert canonical.equals(different_name)
     indexes = [canonical] * 4
     indexes[position] = different_name
-    inputs = [pd.Series([value], index=index) for value, index in zip(
-        (500.0, 100.0, 600.0, 30.0), indexes, strict=True
-    )]
+    inputs = [
+        pd.Series([value], index=index)
+        for value, index in zip((500.0, 100.0, 600.0, 30.0), indexes, strict=True)
+    ]
     with pytest.raises(ValueError, match="index names must match exactly"):
         resolve_horizontal_irradiance_components(*inputs)
 
@@ -312,9 +302,7 @@ def test_each_secondary_index_name_must_match(position: int) -> None:
         (pd.DatetimeIndex(["2026-06-21 12:00"]), "timezone-aware"),
         (pd.DatetimeIndex([pd.NaT], tz="UTC"), "NaT"),
         (
-            pd.DatetimeIndex(
-                ["2026-06-21 12:00", "2026-06-21 12:00"], tz="UTC"
-            ),
+            pd.DatetimeIndex(["2026-06-21 12:00", "2026-06-21 12:00"], tz="UTC"),
             "duplicate",
         ),
     ],
@@ -336,9 +324,7 @@ def test_matching_indexes_do_not_require_matching_frequency_metadata() -> None:
     with_frequency = pd.date_range(
         "2026-06-21 10:00", periods=2, freq="h", tz="UTC", name="physical_time"
     )
-    without_frequency = pd.DatetimeIndex(
-        with_frequency.to_numpy(), tz="UTC", name="physical_time"
-    )
+    without_frequency = pd.DatetimeIndex(with_frequency.to_numpy(), tz="UTC", name="physical_time")
     assert with_frequency.freq is not None
     assert without_frequency.freq is None
     result = resolve_horizontal_irradiance_components(
@@ -385,7 +371,7 @@ def test_empty_result_has_exact_schema_index_and_dtypes() -> None:
         assert pd.api.types.is_float_dtype(result[name])
     for name in _COLUMNS[6:8]:
         assert pd.api.types.is_bool_dtype(result[name])
-    for name in _COLUMNS[8:]:
+    for name in _COLUMNS[8:-1]:
         assert pd.api.types.is_string_dtype(result[name])
 
 
@@ -401,3 +387,22 @@ def test_inputs_are_not_mutated() -> None:
     resolve_horizontal_irradiance_components(*inputs)
     for actual, expected in zip(inputs, before, strict=True):
         pd.testing.assert_series_equal(actual, expected)
+
+
+def test_erbs_cross_year_uses_physical_time_and_preserves_observation_key() -> None:
+    observed = pd.DatetimeIndex(["2027-01-01 00:00"], tz="Europe/London", name="time")
+    physical = observed - pd.Timedelta(minutes=30)
+    ghi = pd.Series([650.0], index=observed)
+    zenith = pd.Series([45.0], index=observed)
+    missing = pd.Series([np.nan], index=observed)
+    result = resolve_horizontal_irradiance_components(
+        ghi, missing, missing, zenith, solar_model_times=physical
+    )
+    reference = pvlib.irradiance.erbs(ghi.to_numpy(), zenith.to_numpy(), physical)
+    old = pvlib.irradiance.erbs(ghi.to_numpy(), zenith.to_numpy(), observed)
+    assert result.index.identical(observed)
+    assert result.dni_wm2.iloc[0] == pytest.approx(reference["dni"].iloc[0], abs=1e-12)
+    assert abs(result.dni_wm2.iloc[0] - old["dni"].iloc[0]) > 1e-5
+    assert result.decomposition_evaluation_time.iloc[0] == physical[0]
+    assert result.decomposition_applied.iloc[0]
+    assert result.component_resolution_state.iloc[0] == "erbs_decomposed"

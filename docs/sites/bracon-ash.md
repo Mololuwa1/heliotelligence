@@ -194,6 +194,16 @@ S12M can select valid lower-fidelity transformer physics where evidence supports
 
 The next workstream is controlled [production integration and site evidence onboarding](../development/production-integration-roadmap.md), following completed P0 source isolation at PR #118. No site activation is performed by the generic module thermal increment.
 
+## Weather and front-POA evidence onboarding
+
+Repository behaviour is explicit: Solcast stores `period_end`; SCADA CSV parsing documents source period-start labels and converts them to stored UTC period-end. The new generic authority can represent these labels, but **Bracon Ash is not automatically admitted** from storage conventions or field names. No collector/parser changes or automatic site bindings are made.
+
+Required source/site evidence includes whether values are snapshots or interval averages, actual averaging duration/coverage and timestamp-label semantics, and explicit admission of the midpoint approximation where used. The new time contract never infers duration from neighbouring rows. Source documentation must justify a binding rather than assuming all instruments share one temporal meaning.
+
+For front POA, establish sensor calibration, exact front measurement plane/quantity, method, applicability and receiver/zone coverage. A `poa_wm2` field alone is not `front_surface_incident_broadband_poa` authority. Modelled rear coverage/evidence, bifacial response and spectral enabled/disabled/unknown admission also remain explicit requirements. Measured front is not front+rear total and never implies rear=0 or replaces the canonical electrical chain.
+
+Generic weather-time and canonical irradiance boundary capability is implemented and dormant. Raw front/rear and their diagnostic sum are available independently of optical/spectral electrical irradiance. Actual module-thermal POA handoff remains unresolved until calibration-basis evidence justifies front-only or both-surfaces selection. Existing module-thermal sensor/model/zone admission gaps below remain open; no full upstream production or P3 readiness claim follows.
+
 ## Module thermal evidence onboarding
 
 The repository normaliser maps `PT1000-MODULE-*` channels into an averaging group for `temp_mod_avg_c`; the ORM documents the average of MODULE-1..6. That establishes ingestion/aggregation behaviour only. It does not establish a canonical cell or module-back physical measurement quantity for Bracon Ash.
@@ -205,11 +215,11 @@ The generic `module_thermal_authority.py` / `module_thermal_state.py` contract i
 - explicit thermal-zone identity, zone-to-module coverage, sensor membership/weights and aggregation suitability;
 - for module-back conversion, explicit deltaT and reference irradiance with source/confidence/method evidence;
 - for a model path, native PVsyst u_c/u_v plus module efficiency/absorption, or native Faiman u0/u1 plus declared output quantity, method and wind calibration-height basis;
-- admitted total incident broadband thermal POA and aligned ambient/wind evidence where that selected model requires them, with upstream weather-time semantics established separately.
+- admitted total incident broadband thermal POA and aligned ambient/wind evidence where that selected model requires them, with source/site weather-time authority admitted explicitly through the separate generic temporal contract.
 
 No deltaT=3°C, mounting/construction, sensor placement or calibration is inferred from channel labels, module name, geometry or `temp_mod_avg_c`. Existing `ModuleConfig.u_c/u_v/noct_c` values are legacy compatibility fields, not canonical authority. Thermal POA is not automatically electrical-effective irradiance. Generic implementation ≠ Bracon thermal admission.
 
-Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather-time, optical/IAM/rear, mismatch, S14B density, uncertainty and authorization gates remain open.
+Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather/optical site evidence and runtime integration, mismatch, S14B density, uncertainty and authorization gates remain open; generic temporal/irradiance-boundary implementation alone does not close them.
 
 ## Legacy compatibility note
 

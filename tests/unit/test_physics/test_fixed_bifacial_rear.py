@@ -498,3 +498,27 @@ def test_empty_scene_and_empty_timeseries_are_stable() -> None:
     result = _calculate(inputs=inputs)
     assert result.empty
     assert str(result["poa_rear_global_raw_wm2"].dtype) == "float64"
+
+
+def test_cross_year_haydavies_uses_physical_extra_radiation() -> None:
+    observed = pd.DatetimeIndex(["2027-01-01 00:00"], tz="Europe/London", name="time")
+    physical = observed - pd.Timedelta(minutes=30)
+    values = [pd.Series([v], index=observed) for v in (800, 120, 700, 35, 180)]
+    result = calculate_fixed_bifacial_rear_irradiance(
+        *values, scene=_scene(), model="haydavies", solar_model_times=physical
+    )
+    reference = irradiance.get_extra_radiation(physical).iloc[0]
+    assert (result.dni_extra_wm2 == reference).all()
+    assert (result.extraterrestrial_irradiance_evaluation_time == physical[0]).all()
+    assert result.index.get_level_values("time").unique().equals(observed)
+    direct_reference = calculate_fixed_bifacial_rear_irradiance(
+        *[pd.Series(v.to_numpy(), index=physical) for v in values],
+        scene=_scene(),
+        model="haydavies",
+    )
+    np.testing.assert_allclose(
+        result.poa_rear_global_raw_wm2, direct_reference.poa_rear_global_raw_wm2
+    )
+    isotropic = calculate_fixed_bifacial_rear_irradiance(*values, scene=_scene(), model="isotropic")
+    assert isotropic.rear_irradiance_resolved.all()
+    assert isotropic.extraterrestrial_irradiance_evaluation_time.isna().all()

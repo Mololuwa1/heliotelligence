@@ -10,11 +10,13 @@ effects.
 from __future__ import annotations
 
 from numbers import Real
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
-import pandas as pd
-import pvlib.irradiance
+import pandas as pd  # type: ignore[import-untyped]
+import pvlib.irradiance  # type: ignore[import-untyped]
+
+from heliotelligence.physics.weather_time_authority import validate_solar_model_times
 
 TranspositionModel = Literal["perez", "perez-driesse"]
 
@@ -35,6 +37,7 @@ _OUTPUT_COLUMNS = [
     "transposition_applied",
     "transposition_state",
     "transposition_model",
+    "extraterrestrial_irradiance_evaluation_time",
 ]
 
 
@@ -49,8 +52,13 @@ def calculate_raw_poa_transposition(
     surface_azimuth_deg: float,
     albedo: float,
     model: TranspositionModel,
+    solar_model_times: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
-    """Calculate raw, unshaded, pre-IAM front-side POA irradiance."""
+    """Calculate raw, unshaded, pre-IAM front-side POA irradiance.
+
+    solar_model_times supplies positional instants for extraterrestrial
+    irradiance. None uses observation times; public result keys never shift.
+    """
     inputs = (
         ghi_wm2,
         dhi_wm2,
@@ -60,14 +68,13 @@ def calculate_raw_poa_transposition(
     )
     _validate_inputs(inputs)
     _validate_bounded_scalar(surface_tilt_deg, "surface_tilt_deg", 0.0, 180.0)
-    _validate_bounded_scalar(
-        surface_azimuth_deg, "surface_azimuth_deg", 0.0, 360.0
-    )
+    _validate_bounded_scalar(surface_azimuth_deg, "surface_azimuth_deg", 0.0, 360.0)
     _validate_bounded_scalar(albedo, "albedo", 0.0, 1.0)
     if model not in ("perez", "perez-driesse"):
         raise ValueError("model must be 'perez' or 'perez-driesse'")
 
     index = ghi_wm2.index
+    calculation_times = validate_solar_model_times(index, solar_model_times)
     if index.empty:
         return _empty_result(index)
 
@@ -78,7 +85,9 @@ def calculate_raw_poa_transposition(
     solar_azimuth = solar_azimuth_deg.astype(float).copy()
 
     dni_extra = pd.Series(
-        pvlib.irradiance.get_extra_radiation(index), index=index, dtype=float
+        np.asarray(pvlib.irradiance.get_extra_radiation(calculation_times)),
+        index=index,
+        dtype=float,
     )
     aoi = pd.Series(
         pvlib.irradiance.aoi(
@@ -93,8 +102,7 @@ def calculate_raw_poa_transposition(
 
     input_complete = ghi.notna() & dhi.notna() & dni.notna()
     poa_columns = {
-        name: pd.Series(np.nan, index=index, dtype=float)
-        for name in _OUTPUT_COLUMNS[7:12]
+        name: pd.Series(np.nan, index=index, dtype=float) for name in _OUTPUT_COLUMNS[7:12]
     }
     if input_complete.any():
         poa = pvlib.irradiance.get_total_irradiance(
@@ -124,9 +132,7 @@ def calculate_raw_poa_transposition(
     poa_resolved = pd.Series(False, index=index, dtype=bool)
     if input_complete.any():
         poa_values = pd.DataFrame(poa_columns, index=index)
-        poa_resolved.loc[input_complete] = np.isfinite(
-            poa_values.loc[input_complete]
-        ).all(axis=1)
+        poa_resolved.loc[input_complete] = np.isfinite(poa_values.loc[input_complete]).all(axis=1)
         state.loc[input_complete] = "model_output_unresolved"
         state.loc[poa_resolved] = "transposed"
     model_used = pd.Series("not_applied", index=index, dtype=str)
@@ -146,6 +152,7 @@ def calculate_raw_poa_transposition(
             "transposition_applied": input_complete.astype(bool),
             "transposition_state": state,
             "transposition_model": model_used,
+            "extraterrestrial_irradiance_evaluation_time": calculation_times,
         },
         index=index,
         columns=_OUTPUT_COLUMNS,
@@ -163,21 +170,20 @@ def _validate_inputs(inputs: tuple[object, object, object, object, object]) -> N
     for value, name in zip(inputs, names, strict=True):
         if not isinstance(value, pd.Series):
             raise ValueError(f"{name} must be a pandas Series")
-        _validate_index(value.index, name)
+        _validate_index(cast(pd.Series, value).index, name)
 
-    index = inputs[0].index  # type: ignore[union-attr]
+    index = cast(pd.Series, inputs[0]).index
     if any(
-        not value.index.equals(index) or value.index.name != index.name
-        for value in inputs[1:]  # type: ignore[union-attr]
+        not cast(pd.Series, value).index.equals(index)
+        or cast(pd.Series, value).index.name != index.name
+        for value in inputs[1:]
     ):
-        raise ValueError(
-            "input Series indexes must match exactly; index names must match exactly"
-        )
+        raise ValueError("input Series indexes must match exactly; index names must match exactly")
 
     for value, name in zip(inputs[:3], names[:3], strict=True):
-        _validate_irradiance(value, name)  # type: ignore[arg-type]
-    _validate_geometry(inputs[3], "apparent_solar_zenith_deg", 0.0, 180.0)  # type: ignore[arg-type]
-    _validate_geometry(inputs[4], "solar_azimuth_deg", 0.0, 360.0)  # type: ignore[arg-type]
+        _validate_irradiance(cast(pd.Series, value), name)
+    _validate_geometry(cast(pd.Series, inputs[3]), "apparent_solar_zenith_deg", 0.0, 180.0)
+    _validate_geometry(cast(pd.Series, inputs[4]), "solar_azimuth_deg", 0.0, 360.0)
 
 
 def _validate_index(index: pd.Index, series_name: str) -> None:
@@ -198,38 +204,34 @@ def _validate_irradiance(series: pd.Series, name: str) -> None:
         if (
             isinstance(value, (bool, np.bool_))
             or not isinstance(value, Real)
-            or not np.isfinite(value)
+            or not np.isfinite(float(value))
         ):
             raise ValueError(f"{name} present values must be finite real numbers")
         if value < 0:
             raise ValueError(f"{name} present values must be non-negative")
 
 
-def _validate_geometry(
-    series: pd.Series, name: str, minimum: float, maximum: float
-) -> None:
+def _validate_geometry(series: pd.Series, name: str, minimum: float, maximum: float) -> None:
     for value in series.array:
         if (
             pd.isna(value)
             or isinstance(value, (bool, np.bool_))
             or not isinstance(value, Real)
-            or not np.isfinite(value)
+            or not np.isfinite(float(value))
         ):
             raise ValueError(f"{name} values must be finite real numbers")
-        if value < minimum or value > maximum:
+        if float(value) < minimum or float(value) > maximum:
             raise ValueError(f"{name} values must be between {minimum:g} and {maximum:g}")
 
 
-def _validate_bounded_scalar(
-    value: object, name: str, minimum: float, maximum: float
-) -> None:
+def _validate_bounded_scalar(value: object, name: str, minimum: float, maximum: float) -> None:
     if (
         isinstance(value, (bool, np.bool_))
         or not isinstance(value, Real)
-        or not np.isfinite(value)
+        or not np.isfinite(float(value))
     ):
         raise ValueError(f"{name} must be a finite real number")
-    if value < minimum or value > maximum:
+    if float(value) < minimum or float(value) > maximum:
         raise ValueError(f"{name} must be between {minimum:g} and {maximum:g}")
 
 
@@ -243,17 +245,11 @@ def _numeric_irradiance(series: pd.Series) -> pd.Series:
 
 def _empty_result(index: pd.DatetimeIndex) -> pd.DataFrame:
     values = {
-        **{
-            name: pd.Series(index=index, dtype=float)
-            for name in _OUTPUT_COLUMNS[:12]
-        },
-        **{
-            name: pd.Series(index=index, dtype=bool)
-            for name in _OUTPUT_COLUMNS[12:14]
-        },
-        **{
-            name: pd.Series(index=index, dtype=str)
-            for name in _OUTPUT_COLUMNS[14:]
-        },
+        **{name: pd.Series(index=index, dtype=float) for name in _OUTPUT_COLUMNS[:12]},
+        **{name: pd.Series(index=index, dtype=bool) for name in _OUTPUT_COLUMNS[12:14]},
+        **{name: pd.Series(index=index, dtype=str) for name in _OUTPUT_COLUMNS[14:]},
     }
+    values["extraterrestrial_irradiance_evaluation_time"] = pd.Series(
+        index=index, dtype=pd.DatetimeTZDtype(tz=index.tz)
+    )
     return pd.DataFrame(values, index=index, columns=_OUTPUT_COLUMNS)
