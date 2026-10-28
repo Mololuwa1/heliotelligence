@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -35,7 +35,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Next major phase — production integration
 
-Production integration + site evidence onboarding is the immediate workstream. The legacy expected-energy runtime remains active; S8–S14 capability is not automatically production-active. The canonical [production-integration roadmap](production-integration-roadmap.md) owns migration decisions, phases P0–P6, the loss-ownership ledger and the pre-shadow readiness gates. P0 expected-energy source isolation is next planned work; shadow execution has not been activated and must not bypass the upstream readiness gates.
+Production integration + site evidence onboarding is the immediate workstream. The legacy expected-energy runtime remains active; S8–S14 capability is not automatically production-active. The canonical [production-integration roadmap](production-integration-roadmap.md) owns migration decisions, phases P0–P6, the loss-ownership ledger and the pre-shadow readiness gates. P0 expected-energy source isolation is complete at PR #118; the generic canonical module thermal contract is implemented in this increment but remains dormant; shadow execution has not been activated and must not bypass the upstream readiness gates.
 
 Production integration does not add S12N, S13E, S14D or S15. The S-stage sequence remains the physical modelling architecture.
 
@@ -48,15 +48,15 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - define canonical interval-labelled weather time semantics before solar geometry/transposition;
 - correct or replace the legacy IAM path so beam IAM affects the actual electrical irradiance exactly once;
 - define the measured-front versus modelled-rear bifacial boundary instead of forcing rear contribution to zero;
-- build a canonical module/cell thermal state with explicit temperature quantity, source, model/parameter provenance and measured-temperature basis;
-- resolve the legacy cell/module delta inconsistency and PVsyst/Faiman coefficient semantics;
+- generic canonical module thermal authority/state is now implemented; onboard explicit site evidence and thermal POA/time authority before using it in a physical run;
+- retain the legacy cell/module delta and PVsyst/Faiman mismatch in compatibility runtime until controlled migration; the new native-authority contract avoids both defects;
 - decide how module-to-module tolerance/series variability is represented before retiring the entire legacy mismatch percentage;
 - establish S14B support-density/max-gap eligibility with sunrise/sunset regressions;
 - add quantitative uncertainty evidence, including meter accuracy/calibration evidence where available;
 - close browser-admin-secret and per-site authorization gaps before shadow data is exposed outside the trusted development team;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-P0 source isolation may proceed in parallel. P3/P4 must not treat these as implicitly solved.
+Recommended order: P0 complete → generic module thermal (this increment) → weather/irradiance temporal + optical hardening → mismatch coverage → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P3/P4 must not treat site admission or remaining gates as implicitly solved.
 
 ## Bounded future physics
 

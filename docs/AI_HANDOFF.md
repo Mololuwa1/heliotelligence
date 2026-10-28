@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #116 merge faf51065d3d49ed0f223be244b27752713f111d0
+PR #118 merge 04f0cf338ab86980c040e5b6fbda6942a3c28681
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -18,10 +18,11 @@ weather/irradiance/module-thermal production integration still has open gates
 Production:
 legacy expected-energy path remains active
 Next:
-P0 expected-energy source isolation, while pre-shadow readiness gaps are closed
+P0 complete; generic module thermal implemented in this increment, dormant
+Next: weather/irradiance temporal and optical hardening; no shadow activation
 ```
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -33,7 +34,7 @@ During development, run focused changed-stage tests. Before PR review, run focus
 
 GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
 
-Read the canonical [production-integration roadmap](development/production-integration-roadmap.md) before activation work. P0 source isolation and physical shadow execution remain planned. The `(time, site_id, source)` database identity alone is insufficient: current catch-up and several readers are not source-isolated.
+Read the canonical [production-integration roadmap](development/production-integration-roadmap.md) before activation work. P0 source isolation is complete at PR #118 merge `04f0cf338ab86980c040e5b6fbda6942a3c28681`. Model-sensitive operations select one exact source, defaulting to legacy `physics_sdm`; legacy waterfall/report bundles reject unsupported sources. Telemetry-only health guards check existence without selecting or combining model values. Physical shadow execution remains planned, not active.
 
 ### Known pre-shadow blockers
 
@@ -42,14 +43,26 @@ Do not describe the full weather-to-meter chain as production-validated yet.
 - **Weather time semantics:** Solcast `period_end` is stored directly and SCADA period-start timestamps are normalised to period-end, while the legacy POA runtime evaluates solar position at the stored timestamp. There is no canonical interval-labelled weather-time authority.
 - **IAM integration defect:** legacy `calculate_poa()` computes IAM-corrected beam irradiance but assembles `poa_total` from uncorrected `poa_front`.
 - **Measured-front bifacial gap:** the measured-POA shortcut explicitly sets rear irradiance to zero.
-- **Module thermal is not canonical:** `physics/thermal.py` is a legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
+- **Module thermal integration remains dormant:** the generic canonical authority/state contract now exists, but `physics/thermal.py` remains the active legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
 - **Mismatch coverage is incomplete:** S8-1 is homogeneous series scaling. Module-to-module manufacturing/tolerance variability within a string is not yet represented, so S8 must not automatically retire every mechanism hidden in the legacy mismatch percentage.
 - **S14B has no density gate:** sample count and `maximum_expected_sample_gap_seconds` are published, but no maximum-gap/minimum-density rule currently controls benchmark eligibility. Quantify sunrise/sunset sensitivity before selecting a threshold.
 - **Uncertainty is not yet quantitative:** S13D preserves source and categorical confidence, but not meter accuracy class, calibration uncertainty or propagated model/measurement uncertainty.
 - **Platform access control is not shadow-ready:** the frontend sends `VITE_ADMIN_KEY`, which is browser-bundled, and ordinary site-scoped protected routes reviewed so far authenticate users but do not enforce `user_site_access` membership.
 - **S9-4A fixed-Q sign semantics are not locally declared:** downstream convention is positive Q injection / negative Q absorption; source evidence using another convention must be transformed before S9-4A construction.
 
-P0 may proceed while these are being resolved, but P3 shadow execution and P4 accuracy claims must not pass these gates by implication.
+P0 is complete. Generic module thermal implementation does not close site admission, weather-time/thermal-POA handoff or production integration. P3 shadow execution and P4 accuracy claims must not pass the remaining gates by implication.
+
+## Canonical module thermal authority/state
+
+`module_thermal_authority.py` separates explicit native PVsyst cell parameters (`u_c_w_per_m2k`, `u_v_w_per_m2k_per_ms`, efficiency, absorption), native Faiman parameters (`u0_w_per_m2k`, `u1_w_per_m2k_per_ms`, declared cell/module-back output quantity), module-back conversion authority and exact temperature evidence. No site configuration is promoted to authority.
+
+`resolve_module_thermal_state` requires a named thermal zone and exactly aligned timezone-aware environmental Series. Per timestamp it selects direct cell evidence, then measured module-back conversion, then an explicit native model. Both evidence channels retain provenance. An unusable module measurement followed by a model is explicitly labelled; no whole-series switching, interpolation, extrapolation or persistence occurs. Missing wind is irrelevant only when the admitted wind coefficient is exactly zero; the missing observation remains missing.
+
+The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit parameter provenance. It produces 52.1°C for 50°C, 700 W/m², E_ref=1000 W/m² and deltaT=3°C. The separate legacy path still produces 50.021°C. Native model families are never silently converted. The independent validator reconstructs equations and diagnostics without production builders or pvlib calls.
+
+Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. This contract does not establish instantaneous versus interval-start/midpoint/end weather semantics, thermal-zone mapping or Bracon Ash sensor placement/calibration. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
+
+Recommended sequence: P0 complete → generic module thermal (this increment) → weather/irradiance temporal + optical hardening → mismatch coverage → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
 
 ## Recovery rule
 

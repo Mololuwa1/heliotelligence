@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -58,12 +58,49 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Weather time basis:** interval-labelled weather is stored at period-end, while solar position is evaluated at the stored timestamp without an admitted start/mid/end representative-instant policy.
 - **Legacy IAM ownership:** `calculate_poa()` publishes IAM-corrected beam output but builds `poa_total` from uncorrected front POA, so IAM does not affect production electrical irradiance.
 - **Measured-front bifacial ownership:** accepting measured front POA currently sets rear contribution to zero.
-- **Module thermal authority:** no canonical module-temperature authority/result exists. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
+- **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
 - **Module population variability:** S8-1 is homogeneous string scaling. It does not represent module-to-module manufacturing/tolerance variation inside a series string.
 - **Interval benchmark support density:** S14B reports sample count and maximum gap but currently has no density/gap eligibility threshold.
 - **Quantitative uncertainty:** S13D provides source/confidence metadata, not meter accuracy class or numerical uncertainty propagation.
 
-These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation may proceed independently, but P3 shadow execution and P4 accuracy claims must address them explicitly.
+These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation is complete at the PR #118 checkpoint. P3 shadow execution and P4 accuracy claims must still address the remaining integration/evidence gates explicitly.
+
+## Canonical module thermal authority and state
+
+The new dormant modules `module_thermal_authority.py` and `module_thermal_state.py` provide a steady-state/measurement contract, not a new S-stage. The production pipeline still calls legacy `calculate_cell_temp`; it does not call this resolver.
+
+Static types are `PvsystCellThermalAuthority`, `FaimanThermalAuthority` and `ModuleBackSurfaceToCellTemperatureAuthority`. Native parameters, source/confidence, method and wind calibration basis are explicit. PVsyst requires u_c>0, u_v≥0, 0≤efficiency<1 and 0<absorption≤1; Faiman requires u0>0 and u1≥0 plus an explicit output quantity. No defaults from module configuration or model-family conversion are admitted.
+
+`ModuleTemperatureEvidence` declares cell or module-back quantity and sensor/aggregated-sensor/documented-external-estimate kind. Method, location and aggregation descriptions are preserved where supplied; an external estimate is not relabelled as a sensor reading. `ModuleThermalMeasurementState` may carry both channels at an exact timestamp. Direct cell evidence wins while the unused channel's provenance remains visible.
+
+The resolver requires an explicit `thermal_zone_id` and exactly aligned timezone-aware, unique, NaT-free input Series; order is preserved. Present POA/wind must be finite and non-negative, ambient/evidence temperatures above absolute zero, all numeric authority non-Boolean and finite. NaN environmental inputs remain missing. Thermal POA is supplied **total incident broadband irradiance for thermal balance**, not automatically electrical-effective irradiance. This contract does not establish whether source weather represents instantaneous, interval-start, midpoint or interval-end conditions. Zone-to-module/site mapping and upstream irradiance authority remain separate onboarding/integration responsibilities.
+
+Timestamp precedence is direct cell evidence → measured module-back plus explicit conversion/POA → explicit native PVsyst/Faiman model → a specific unresolved reason. No whole-series completeness threshold, filling, persistence or interpolation is applied. A zero wind coefficient removes the wind term algebraically without fabricating a wind observation. Nonzero coefficients require wind evidence.
+
+```text
+T_cell = T_module_back + (E / E_reference) × deltaT
+PVsyst: T_cell = T_air + E × alpha × (1 - efficiency) / (u_c + u_v × wind)
+Faiman: T_declared_quantity = T_air + E / (u0 + u1 × wind)
+```
+
+Conversion deltaT≥0 and E_reference>0 are explicit authorities, with no default 3°C. With admitted deltaT=3°C and E_reference=1000 W/m², 50°C module-back becomes 53°C at 1000 W/m² or 52.1°C at 700 W/m². Faiman module-back output remains unresolved for cell temperature without conversion authority; its module output can still be visible. PVsyst parameters are never passed into Faiman.
+
+Resolved fidelity states are `resolved_direct_cell_temperature_evidence`, `resolved_measured_module_back_to_cell_temperature`, `resolved_pvsyst_cell_temperature`, `resolved_faiman_cell_temperature` and `resolved_faiman_module_back_to_cell_temperature`. Unresolved reasons distinguish absent evidence/model, missing POA, ambient, required wind, measured-module conversion authority, model-module output without conversion, and invalid model output/inputs.
+
+The frozen result envelope publishes typed timestamp rows, raw environmental inputs, both evidence channels, native model/conversion provenance, selected fidelity and explicit unusable-measurement/model-fallback flags. Interpolation/extrapolation flags are always false. Diagnostics distinguish evidence inventory from selected pathways; missing-input counts refer to primary unresolved reasons rather than mathematically irrelevant NaNs. No thermal inertia, lag, spatial heat transfer or production activation is claimed.
+
+Independent validation reconstructs native equations, exact row universe, schema, provenance, states and counts without the production record/selection/frame/diagnostic helpers or pvlib. The shared admission layer only validates input evidence.
+
+Contract IDs:
+
+- authority: `explicit_native_module_thermal_model_and_module_back_to_cell_conversion_authority_v1`;
+- authority model: `native_pvsyst_cell_faiman_declared_quantity_and_reference_irradiance_delta_t_authority_v1`;
+- state: `admitted_module_temperature_evidence_and_explicit_thermal_model_authority_to_timestamped_cell_temperature_state_v1`;
+- state model: `per_timestamp_direct_cell_measurement_module_back_conversion_or_explicit_pvsyst_faiman_thermal_resolution_v1`;
+- scope: `module_cell_temperature_state_before_temperature_dependent_module_electrical_evaluation`;
+- coverage: `explicit_thermal_zone_timestamped_measurement_or_native_model_parameter_authority`.
+
+The generic thermal gate is implemented; Bracon Ash admission and production integration are not. The legacy offset and legacy PVsyst/Faiman mismatch remain in compatibility code until controlled migration. Current `physics_sdm` numerical behaviour is unchanged.
 
 ## Electrical reference planes
 
@@ -99,7 +136,7 @@ Equipment authority and measurement/reference-plane authority are separate. Nomi
 | Spectral correction | generic capability exists | Component-resolved spectral response; legacy wrapper is optional and not active without required inputs | Retain one explicit spectral owner with evidence |
 | Soiling | legacy approximation | Aggregate production compatibility percentage | Time-varying physical or measured state |
 | Snow | not implemented | No canonical snow state | Explicit stateful snow model |
-| Module thermal | **legacy runtime only; canonical stage pending** | Measured/Faiman/NOCT compatibility hierarchy in `physics/thermal.py` | Build admitted module/cell thermal state; resolve cell-module offset and PVsyst/Faiman parameter semantics before P3 |
+| Module thermal | **generic canonical contract implemented, dormant** | Explicit zone/evidence/native PVsyst or Faiman state, separate from legacy `physics/thermal.py` | Onboard site evidence and thermal POA/time handoff before activation; legacy numerics unchanged |
 | Module parameter lookup | implemented | CEC / local / datasheet / fallback tiers | Maintain traceable parameter provenance |
 | Module electrical | implemented | De Soto / single-diode + voltage-dependent state | Extend bypass/sub-string behaviour later |
 | Physical string I-V | implemented | S8-1 homogeneous series scaling | Add partial-shading/bypass complexity later |
@@ -456,7 +493,7 @@ A scalar shading or mismatch percentage is not the final target mechanism.
 
 ## Production integration boundary
 
-Validated physical layers are not automatically production-active. The legacy compatibility path still contains aggregate loss behaviour. Production migration must prove no double counting and preserve explicit unresolved/fallback fidelity. The next phase is production integration and site evidence onboarding, starting with planned P0 source isolation. See the canonical [production-integration roadmap](../development/production-integration-roadmap.md).
+Validated physical layers are not automatically production-active. The legacy compatibility path still contains aggregate loss behaviour. Production migration must prove no double counting and preserve explicit unresolved/fallback fidelity. The next phase is production integration and site evidence onboarding, following completed P0 source isolation and the pre-shadow readiness sequence. See the canonical [production-integration roadmap](../development/production-integration-roadmap.md).
 
 Genuine future physics extensions include arbitrary/shared DC collection beyond direct-branch coverage, substring/bypass-diode partial shading and multiple local maxima, dynamic physical/measured soiling, snow, arbitrary 3D/tracker/rear-obstruction coverage, justified unbalanced/sequence network extensions, and transformer ageing/dynamic thermal models when evidence and use cases support them. These are separate extensions, not unfinished current S12–S14 contracts.
 

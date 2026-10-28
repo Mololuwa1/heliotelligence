@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0`, PR #116 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681`, PR #118 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -46,17 +46,17 @@ Known production-path gaps that must be tracked explicitly are:
 
 The database identity is `(time, site_id, source)` (`models/expected_energy.py`). The current writer in `engine/upsert.py` selects `physics_sdm`; that remains the default legacy source.
 
-**Application source isolation is not complete.** `engine/weather_query.py::get_latest_expected_energy_time` queries latest time by site without source. Several expected-energy readers also omit source selection; bucketed API reads aggregate by time with `AVG` and `MIN(source)`, rather than isolating model series. Analysis/benchmarking readers need the same audit. The schema's source column alone does not make shadow activation safe.
+**P0 application source isolation is complete at PR #118.** Cursor, upsert, raw/hourly/daily expected reads, PR and model-sensitive analysis select one exact source, defaulting to `physics_sdm`. Guards select the requested source and identify it in no-data messages. Legacy loss-waterfall and bundled report/benchmark endpoints reject unsupported non-legacy sources. Telemetry-only string/inverter-health guards retain a source-independent existence check without reading or combining model values.
 
-No physical shadow source should be activated until P0 is complete. A source represents an alternative model series, not an additive layer. Different sources must never be averaged or silently mixed.
+P0 completion does not activate or define a physical shadow source; remaining readiness and P1/P2 gates still apply. A source represents an alternative model series, not an additive layer. Different sources must never be averaged or silently mixed.
 
 ## Bounded migration phases
 
-### P0 — expected-energy source isolation — next planned work
+### P0 — expected-energy source isolation — complete
 
-Make reads, writes, catch-up, aggregation and downstream reports explicitly model-source aware. Preserve `physics_sdm` as the default legacy source. Inventory all expected-energy consumers and define consistent default/source-selection behaviour, including empty-source coverage. Demonstrate that one model's latest timestamp cannot suppress another's catch-up, and that alternative sources cannot overwrite, combine or average each other's values.
+PR #118 made reads, writes, catch-up, aggregation and downstream reports explicitly model-source aware. Preserve `physics_sdm` as the default legacy source. Inventory all expected-energy consumers and define consistent default/source-selection behaviour, including empty-source coverage. Demonstrate that one model's latest timestamp cannot suppress another's catch-up, and that alternative sources cannot overwrite, combine or average each other's values.
 
-Exit decision: source-isolation regressions and reader/writer inventory prove separate model identities end to end. P0 is not completed by this documentation change.
+Completed checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681`. Source-isolation regressions and the consumer inventory establish separate model identities. P0 did not implement P1 or activate a shadow model.
 
 ### P1 — physical shadow-output contract
 
@@ -80,14 +80,36 @@ P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source 
 
 1. **Weather temporal semantics:** define the meaning of interval-labelled weather timestamps and the solar-position instant used by transposition/optics.
 2. **Irradiance/optics ownership:** prove transposition, shading, IAM, spectral and front/rear contributions are each applied exactly once. The current legacy IAM and measured-front bifacial behaviours above are not acceptable physical-shadow semantics.
-3. **Canonical module thermal state:** establish an admitted module/cell thermal contract with explicit quantity, source/provenance, model family/parameters and measured-temperature basis. Correct or bypass the legacy cell-to-module offset and PVsyst/Faiman coefficient mismatch.
+3. **Canonical module thermal state — generic contract implemented, dormant:** the new authority/state modules distinguish cell/module-back evidence, explicit reference-irradiance deltaT conversion and native PVsyst/Faiman families. They avoid the legacy offset and model-family defects without altering compatibility numerics. Site evidence, zone binding and thermal POA/time admission remain required before activation.
 4. **Mismatch coverage:** distinguish S8 common-voltage string/MPPT mismatch from module-to-module manufacturing/tolerance variation inside a series string. Do not retire the full legacy mismatch percentage until ownership of all material mechanisms is established.
 5. **S14B support density:** add an explicit expected-sample density / maximum-gap eligibility policy. The existing `maximum_expected_sample_gap_seconds` diagnostic is not currently a gate. Quantify sunrise/sunset sensitivity with deterministic regressions before adopting numerical thresholds.
 6. **Uncertainty evidence:** define numerical measurement/model uncertainty inputs and reporting. Revenue-meter evidence should support accuracy/calibration information where available; categorical confidence alone is not an uncertainty model.
 7. **Platform access control:** remove browser-bundled admin secrets as an authorization boundary and enforce server-side site authorization for site-scoped routes before shadow data is exposed beyond the trusted development team.
 8. **S9-4A Q semantics:** explicitly declare the fixed-Q sign convention for `reactive_power_min_var/reactive_power_max_var` and require source evidence using another convention to be transformed before authority construction.
 
-These gates do not imply that P0 source isolation should wait. They block promotion into meaningful P3/P4 site validation, not the preparatory isolation work itself.
+P0 is complete. The generic canonical module thermal pre-shadow implementation gate is closed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
+
+```text
+P0 source isolation — COMPLETE
+↓
+canonical module thermal authority/state — THIS INCREMENT (generic, dormant)
+↓
+weather/irradiance temporal + optical hardening
+↓
+mismatch coverage
+↓
+S14B density
+↓
+uncertainty
+↓
+platform authorization
+↓
+P1/P2 finalisation
+↓
+P3 shadow execution
+```
+
+P1 is still the physical shadow-output contract. P1, P2 and P3 are not implemented or activated by this increment. Existing S9-4A sign-semantics evidence requirements are not weakened.
 
 ### P3 — shadow execution
 
@@ -124,7 +146,7 @@ All candidate replacements below are validated generic capabilities unless state
 | Shading authority | Legacy runtime does not execute the canonical shading chain end to end | Canonical horizon/near-shading authority and optical state | Geometry/evidence coverage and exactly one shading owner | Generic capability exists; runtime integration pending |
 | IAM | Beam IAM computed in legacy `calculate_poa` but not applied to `poa_total` | Canonical IAM/optical-effective irradiance | Correct total-irradiance ownership and regression proving beam IAM affects electrical input exactly once | Confirmed legacy integration defect |
 | Bifacial rear | Legacy infinite-sheds path when modelled; measured-front shortcut forces rear to zero | Canonical front/rear optical combination | Explicit measured-front versus rear-model boundary and rear evidence | Confirmed measured-POA compatibility gap |
-| Module thermal | Legacy measured/Faiman/NOCT cell-temperature runtime | Canonical admitted module/cell thermal state | Quantity/model/parameter provenance; correct cell-module relation; PVsyst/Faiman semantic alignment | Canonical stage pending |
+| Module thermal | Legacy measured/Faiman/NOCT cell-temperature runtime | Canonical admitted module/cell thermal state | Quantity/model/parameter provenance; correct cell-module relation; PVsyst/Faiman semantic alignment | Generic authority/state implemented, dormant; site admission and integration pending |
 | Module tolerance / series variation | Collapsed into aggregate legacy mismatch percentage | Explicit module-population/series variability where required, combined with S8 network mismatch without double counting | Datasheet/manufacturing tolerance authority or measured module population model | Not covered by homogeneous S8-1 |
 | Spectral treatment | Optional legacy spectral helper; pipeline omits required precipitable water | Canonical component spectral/electrical irradiance handoff | Spectral evidence and exactly one irradiance correction owner | Generic handoff exists; integration pending |
 | Mismatch | Static DC mismatch percentage | S8 common-voltage MPPT physical mismatch for admitted string I-V curves | Authoritative string/MPPT mapping and IV coverage **plus an explicit decision for module-tolerance/series variability not represented by homogeneous S8-1** | Partial physical ownership; do not retire full legacy percentage yet |
