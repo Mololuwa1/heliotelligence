@@ -9,10 +9,13 @@ production irradiance and weather-query paths.
 from __future__ import annotations
 
 from numbers import Real
+from typing import cast
 
 import numpy as np
-import pandas as pd
-import pvlib.irradiance
+import pandas as pd  # type: ignore[import-untyped]
+import pvlib.irradiance  # type: ignore[import-untyped]
+
+from heliotelligence.physics.weather_time_authority import validate_solar_model_times
 
 _OUTPUT_COLUMNS = [
     "ghi_wm2",
@@ -28,6 +31,7 @@ _OUTPUT_COLUMNS = [
     "ghi_provenance",
     "dhi_provenance",
     "dni_provenance",
+    "decomposition_evaluation_time",
 ]
 
 
@@ -36,11 +40,19 @@ def resolve_horizontal_irradiance_components(
     dhi_wm2: pd.Series,
     dni_wm2: pd.Series,
     solar_zenith_deg: pd.Series,
+    *,
+    solar_model_times: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
-    """Resolve supplied horizontal irradiance or apply Erbs to GHI-only rows."""
+    """Resolve supplied horizontal irradiance or apply Erbs to GHI-only rows.
+
+    solar_model_times supplies positional physical instants, not result keys.
+    None preserves calculation at the observation index. Unused Erbs times
+    are published as NaT; supplied complete triplets remain unchanged.
+    """
     inputs = (ghi_wm2, dhi_wm2, dni_wm2, solar_zenith_deg)
     _validate_inputs(inputs)
     index = ghi_wm2.index
+    calculation_times = validate_solar_model_times(index, solar_model_times)
     if len(index) == 0:
         return _empty_result(index)
 
@@ -58,12 +70,12 @@ def resolve_horizontal_irradiance_components(
 
     if ghi_only.any():
         erbs = pvlib.irradiance.erbs(
-            ghi.loc[ghi_only],
-            zenith.loc[ghi_only],
-            index[ghi_only],
+            ghi.loc[ghi_only].to_numpy(),
+            zenith.loc[ghi_only].to_numpy(),
+            calculation_times[ghi_only],
         )
-        dhi.loc[ghi_only] = erbs["dhi"]
-        dni.loc[ghi_only] = erbs["dni"]
+        dhi.loc[ghi_only] = np.asarray(erbs["dhi"])
+        dni.loc[ghi_only] = np.asarray(erbs["dni"])
 
     resolved = complete | ghi_only
     direct_horizontal = pd.Series(np.nan, index=index, dtype=float)
@@ -81,9 +93,10 @@ def resolve_horizontal_irradiance_components(
 
     model = pd.Series("not_applied", index=index, dtype=str)
     model.loc[ghi_only] = "erbs"
-    supplied_or_missing = lambda present: pd.Series(  # noqa: E731
-        np.where(present, "supplied", "missing"), index=index, dtype=str
-    )
+
+    def supplied_or_missing(present: pd.Series) -> pd.Series:
+        return pd.Series(np.where(present, "supplied", "missing"), index=index, dtype=str)
+
     ghi_provenance = supplied_or_missing(ghi_present)
     dhi_provenance = supplied_or_missing(dhi_present)
     dni_provenance = supplied_or_missing(dni_present)
@@ -105,6 +118,9 @@ def resolve_horizontal_irradiance_components(
             "ghi_provenance": ghi_provenance,
             "dhi_provenance": dhi_provenance,
             "dni_provenance": dni_provenance,
+            "decomposition_evaluation_time": pd.Series(calculation_times, index=index).where(
+                ghi_only
+            ),
         },
         index=index,
         columns=_OUTPUT_COLUMNS,
@@ -119,20 +135,19 @@ def _validate_inputs(inputs: tuple[object, object, object, object]) -> None:
 
     series = inputs
     for value, name in zip(series, names, strict=True):
-        _validate_index(value.index, name)  # type: ignore[union-attr]
+        _validate_index(cast(pd.Series, value).index, name)
 
-    index = series[0].index  # type: ignore[union-attr]
+    index = cast(pd.Series, series[0]).index
     if any(
-        not value.index.equals(index) or value.index.name != index.name
-        for value in series[1:]  # type: ignore[union-attr]
+        not cast(pd.Series, value).index.equals(index)
+        or cast(pd.Series, value).index.name != index.name
+        for value in series[1:]
     ):
-        raise ValueError(
-            "input Series indexes must match exactly; index names must match exactly"
-        )
+        raise ValueError("input Series indexes must match exactly; index names must match exactly")
 
     for value, name in zip(series[:3], names[:3], strict=True):
-        _validate_irradiance(value, name)  # type: ignore[arg-type]
-    _validate_zenith(series[3])  # type: ignore[arg-type]
+        _validate_irradiance(cast(pd.Series, value), name)
+    _validate_zenith(cast(pd.Series, series[3]))
 
 
 def _validate_index(index: pd.Index, series_name: str) -> None:
@@ -152,7 +167,7 @@ def _validate_irradiance(series: pd.Series, name: str) -> None:
             continue
         if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
             raise ValueError(f"{name} present values must be finite real numbers")
-        if not np.isfinite(value):
+        if not np.isfinite(float(value)):
             raise ValueError(f"{name} present values must be finite real numbers")
         if value < 0:
             raise ValueError(f"{name} present values must be non-negative")
@@ -164,10 +179,10 @@ def _validate_zenith(series: pd.Series) -> None:
             pd.isna(value)
             or isinstance(value, (bool, np.bool_))
             or not isinstance(value, Real)
-            or not np.isfinite(value)
+            or not np.isfinite(float(value))
         ):
             raise ValueError("solar_zenith_deg values must be finite real numbers")
-        if value < 0 or value > 180:
+        if float(value) < 0 or float(value) > 180:
             raise ValueError("solar_zenith_deg values must be between 0 and 180")
 
 
@@ -182,10 +197,13 @@ def _numeric_irradiance(series: pd.Series) -> pd.Series:
 def _empty_result(index: pd.DatetimeIndex) -> pd.DataFrame:
     float_columns = _OUTPUT_COLUMNS[:6]
     bool_columns = _OUTPUT_COLUMNS[6:8]
-    string_columns = _OUTPUT_COLUMNS[8:]
+    string_columns = _OUTPUT_COLUMNS[8:-1]
     values = {
         **{name: pd.Series(index=index, dtype=float) for name in float_columns},
         **{name: pd.Series(index=index, dtype=bool) for name in bool_columns},
         **{name: pd.Series(index=index, dtype=str) for name in string_columns},
     }
+    values["decomposition_evaluation_time"] = pd.Series(
+        index=index, dtype=pd.DatetimeTZDtype(tz=index.tz)
+    )
     return pd.DataFrame(values, index=index, columns=_OUTPUT_COLUMNS)

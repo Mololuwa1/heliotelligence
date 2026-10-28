@@ -217,6 +217,86 @@ def _same(left: Any, right: Any, label: str) -> None:
         raise ValueError(f"contradictory upstream {label}")
 
 
+def _validate_temporal_parents(
+    weather: WeatherTimeStateResult,
+    ids: tuple[str, ...],
+    optical: pd.DataFrame,
+    horizontal: pd.DataFrame,
+    fronts: Mapping[str, pd.DataFrame],
+    rear: pd.DataFrame | None,
+) -> None:
+    """Replay physical-time provenance and the raw values actually composed.
+
+    Complete supplied components do not need an Erbs instant. Isotropic rear
+    has no extraterrestrial dependency. No optical physics is recalculated.
+    """
+    times = weather.observation_times
+    expected = pd.DatetimeIndex(weather.states["solar_geometry_evaluation_time"])
+    if not isinstance(horizontal, pd.DataFrame) or not horizontal.index.identical(times):
+        raise ValueError("horizontal temporal parent observation keys differ")
+    if set(fronts) != set(ids):
+        raise ValueError("front temporal parent receiver keys differ")
+
+    def replay_time(values: pd.Series, mask: pd.Series | None = None) -> None:
+        actual = pd.DatetimeIndex(values)
+        selected = np.ones(len(times), dtype=bool) if mask is None else mask.to_numpy(dtype=bool)
+        if (
+            actual.tz is None
+            or str(actual.tz) != str(expected.tz)
+            or not actual[selected].equals(expected[selected])
+            or (mask is not None and actual[~selected].notna().any())
+        ):
+            raise ValueError("irradiance temporal provenance differs from admitted evaluation time")
+
+    try:
+        replay_time(
+            horizontal["decomposition_evaluation_time"], horizontal["decomposition_applied"]
+        )
+        for receiver_id in ids:
+            front = fronts[receiver_id]
+            if not front.index.identical(times):
+                raise ValueError("front temporal parent observation keys differ")
+            replay_time(front["extraterrestrial_irradiance_evaluation_time"])
+            published = optical.xs(receiver_id, level="receiver_id")
+            for column in ("ghi_wm2", "dhi_wm2", "dni_wm2"):
+                if not np.allclose(
+                    front[column], horizontal[column], rtol=0, atol=0, equal_nan=True
+                ):
+                    raise ValueError("front does not replay horizontal components")
+            for column in ("dni_extra_wm2", "poa_global_raw_wm2", "poa_direct_raw_wm2"):
+                if not np.allclose(
+                    front[column], published[column], rtol=0, atol=0, equal_nan=True
+                ):
+                    raise ValueError("optical state does not replay admitted front temporal parent")
+        rear_required = optical["rear_irradiance_resolved"].any()
+        if rear is None:
+            if rear_required:
+                raise ValueError("resolved rear requires raw temporal parent")
+            return
+        if not rear.index.identical(optical.index):
+            raise ValueError("rear temporal parent observation/receiver keys differ")
+        for receiver_id in ids:
+            raw = rear.xs(receiver_id, level="receiver_id")
+            published = optical.xs(receiver_id, level="receiver_id")
+            haydavies = raw["rear_diffuse_model"].eq("haydavies")
+            replay_time(raw["extraterrestrial_irradiance_evaluation_time"], haydavies)
+            for column in ("ghi_wm2", "dhi_wm2", "dni_wm2"):
+                if not np.allclose(raw[column], horizontal[column], rtol=0, atol=0, equal_nan=True):
+                    raise ValueError("rear does not replay horizontal components")
+            for column in ("poa_rear_global_raw_wm2", "rear_diffuse_model"):
+                if column.endswith("wm2"):
+                    if not np.allclose(
+                        raw[column], published[column], rtol=0, atol=0, equal_nan=True
+                    ):
+                        raise ValueError(
+                            "optical state does not replay admitted rear temporal parent"
+                        )
+                elif not raw[column].astype(str).equals(published[column].astype(str)):
+                    raise ValueError("rear model provenance differs")
+    except (KeyError, TypeError) as exc:
+        raise ValueError("missing or invalid irradiance temporal provenance") from exc
+
+
 def _admit(
     receivers: Sequence[PVReceiver],
     weather_time_state: WeatherTimeStateResult,
@@ -225,6 +305,9 @@ def _admit(
     front_effective_irradiance: FrontEffectiveIrradianceResult,
     bifacial_equivalent_irradiance: BifacialEquivalentIrradianceResult,
     spectral_response: SpectralResponseResult,
+    horizontal_irradiance_components: pd.DataFrame,
+    raw_poa_transposition_by_receiver: Mapping[str, pd.DataFrame],
+    raw_rear_irradiance: pd.DataFrame | None,
     measured_front_poa_wm2: pd.Series | None,
     measured_front_authority_by_receiver: Mapping[str, FrontPoaMeasurementAuthority] | None,
 ) -> tuple[pd.MultiIndex, Mapping[str, FrontPoaMeasurementAuthority]]:
@@ -242,7 +325,7 @@ def _admit(
         or any(type(r) is not PVReceiver for r in receivers)
     ):
         raise ValueError("receivers must explicitly identify canonical PVReceiver objects")
-    ids = tuple(r.id for r in receivers)
+    ids = tuple(sorted(r.id for r in receivers))
     if len(set(ids)) != len(ids):
         raise ValueError("receiver IDs must be unique")
     for receiver_id in ids:
@@ -272,6 +355,14 @@ def _admit(
         ):
             if getattr(parent.diagnostics, name) != expected:
                 raise ValueError("parent diagnostics do not match the canonical row universe")
+    _validate_temporal_parents(
+        weather_time_state,
+        ids,
+        optical_state.state,
+        horizontal_irradiance_components,
+        raw_poa_transposition_by_receiver,
+        raw_rear_irradiance,
+    )
     a, f, b, s = (
         optical_state.state,
         front_effective_irradiance.irradiance,
@@ -606,6 +697,9 @@ def resolve_canonical_irradiance_boundary(
     front_effective_irradiance: FrontEffectiveIrradianceResult,
     bifacial_equivalent_irradiance: BifacialEquivalentIrradianceResult,
     spectral_response: SpectralResponseResult,
+    horizontal_irradiance_components: pd.DataFrame,
+    raw_poa_transposition_by_receiver: Mapping[str, pd.DataFrame],
+    raw_rear_irradiance: pd.DataFrame | None,
     measured_front_poa_wm2: pd.Series | None = None,
     measured_front_authority_by_receiver: Mapping[str, FrontPoaMeasurementAuthority] | None = None,
 ) -> CanonicalIrradianceBoundaryResult:
@@ -617,6 +711,9 @@ def resolve_canonical_irradiance_boundary(
         front_effective_irradiance=front_effective_irradiance,
         bifacial_equivalent_irradiance=bifacial_equivalent_irradiance,
         spectral_response=spectral_response,
+        horizontal_irradiance_components=horizontal_irradiance_components,
+        raw_poa_transposition_by_receiver=raw_poa_transposition_by_receiver,
+        raw_rear_irradiance=raw_rear_irradiance,
         measured_front_poa_wm2=measured_front_poa_wm2,
         measured_front_authority_by_receiver=measured_front_authority_by_receiver,
     )
@@ -654,6 +751,9 @@ def validate_canonical_irradiance_boundary(
     front_effective_irradiance: FrontEffectiveIrradianceResult,
     bifacial_equivalent_irradiance: BifacialEquivalentIrradianceResult,
     spectral_response: SpectralResponseResult,
+    horizontal_irradiance_components: pd.DataFrame,
+    raw_poa_transposition_by_receiver: Mapping[str, pd.DataFrame],
+    raw_rear_irradiance: pd.DataFrame | None,
     measured_front_poa_wm2: pd.Series | None = None,
     measured_front_authority_by_receiver: Mapping[str, FrontPoaMeasurementAuthority] | None = None,
 ) -> None:
@@ -668,6 +768,9 @@ def validate_canonical_irradiance_boundary(
         front_effective_irradiance,
         bifacial_equivalent_irradiance,
         spectral_response,
+        horizontal_irradiance_components,
+        raw_poa_transposition_by_receiver,
+        raw_rear_irradiance,
         measured_front_poa_wm2,
         measured_front_authority_by_receiver,
     )

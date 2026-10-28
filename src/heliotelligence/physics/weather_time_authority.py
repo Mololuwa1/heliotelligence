@@ -282,3 +282,28 @@ def validate_weather_time_state(result: WeatherTimeStateResult) -> None:
     )
     if result.diagnostics != diagnostics:
         raise ValueError("weather-time diagnostics failed independent validation")
+
+
+def validate_solar_model_times(
+    observation_times: pd.DatetimeIndex, solar_model_times: pd.DatetimeIndex | None
+) -> pd.DatetimeIndex:
+    """Validate positional physical times; None preserves legacy primitive semantics.
+
+    Explicit times retain order and must use the observation timezone. No
+    matching, sorting, inference or timezone conversion is performed.
+    """
+    if solar_model_times is None:
+        return observation_times
+    if (
+        not isinstance(solar_model_times, pd.DatetimeIndex)
+        or solar_model_times.tz is None
+        or solar_model_times.hasnans
+        or not solar_model_times.is_unique
+        or len(solar_model_times) != len(observation_times)
+        or str(solar_model_times.tz) != str(observation_times.tz)
+    ):
+        raise ValueError(
+            "solar_model_times must be unique, timezone-aware, NaT-free, row-aligned "
+            "and use the observation timezone"
+        )
+    return solar_model_times.copy()

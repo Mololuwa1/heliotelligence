@@ -140,6 +140,15 @@ Canonical IDs:
 
 No site is automatically admitted, no physical shadow source is defined, and the legacy weather/POA/thermal runtime remains active and numerically unchanged.
 
+### Date-consistent irradiance calculation times
+
+The generic weather-time authority and date-consistent canonical irradiance boundary are implemented, dormant. `resolve_horizontal_irradiance_components`, `calculate_raw_poa_transposition` and `calculate_fixed_bifacial_rear_irradiance` accept explicit positional `solar_model_times`. Erbs decomposition and front/rear Hay-Davies extraterrestrial irradiance use the same admitted physical evaluation instant as NREL-SPA. Public rows retain observation timestamps. Explicit times must be timezone-aware, unique, NaT-free, equal in length and in the exact observation timezone; no sorting or inference occurs. Omitting the keyword preserves the existing primitive calculation-time behaviour.
+
+The boundary requires the horizontal component frame, receiver-keyed raw front frames and applicable raw rear frame. It independently checks their decomposition/extra-radiation time provenance against weather authority, and replays their actual irradiance values into the optical parent. Complete supplied horizontal triplets do not require Erbs time; isotropic rear does not require an unused extraterrestrial term. Receiver arguments are canonicalised by sorted unique IDs, matching upstream contracts.
+
+A one-hour interval ending at `2027-01-01 00:00 Europe/London` uses `2026-12-31 23:30` for all relevant solar/date calculations. An interval ending at `00:30` instead has midpoint `00:00`. Midpoint evaluation remains an approximation, not interval integration. Production legacy irradiance remains active; site/source temporal admission, Bracon Ash evidence and thermal POA calibration basis remain pending. This does not establish P3 readiness.
+
+
 ## Electrical reference planes
 
 Keep these reference planes distinct:

@@ -35,6 +35,7 @@ OUTPUT_COLUMNS = [
     "transposition_applied",
     "transposition_state",
     "transposition_model",
+    "extraterrestrial_irradiance_evaluation_time",
 ]
 
 
@@ -130,8 +131,7 @@ def test_poa_component_identities_hold_without_repair() -> None:
     result = _calculate(model="perez-driesse")
     np.testing.assert_allclose(
         result["poa_diffuse_raw_wm2"],
-        result["poa_sky_diffuse_raw_wm2"]
-        + result["poa_ground_diffuse_raw_wm2"],
+        result["poa_sky_diffuse_raw_wm2"] + result["poa_ground_diffuse_raw_wm2"],
         rtol=1e-12,
         atol=1e-12,
         equal_nan=True,
@@ -208,9 +208,7 @@ def test_zero_triplet_preserves_model_outputs_and_reports_resolution_truthfully(
 
 
 def test_staged_zero_ghi_preserves_perez_model_output_resolution_distinction() -> None:
-    index = pd.DatetimeIndex(
-        ["2026-06-21 04:45"], tz="Europe/London", name="physical_time"
-    )
+    index = pd.DatetimeIndex(["2026-06-21 04:45"], tz="Europe/London", name="physical_time")
     geometry = calculate_solar_geometry(
         index, latitude_deg=52.5, longitude_deg=-1.2, altitude_m=100.0
     )
@@ -305,9 +303,7 @@ def test_night_horizon_and_sun_behind_plane_preserve_pvlib(model: str) -> None:
         np.testing.assert_allclose(
             result[output], expected[reference], rtol=1e-12, atol=1e-12, equal_nan=True
         )
-    pdt.assert_series_equal(
-        result["dni_wm2"], inputs[2], check_dtype=False, check_names=False
-    )
+    pdt.assert_series_equal(result["dni_wm2"], inputs[2], check_dtype=False, check_names=False)
 
 
 @pytest.mark.parametrize("model", ["perez", "perez-driesse"])
@@ -335,9 +331,7 @@ def test_r1a_r1b_r2_composition_uses_apparent_zenith(model: str) -> None:
     )
     result = _calculate(inputs, model=model)
     expected = _reference(inputs, model)
-    assert not geometry["solar_zenith_deg"].equals(
-        geometry["apparent_solar_zenith_deg"]
-    )
+    assert not geometry["solar_zenith_deg"].equals(geometry["apparent_solar_zenith_deg"])
     np.testing.assert_allclose(
         result["poa_global_raw_wm2"],
         expected["poa_global"],
@@ -434,9 +428,7 @@ def test_invalid_scalar_inputs_are_rejected(name: str, value: object) -> None:
     ("tilt", "azimuth", "albedo"),
     [(0.0, 0.0, 0.0), (180.0, 360.0, 1.0)],
 )
-def test_scalar_boundaries_are_accepted(
-    tilt: float, azimuth: float, albedo: float
-) -> None:
+def test_scalar_boundaries_are_accepted(tilt: float, azimuth: float, albedo: float) -> None:
     calculate_raw_poa_transposition(
         *_inputs(),
         surface_tilt_deg=tilt,
@@ -464,9 +456,7 @@ def test_invalid_geometry_values_are_rejected(position: int, value: object) -> N
         _calculate(tuple(inputs))  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize(
-    ("position", "value"), [(3, -0.1), (3, 180.1), (4, -0.1), (4, 360.1)]
-)
+@pytest.mark.parametrize(("position", "value"), [(3, -0.1), (3, 180.1), (4, -0.1), (4, 360.1)])
 def test_geometry_ranges_are_enforced(position: int, value: float) -> None:
     inputs = list(_inputs(_index(12)))
     inputs[position] = pd.Series([value], index=inputs[0].index)
@@ -551,16 +541,11 @@ def test_matching_indexes_do_not_require_matching_frequency_metadata() -> None:
     with_frequency = pd.date_range(
         "2026-06-21 10:00", periods=3, freq="h", tz="UTC", name="physical_time"
     )
-    without_frequency = pd.DatetimeIndex(
-        list(with_frequency), tz="UTC", name="physical_time"
-    )
+    without_frequency = pd.DatetimeIndex(list(with_frequency), tz="UTC", name="physical_time")
     inputs = _inputs(with_frequency)
     mixed = (
         inputs[0],
-        *(
-            pd.Series(value.to_numpy(), index=without_frequency)
-            for value in inputs[1:]
-        ),
+        *(pd.Series(value.to_numpy(), index=without_frequency) for value in inputs[1:]),
     )
     result = _calculate(mixed)  # type: ignore[arg-type]
     assert result.index.equals(with_frequency)
@@ -579,7 +564,7 @@ def test_empty_result_has_exact_schema_index_and_dtypes() -> None:
         assert result[column].dtype == float
     for column in OUTPUT_COLUMNS[12:14]:
         assert result[column].dtype == bool
-    for column in OUTPUT_COLUMNS[14:]:
+    for column in OUTPUT_COLUMNS[14:-1]:
         assert pd.api.types.is_string_dtype(result[column].dtype)
 
 
@@ -592,3 +577,22 @@ def test_all_inputs_are_immutable() -> None:
         pdt.assert_series_equal(value, original)
         assert value.index.equals(index)
         assert value.index.name == index.name
+
+
+def test_cross_year_dni_extra_uses_physical_time_positionally() -> None:
+    observed = pd.DatetimeIndex(["2027-01-01 00:00"], tz="Europe/London", name="time")
+    physical = observed - pd.Timedelta(minutes=30)
+    values = [pd.Series([v], index=observed) for v in (800, 120, 700, 35, 180)]
+    result = calculate_raw_poa_transposition(
+        *values,
+        surface_tilt_deg=30,
+        surface_azimuth_deg=180,
+        albedo=0.2,
+        model="perez-driesse",
+        solar_model_times=physical,
+    )
+    assert result.index.identical(observed)
+    expected = pvlib.irradiance.get_extra_radiation(physical).iloc[0]
+    assert result.dni_extra_wm2.iloc[0] == pytest.approx(expected, abs=1e-12)
+    assert abs(expected - pvlib.irradiance.get_extra_radiation(observed).iloc[0]) > 1e-5
+    assert result.extraterrestrial_irradiance_evaluation_time.iloc[0] == physical[0]

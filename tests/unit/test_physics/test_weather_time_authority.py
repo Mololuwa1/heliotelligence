@@ -199,3 +199,55 @@ def test_temporal_contract_ids_and_fractional_seconds_are_explicit() -> None:
     assert row.interval_end_time - row.interval_midpoint_time == pd.Timedelta(seconds=0.75)
     with pytest.raises(ValueError):
         authority(interval_duration_seconds=1e-9)
+
+
+@pytest.mark.parametrize("kind", ["not_index", "naive", "nat", "duplicate", "length", "timezone"])
+def test_explicit_solar_model_time_validation_in_all_three_primitives(kind: str) -> None:
+    from heliotelligence.physics.fixed_bifacial_rear import calculate_fixed_bifacial_rear_irradiance
+    from heliotelligence.physics.irradiance_components import (
+        resolve_horizontal_irradiance_components,
+    )
+    from heliotelligence.physics.poa_transposition import calculate_raw_poa_transposition
+    from tests.unit.test_physics.test_fixed_bifacial_rear import _scene
+
+    observed = pd.date_range("2027-01-01", periods=2, freq="h", tz="Europe/London")
+    invalid = {
+        "not_index": list(observed),
+        "naive": observed.tz_localize(None),
+        "nat": pd.DatetimeIndex([observed[0], pd.NaT]),
+        "duplicate": pd.DatetimeIndex([observed[0], observed[0]]),
+        "length": observed[:1],
+        "timezone": observed.tz_convert("UTC"),
+    }[kind]
+    series = [pd.Series(v, index=observed) for v in (800, 120, 700, 35, 180)]
+    with pytest.raises(ValueError, match="solar_model_times"):
+        resolve_horizontal_irradiance_components(*series[:4], solar_model_times=invalid)
+    with pytest.raises(ValueError, match="solar_model_times"):
+        calculate_raw_poa_transposition(
+            *series,
+            surface_tilt_deg=30,
+            surface_azimuth_deg=180,
+            albedo=0.2,
+            model="perez",
+            solar_model_times=invalid,
+        )
+    with pytest.raises(ValueError, match="solar_model_times"):
+        calculate_fixed_bifacial_rear_irradiance(
+            *series, scene=_scene(), model="haydavies", solar_model_times=invalid
+        )
+
+
+def test_unsorted_physical_times_preserve_positional_mapping() -> None:
+    from heliotelligence.physics.weather_time_authority import validate_solar_model_times
+
+    observed = pd.DatetimeIndex(["2027-01-01 02:00", "2027-01-01 00:00"], tz="Europe/London")
+    physical = observed - pd.Timedelta(minutes=30)
+    assert validate_solar_model_times(observed, physical).identical(physical)
+
+
+def test_review_example_half_hour_label_has_midnight_midpoint() -> None:
+    times = pd.DatetimeIndex(["2027-01-01 00:30"], tz="Europe/London")
+    result = module.resolve_weather_time_state(times, authority())
+    assert result.states.solar_geometry_evaluation_time.iloc[0] == pd.Timestamp(
+        "2027-01-01 00:00", tz="Europe/London"
+    )

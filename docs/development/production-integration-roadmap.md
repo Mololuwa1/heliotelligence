@@ -137,13 +137,13 @@ Retire each percentage only after its physical replacement owns the same mechani
 
 Exit decision: mechanism-specific ownership and retirement evidence, with uncovered mechanisms retained explicitly.
 
-## Weather-time and canonical irradiance boundary
+## Weather-time and date-consistent canonical irradiance boundary
 
-Generic `weather_time_authority.py`, `solar_geometry_time_alignment.py` and `irradiance_boundary_state.py` contracts are now implemented but dormant. An explicit weather authority distinguishes instantaneous snapshots from interval averages and declares start/midpoint/end labels and duration. Interval geometry uses an explicit midpoint approximation, not interval integration. NREL-SPA runs at the evaluation instant while public optical rows keep the original observation timestamp and receiver ID.
+Generic `weather_time_authority.py`, `solar_geometry_time_alignment.py` and `irradiance_boundary_state.py` contracts are now implemented but dormant. An explicit weather authority distinguishes instantaneous snapshots from interval averages and declares start/midpoint/end labels and duration. Interval geometry uses an explicit midpoint approximation, not interval integration. NREL-SPA, Erbs (when applied), front extraterrestrial irradiance and rear Hay-Davies extraterrestrial irradiance share the explicit evaluation instant; the boundary checks parent time provenance and raw-value replay. Public optical rows keep the original observation timestamp and receiver ID. Isotropic rear and complete supplied horizontal components require no unused date-dependent calculation.
 
 The boundary replays existing canonical optical results: incident broadband front/rear, front optical-effective, bifacial electrical-equivalent and final spectral electrical-equivalent irradiance remain separate planes. IAM and shading are owned once by the upstream front-effective chain; bifacial and spectral response remain upstream-owned. The module-electrical handoff copies the resolved spectral result, including explicit disabled admission; unknown unresolved spectral evidence never silently becomes factor one.
 
-Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. No canonical primitive, legacy runtime, collector, timestamp storage, thermal schema or expected-energy source is changed or activated.
+Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. The dormant component/transposition/rear primitives admit explicit physical times; legacy runtime, collectors, storage, thermal schema and expected-energy sources remain unchanged.
 
 ## Migration ledger
 

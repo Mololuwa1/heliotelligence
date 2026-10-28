@@ -22,6 +22,7 @@ from pvlib.tracking import calc_surface_orientation  # type: ignore[import-untyp
 
 from heliotelligence.geometry import PVReceiver, ReceiverKind
 from heliotelligence.physics.fixed_inter_row_shading import FixedRowArrayDefinition
+from heliotelligence.physics.weather_time_authority import validate_solar_model_times
 
 MODEL_ID = "pvlib_infinite_sheds_fixed_rear_v1"
 COVERAGE_SCOPE = "regular_parallel_fixed_rows_level_ground_infinite_sheds_interior"
@@ -238,8 +239,14 @@ def calculate_fixed_bifacial_rear_irradiance(
     *,
     scene: FixedBifacialRearScene,
     model: RearDiffuseModel,
+    solar_model_times: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
-    """Return receiver-resolved raw rear irradiance without IAM or bifaciality."""
+    """Return receiver-resolved raw rear irradiance without IAM or bifaciality.
+
+    Hay-Davies uses solar_model_times positionally for extra radiation; None
+    uses observation times. Isotropic rear needs no extra-radiation evidence.
+    Public observation/receiver keys are preserved in both cases.
+    """
     if not isinstance(scene, FixedBifacialRearScene):
         raise ValueError("scene must be a FixedBifacialRearScene")
     if model not in ("isotropic", "haydavies"):
@@ -251,6 +258,7 @@ def calculate_fixed_bifacial_rear_irradiance(
         apparent_solar_zenith_deg,
         solar_azimuth_deg,
     )
+    calculation_times = validate_solar_model_times(index, solar_model_times)
     ghi = _irradiance_values(ghi_wm2, "ghi_wm2")
     dhi = _irradiance_values(dhi_wm2, "dhi_wm2")
     dni = _irradiance_values(dni_wm2, "dni_wm2")
@@ -259,7 +267,9 @@ def calculate_fixed_bifacial_rear_irradiance(
     complete = ~(np.isnan(ghi) | np.isnan(dhi) | np.isnan(dni))
     dni_extra = np.full(len(index), np.nan, dtype=np.float64)
     if model == "haydavies" and len(index):
-        dni_extra[:] = np.asarray(_pvlib_irradiance.get_extra_radiation(index), dtype=np.float64)
+        dni_extra[:] = np.asarray(
+            _pvlib_irradiance.get_extra_radiation(calculation_times), dtype=np.float64
+        )
 
     by_array: dict[str, dict[str, npt.NDArray[np.float64]]] = {}
     if np.any(complete):
@@ -291,7 +301,7 @@ def calculate_fixed_bifacial_rear_irradiance(
                 dni[complete],
                 model,
             )
-    return _result_frame(
+    result = _result_frame(
         scene,
         index,
         ghi,
@@ -304,6 +314,14 @@ def calculate_fixed_bifacial_rear_irradiance(
         by_array,
         model,
     )
+    result["extraterrestrial_irradiance_evaluation_time"] = pd.Series(
+        calculation_times.repeat(len(scene.receiver_ids)), index=result.index
+    )
+    if model != "haydavies":
+        result["extraterrestrial_irradiance_evaluation_time"] = pd.Series(
+            pd.NaT, index=result.index, dtype=pd.DatetimeTZDtype(tz=index.tz)
+        )
+    return result
 
 
 def _validated_array_summary(

@@ -47,6 +47,7 @@ def parents(
     missing_rear: bool = False,
     visibility: float = 0.6,
     missing_front: bool = False,
+    cross_date: bool = False,
 ) -> dict[str, Any]:
     """Use canonical primitives throughout; scaling drivers admits rear=120, not a fake result."""
     receivers = [
@@ -54,10 +55,18 @@ def parents(
         for r in bifacial_support._receivers(2)
     ]
     times = pd.date_range("2026-06-01 09:00", periods=2, freq="h", tz="UTC", name="time")
+    if cross_date:
+        times = pd.date_range(
+            "2027-01-01 00:00", periods=2, freq="h", tz="Europe/London", name="time"
+        )
     weather = resolve_weather_time_state(times, authority())
     geometry = calculate_time_aligned_solar_geometry(
-        weather, latitude_deg=52.56, longitude_deg=1.21, altitude_m=47
+        weather,
+        latitude_deg=-20 if cross_date else 52.56,
+        longitude_deg=180 if cross_date else 1.21,
+        altitude_m=47,
     )
+    calculation_times = pd.DatetimeIndex(weather.states.solar_geometry_evaluation_time)
     zenith, azimuth = (
         geometry.geometry.apparent_solar_zenith_deg,
         geometry.geometry.solar_azimuth_deg,
@@ -67,6 +76,7 @@ def parents(
         pd.Series(120.0, index=times),
         pd.Series(700.0, index=times),
         geometry.geometry.solar_zenith_deg,
+        solar_model_times=calculation_times,
     )
     rows = tuple(
         front_support.FixedRowDefinition(f"row-{i}", (r.id,), 30, 2)
@@ -81,7 +91,12 @@ def parents(
     drivers = [horizontal[c].copy() for c in ("ghi_wm2", "dhi_wm2", "dni_wm2")]
     if bifacial and not missing_rear:
         rear = calculate_fixed_bifacial_rear_irradiance(
-            *drivers, zenith, azimuth, scene=rear_scene, model="isotropic"
+            *drivers,
+            zenith,
+            azimuth,
+            scene=rear_scene,
+            model="haydavies" if cross_date else "isotropic",
+            solar_model_times=calculation_times,
         )
         scale = 120 / float(rear.poa_rear_global_raw_wm2.iloc[0])
         drivers = [driver * scale for driver in drivers]
@@ -90,7 +105,12 @@ def parents(
             driver[:] = np.nan
     rear = (
         calculate_fixed_bifacial_rear_irradiance(
-            *drivers, zenith, azimuth, scene=rear_scene, model="isotropic"
+            *drivers,
+            zenith,
+            azimuth,
+            scene=rear_scene,
+            model="haydavies" if cross_date else "isotropic",
+            solar_model_times=calculation_times,
         )
         if bifacial and not missing_rear
         else None
@@ -104,6 +124,7 @@ def parents(
             surface_azimuth_deg=90,
             albedo=0.2,
             model="perez-driesse",
+            solar_model_times=calculation_times,
         )
         for r in receivers
     }
@@ -223,6 +244,9 @@ def parents(
         atmosphere=None,
         explicit_rear_spectral_factor=None,
     )
+    horizontal = resolve_horizontal_irradiance_components(
+        *drivers, geometry.geometry.solar_zenith_deg, solar_model_times=calculation_times
+    )
     return dict(
         receivers=receivers,
         weather_time_state=weather,
@@ -231,6 +255,9 @@ def parents(
         front_effective_irradiance=front,
         bifacial_equivalent_irradiance=equivalent,
         spectral_response=spectral,
+        horizontal_irradiance_components=horizontal,
+        raw_poa_transposition_by_receiver=transposition,
+        raw_rear_irradiance=rear,
     )
 
 
@@ -511,3 +538,79 @@ def test_boundary_contract_ids_and_metadata_are_canonical() -> None:
         module.IRRADIANCE_BOUNDARY_CONTRACT_ID
     ).all()
     assert result.diagnostics.contract == module.IRRADIANCE_BOUNDARY_CONTRACT_ID
+
+
+@pytest.mark.parametrize("bifacial", [False, True])
+def test_receiver_argument_order_is_canonical(bifacial: bool) -> None:
+    values = dict(parents(bifacial=bifacial))
+    expected = module.resolve_canonical_irradiance_boundary(**values)
+    values["receivers"] = list(reversed(values["receivers"]))
+    actual = module.resolve_canonical_irradiance_boundary(**values)
+    pd.testing.assert_frame_equal(actual.states, expected.states)
+    assert actual.diagnostics == expected.diagnostics
+
+
+def test_cross_year_boundary_and_spa_share_representative_instant() -> None:
+    values = parents(bifacial=True, cross_date=True)
+    result = module.resolve_canonical_irradiance_boundary(**values)
+    physical = values["weather_time_state"].states.solar_geometry_evaluation_time.iloc[0]
+    assert physical == pd.Timestamp("2026-12-31 23:30", tz="Europe/London")
+    assert result.states.index[0][0] == pd.Timestamp("2027-01-01 00:00", tz="Europe/London")
+    assert result.states.canonical_irradiance_boundary_resolved.all()
+    from heliotelligence.physics.solar_geometry import calculate_solar_geometry
+
+    reference = calculate_solar_geometry(
+        pd.DatetimeIndex([physical]), latitude_deg=-20, longitude_deg=180, altitude_m=47
+    )
+    assert values["solar_geometry"].geometry.solar_zenith_deg.iloc[0] == pytest.approx(
+        reference.solar_zenith_deg.iloc[0], abs=1e-12
+    )
+
+
+@pytest.mark.parametrize("parent", ["front", "rear", "erbs"])
+def test_boundary_rejects_observation_label_temporal_provenance(parent: str) -> None:
+    values = dict(parents(bifacial=True, cross_date=True))
+    times = values["weather_time_state"].observation_times
+    if parent == "front":
+        frames = {k: v.copy() for k, v in values["raw_poa_transposition_by_receiver"].items()}
+        for frame in frames.values():
+            frame["extraterrestrial_irradiance_evaluation_time"] = times
+        values["raw_poa_transposition_by_receiver"] = frames
+    elif parent == "rear":
+        rear = values["raw_rear_irradiance"].copy()
+        rear["extraterrestrial_irradiance_evaluation_time"] = times.repeat(2)
+        values["raw_rear_irradiance"] = rear
+    else:
+        horizontal = values["horizontal_irradiance_components"].copy()
+        horizontal["decomposition_applied"] = True
+        horizontal["decomposition_evaluation_time"] = times
+        values["horizontal_irradiance_components"] = horizontal
+    with pytest.raises(ValueError, match="temporal provenance"):
+        module.resolve_canonical_irradiance_boundary(**values)
+    valid = module.resolve_canonical_irradiance_boundary(**parents(bifacial=True, cross_date=True))
+    with pytest.raises(ValueError, match="temporal provenance"):
+        module.validate_canonical_irradiance_boundary(valid, **values)
+
+
+def test_boundary_rejects_front_actually_computed_at_label_time() -> None:
+    values = dict(parents(cross_date=True))
+    horizontal = values["horizontal_irradiance_components"]
+    geometry = values["solar_geometry"].geometry
+    # SPA is correctly shifted, but omitting solar_model_times constructs the
+    # previously permitted mixed basis: extra radiation uses the row label.
+    values["raw_poa_transposition_by_receiver"] = {
+        r.id: front_support.calculate_raw_poa_transposition(
+            horizontal.ghi_wm2,
+            horizontal.dhi_wm2,
+            horizontal.dni_wm2,
+            geometry.apparent_solar_zenith_deg,
+            geometry.solar_azimuth_deg,
+            surface_tilt_deg=30,
+            surface_azimuth_deg=90,
+            albedo=0.2,
+            model="perez-driesse",
+        )
+        for r in values["receivers"]
+    }
+    with pytest.raises(ValueError, match="temporal provenance"):
+        module.resolve_canonical_irradiance_boundary(**values)
