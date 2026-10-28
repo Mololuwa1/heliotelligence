@@ -192,7 +192,24 @@ Timestamped controller P/Q requests and inverter thermal authority/state also re
 
 S12M can select valid lower-fidelity transformer physics where evidence supports the S12G baseline. Such fallback may pass through S13C and S14A/B/C only when their own boundary/electrical evidence resolves. It cannot repair missing topology or voltage evidence. Fallback provenance remains visible, including S14C fallback IDs/presence across interval support.
 
-The next workstream is controlled [production integration and site evidence onboarding](../development/production-integration-roadmap.md), starting with planned source isolation. No site activation is performed by this documentation update.
+The next workstream is controlled [production integration and site evidence onboarding](../development/production-integration-roadmap.md), following completed P0 source isolation at PR #118. No site activation is performed by the generic module thermal increment.
+
+## Module thermal evidence onboarding
+
+The repository normaliser maps `PT1000-MODULE-*` channels into an averaging group for `temp_mod_avg_c`; the ORM documents the average of MODULE-1..6. That establishes ingestion/aggregation behaviour only. It does not establish a canonical cell or module-back physical measurement quantity for Bracon Ash.
+
+The generic `module_thermal_authority.py` / `module_thermal_state.py` contract is implemented but dormant. **Bracon Ash cannot yet be admitted to it from current repository evidence.** Required evidence includes:
+
+- exact sensor physical location, attachment/backsheet mounting method, calibration/verification and temporal applicability;
+- whether the channel measures cell temperature or module-back-surface temperature;
+- explicit thermal-zone identity, zone-to-module coverage, sensor membership/weights and aggregation suitability;
+- for module-back conversion, explicit deltaT and reference irradiance with source/confidence/method evidence;
+- for a model path, native PVsyst u_c/u_v plus module efficiency/absorption, or native Faiman u0/u1 plus declared output quantity, method and wind calibration-height basis;
+- admitted total incident broadband thermal POA and aligned ambient/wind evidence where that selected model requires them, with upstream weather-time semantics established separately.
+
+No deltaT=3°C, mounting/construction, sensor placement or calibration is inferred from channel labels, module name, geometry or `temp_mod_avg_c`. Existing `ModuleConfig.u_c/u_v/noct_c` values are legacy compatibility fields, not canonical authority. Thermal POA is not automatically electrical-effective irradiance. Generic implementation ≠ Bracon thermal admission.
+
+Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather-time, optical/IAM/rear, mismatch, S14B density, uncertainty and authorization gates remain open.
 
 ## Legacy compatibility note
 

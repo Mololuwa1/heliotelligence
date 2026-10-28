@@ -47,7 +47,10 @@ class ModuleConfig(BaseModel):
     bifacial: bool = False
     bifaciality_factor: float = 0.80
 
-    # --- Thermal model (Faiman) ---------------------------------------------
+    # --- Legacy thermal compatibility parameters ---------------------------
+    # Not canonical model-family authority: u_c/u_v are PVsyst-style names,
+    # historically passed to Faiman by thermal.py without a validated conversion.
+    # Canonical native PVsyst/Faiman authority must be supplied separately.
     u_c: float = 29.0   # heat transfer coefficient  [W/m²·K]
     u_v: float = 0.0    # wind-speed coefficient      [W/m²·K/(m/s)]
     noct_c: float = 45.0  # NOCT fallback              [°C]

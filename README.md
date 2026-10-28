@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -39,7 +39,7 @@ Do **not** read this as proof that the full weather-to-meter production chain is
 - weather rows can represent interval-labelled data, but the production POA runtime evaluates solar position at the stored timestamp without a canonical interval-time authority;
 - legacy `calculate_poa()` computes beam IAM but does not apply it to `poa_total`;
 - the legacy measured-front-POA shortcut sets rear contribution to zero, so bifacial rear energy is lost on that path;
-- the current module/cell-temperature runtime is legacy, not a canonical admitted thermal stage;
+- the production module/cell-temperature runtime remains legacy; a separate canonical module thermal authority/state contract is now implemented generically but is dormant;
 - its measured-module-temperature cell offset is coded as `0.03 / 1000 °C/(W/m²)`, which gives 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C;
 - configured `u_c/u_v` values are currently passed directly to pvlib's Faiman `u0/u1` interface, so PVsyst/Faiman coefficient semantics must be resolved before shadow activation.
 
@@ -52,7 +52,7 @@ fetch_weather → calculate_poa → calculate_cell_temp
 
 The legacy compatibility path remains active: aggregate irradiance/thermal handling, DC soiling/LID/mismatch/wiring percentages, constant `eta_nom`, aggregate inverter clipping, `grid_limit_kwac` cap and AC wiring percentage. This path is not the canonical component-resolved S8–S14 runtime.
 
-The database identifies expected energy by `(time, site_id, source)` with current source `physics_sdm`; catch-up and several readers are not yet fully source-isolated.
+**P0 source isolation is complete** at PR #118 merge `04f0cf338ab86980c040e5b6fbda6942a3c28681`. Expected-energy identity is `(time, site_id, source)`; model-sensitive reads, writes, aggregates and catch-up select one source, defaulting to legacy `physics_sdm`. Alternative series are never additive. Bundled legacy loss-waterfall/report endpoints explicitly reject unsupported source semantics; telemetry-only health existence guards remain source-independent.
 
 ## Generic capability and site readiness
 
@@ -62,11 +62,11 @@ Bracon Ash's configured equipment counts and groups do not provide complete elec
 
 ## Pre-shadow readiness gates
 
-P0 expected-energy source isolation remains the next production-integration implementation step, but **P3 shadow execution must not begin merely because P0 is complete**. Before physical shadow results are treated as an end-to-end site model, the project must close or explicitly bound:
+P0 expected-energy source isolation is complete. The generic canonical module thermal gate is implemented in this increment, but **P3 shadow execution must not begin merely because those reusable contracts exist**. Before physical shadow results are treated as an end-to-end site model, the project must close or explicitly bound:
 
 1. weather interval/timestamp semantics;
 2. transposition/optics ownership, including IAM and bifacial rear treatment;
-3. a canonical module thermal state/authority and correction of the legacy thermal defects;
+3. site thermal evidence admission and later integration of the new canonical contract; legacy thermal defects remain isolated in production compatibility code;
 4. the coverage gap between homogeneous S8 string scaling and real module-to-module tolerance/series mismatch;
 5. an S14B expected-sample density / maximum-gap eligibility policy, backed by deterministic sunrise/sunset regressions;
 6. quantitative uncertainty evidence, including revenue-meter accuracy/calibration evidence where available;
@@ -75,9 +75,15 @@ P0 expected-energy source isolation remains the next production-integration impl
 
 ## Next major phase — production integration
 
-Controlled production integration and site-evidence onboarding begin with **P0 expected-energy source isolation**, followed by a shadow-output contract, evidence onboarding, pre-shadow readiness gates, separate shadow execution, uncertainty-aware reconciliation, site-specific cutover and mechanism-specific legacy retirement.
+The next readiness sequence addresses weather/irradiance temporal and optical hardening, mismatch coverage, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
+
+## Canonical module thermal capability
+
+The dormant `module_thermal_authority.py` / `module_thermal_state.py` contract resolves an explicit thermal zone per timestamp: direct cell evidence, measured module-back temperature with explicit conversion, or a native PVsyst/Faiman model. PVsyst `u_c/u_v` are never passed to Faiman `u0/u1`. With supplied deltaT=3°C at E_ref=1000 W/m², module-back 50°C gives cell 53°C at 1000 W/m² and 52.1°C at 700 W/m². Those parameters are evidence, not site defaults.
+
+Thermal POA is admitted total incident broadband irradiance, not automatically electrical-effective irradiance. Weather time semantics and zone-to-module binding remain external. Bracon Ash is not automatically thermally admitted. The active `physics/thermal.py` path and `physics_sdm` numerics are unchanged, including its legacy 50.021°C result for the separate 700 W/m² example.
 
 ## Future physics extensions
 

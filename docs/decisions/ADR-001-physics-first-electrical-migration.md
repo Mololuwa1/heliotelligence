@@ -108,11 +108,11 @@ Trade-offs:
 
 ## Next decision-compatible work
 
-Controlled production migration and site-evidence onboarding follow the canonical [production-integration roadmap](../development/production-integration-roadmap.md). Start with P0 expected-energy source isolation before physical shadow activation.
+Controlled production migration and site-evidence onboarding follow the canonical [production-integration roadmap](../development/production-integration-roadmap.md). P0 expected-energy source isolation is complete at PR #118. The generic canonical module thermal contract is implemented in this increment but dormant; continue the pre-shadow readiness sequence before P1/P2 finalisation or shadow activation.
 
-Alternative expected-model series must be isolated by model source. A shadow physical run must never overwrite or silently combine with the legacy compatibility series. Current `physics_sdm` remains the default legacy source; database source identity does not yet make all readers/catch-up source-safe.
+Alternative expected-model series must be isolated by model source. A shadow physical run must never overwrite or silently combine with the legacy compatibility series. Current `physics_sdm` remains the default legacy source; P0 now makes model-sensitive reads, writes, aggregates and catch-up source-specific, with unsupported legacy loss semantics rejected explicitly.
 
-Shadow execution, validation and explicit per-site cutover precede mechanism-specific legacy retirement. P0 source isolation may proceed before all upstream readiness work is complete, but P3/P4 must not treat those gaps as implicitly resolved. Preserve explicit unresolved states and defensible lower-fidelity models. Do not infer authority from ratings, counts, labels, export limits or observed output.
+Shadow execution, validation and explicit per-site cutover precede mechanism-specific legacy retirement. P0 completion and generic thermal implementation do not make upstream/site readiness complete; P3/P4 must not treat those remaining gaps as implicitly resolved. Preserve explicit unresolved states and defensible lower-fidelity models. Do not infer authority from ratings, counts, labels, export limits or observed output.
 
 ## Rejected alternatives
 

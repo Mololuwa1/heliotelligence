@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681` (PR #118 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -387,14 +387,20 @@ P0 source isolation is necessary but does not by itself make a physical shadow s
 
 ### Module thermal state
 
-The current legacy `physics/thermal.py` tests are not sufficient evidence for a canonical thermal stage. A canonical thermal increment should verify:
+The generic canonical module thermal contract is now implemented and tested separately from unchanged legacy `physics/thermal.py`. Focused validation covers:
 
 - explicit temperature quantity and reference plane/basis;
 - measured module/backsheet temperature versus calculated cell temperature semantics;
-- physically consistent cell-to-module delta, including a regression that would fail the current 0.03 °C-at-1000-W/m² implementation when the intended basis is about 3 °C;
+- explicit module-back conversion authority: deltaT=3°C at E_ref=1000 W/m² produces 53°C from 50°C at 1000 W/m² and 52.1°C at 700 W/m²; the separate legacy regression remains 50.021°C at 700 W/m²;
 - declared thermal-model family and parameter semantics;
-- no direct substitution of PVsyst `u_c/u_v` into a Faiman `u0/u1` model unless an explicit validated conversion/equivalence is demonstrated;
-- provenance, missing-evidence and lower-fidelity fallback semantics.
+- native PVsyst/Faiman parameter separation with no automatic conversion; any externally converted native parameters require explicit provenance;
+- per-timestamp direct-cell → measured-module conversion → native-model precedence, with both measurement channels preserved and unusable-measurement model fallback explicit;
+- missing POA/ambient/required wind and missing conversion reasons; zero wind coefficients resolve without inventing wind observations;
+- exact timezone-aware unique/non-NaT grids and measurement keys, deterministic order, invalid numeric/provenance rejection and typed empty results;
+- independent equation/provenance/schema/diagnostics reconstruction and tamper rejection, including validation with production builders and pvlib disabled;
+- no interpolation, extrapolation, persistence, thermal inertia, site inference or production activation.
+
+Thermal POA is supplied incident broadband irradiance, not automatically electrical-effective irradiance. Weather representative-instant semantics, thermal-zone mapping, Bracon Ash sensor/model admission and production handoff remain separate gates. The generic contract alone does not validate a site timestamp.
 
 ### Mismatch coverage
 
@@ -434,7 +440,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). First prove P0 source isolation across writes, reads, aggregates and catch-up: alternative models cannot mix or overwrite each other. In parallel, close the pre-shadow validation gates above. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, while the next workstream is weather/irradiance temporal + optical hardening followed by the remaining pre-shadow gates above. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
