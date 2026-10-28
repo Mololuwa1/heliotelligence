@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #119 merge 580327062d0f984c82888c5d394d60e380afaa86
+PR #120 merge daa503dcbdd5e75cd72f6af38e3a55d15eca40a1
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -18,11 +18,11 @@ weather/irradiance/module-thermal production integration still has open gates
 Production:
 legacy expected-energy path remains active
 Next:
-P0 complete; module thermal and weather-time/irradiance boundary generic, dormant
-Next: site evidence, mismatch completeness, density, uncertainty and authorization; no shadow activation
+P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
+Next: site evidence, population-residual admission, density, uncertainty and authorization; no shadow activation
 ```
 
-Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -44,13 +44,21 @@ Do not describe the full weather-to-meter chain as production-validated yet.
 - **IAM integration defect:** legacy `calculate_poa()` computes IAM-corrected beam irradiance but assembles `poa_total` from uncorrected `poa_front`.
 - **Measured-front bifacial gap:** the measured-POA shortcut explicitly sets rear irradiance to zero.
 - **Module thermal integration remains dormant:** the generic canonical authority/state contract now exists, but `physics/thermal.py` remains the active legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
-- **Mismatch coverage is incomplete:** S8-1 is homogeneous series scaling. Module-to-module manufacturing/tolerance variability within a string is not yet represented, so S8 must not automatically retire every mechanism hidden in the legacy mismatch percentage.
+- **Population-residual site admission remains open:** S8-1 remains homogeneous series scaling and shared-MPPT mismatch remains physical S8 ownership. A separate generic bounded intra-string residual authority now exists, with explicit negligible or post-MPPT equivalent-current-derate modes. It is lower fidelity, not member-resolved I-V physics. Missing authority leaves population-complete output unresolved; legacy aggregate mismatch cannot be retired without allocation evidence.
 - **S14B has no density gate:** sample count and `maximum_expected_sample_gap_seconds` are published, but no maximum-gap/minimum-density rule currently controls benchmark eligibility. Quantify sunrise/sunset sensitivity before selecting a threshold.
 - **Uncertainty is not yet quantitative:** S13D preserves source and categorical confidence, but not meter accuracy class, calibration uncertainty or propagated model/measurement uncertainty.
 - **Platform access control is not shadow-ready:** the frontend sends `VITE_ADMIN_KEY`, which is browser-bundled, and ordinary site-scoped protected routes reviewed so far authenticate users but do not enforce `user_site_access` membership.
 - **S9-4A fixed-Q sign semantics are not locally declared:** downstream convention is positive Q injection / negative Q absorption; source evidence using another convention must be transformed before S9-4A construction.
 
 P0 is complete. Generic module thermal plus weather-time/irradiance-boundary implementation does not close site admission, calibrated thermal-POA selection or production integration. P3 shadow execution and P4 accuracy claims must not pass the remaining gates by implication.
+
+## Module-population residual recovery notes
+
+`apply_module_population_mismatch(topology, mppt_mismatch, authority_by_mppt=...)` composes the exact `TopologyMPPTMismatchResult` with explicit physical MPPT-key authority. It replays baseline V/I/P and shared mismatch; authority never fans out implicitly. Extra/empty-MPPT keys are rejected. Both authority modes are bounded lower fidelity: `explicit_negligible_by_evidence` requires f=0; `equivalent_post_mppt_current_derate` requires 0<f<1. The exact mechanism excludes shared-MPPT mismatch, optical/thermal losses, wiring, soiling, LID and conversion.
+
+For resolved rows, V_after=V_common, I_after=I_common(1−f), P_after=V_after I_after. Population loss is P_common−P_after; total mismatch closes both as shared+population and P_independent−P_after. Missing population evidence retains valid S8 values but adjusted V/I/P stay NaN. Unresolved upstream cannot be repaired; resolved-zero plus authority stays exactly zero. Independent validation reconstructs equations, provenance, states and diagnostics without production builders.
+
+No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1/P2/P3 remain unimplemented.
 
 ## Canonical module thermal authority/state
 
@@ -62,7 +70,7 @@ The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit 
 
 Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and canonical irradiance boundary (this increment). Remaining sequence: site evidence binding plus mismatch coverage → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (this increment). Remaining sequence: site evidence binding plus population-residual admission → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
 
 ## Weather-time and irradiance handoff recovery notes
 
