@@ -248,3 +248,17 @@ The configured component counts imply:
 The documented/configured site capacity is `28,524 kWp`, a difference of `124.32 kWp` (approximately `0.436%`). Both values are recorded in current repository configuration or module data, but the repository does not establish the reason for the difference.
 
 Do not invent an explanation. Resolve the discrepancy only from authoritative as-built, module, or commissioning records, then update configuration and documentation through a separately reviewed change.
+
+## Revenue-meter quantitative uncertainty evidence
+
+Generic complete-chain measurement bounds are implemented but **Bracon numerical measurement uncertainty remains unadmitted**. No percentage is inferred from equipment names, legacy configuration, categorical confidence or an accuracy-class string. Required evidence includes:
+
+- Meter make/model and explicit numerical accuracy specification.
+- CT ratio/class and applicable numerical accuracy evidence.
+- PT/VT ratio/class and applicable numerical accuracy evidence.
+- Scaling configuration and calibration certificate/results.
+- Calibration validity/applicability period.
+- Whether a quoted bound is component-only or an admitted complete-chain bound after instrument transformers, scaling and calibration.
+- P/Q applicability, snapshot versus interval-average applicability, and source/provenance.
+
+Site admission must supply the already-combined complete-chain numerical bound; the generic module does not add or RSS component specifications. Measurement-only bounds do not establish expected/model uncertainty or S14/P4 significance. Combined interpretation and production/shadow activation remain pending.

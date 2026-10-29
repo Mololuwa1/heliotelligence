@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `95547e6782c3b98c3ad0ccaf108e04319f966a2f` (PR #123 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -451,7 +451,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is quantitative uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next uncertainty workstream is expected/model and combined uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
@@ -470,3 +470,11 @@ Validation should progress through:
 `component → site → portfolio`
 
 Portfolio validation is a future layer above site validation. A good aggregate portfolio result must not be used as evidence that individual site models are correct. Each site's inputs, intermediate states, constraints, confidence, and losses must remain independently testable and explainable.
+
+### Complete-chain measurement uncertainty validation
+
+Generic revenue-meter measurement uncertainty now has quantitative tests: strict frozen authority admission; active-only/reactive-only/both and explicit-zero evidence; signed/zero measurement bounds; relative-only, absolute-only and summed explicit components; inclusive validity and snapshot/interval scope; interval energy conversion; partial mappings and deterministic row order. All canonical S13D measurement columns and provenance must replay unchanged. Descriptive accuracy/calibration metadata and categorical confidence must have no numerical effect.
+
+Independent validation reconstructs bounds, state, schema/dtypes, provenance and diagnostics without production builders. Public-field and diagnostic tampering must fail; parent replay rejects altered S13A/S13D. Arithmetic overflow must remain unresolved. Missing parent evidence precedes missing uncertainty authority so diagnostics do not misclassify parent failures.
+
+The deterministic symmetric maximum error bound is neither a probability interval nor total model/benchmark uncertainty. There is no meter/CT/PT accuracy-class inference, component RSS/recombination or Monte Carlo. S14B support eligibility and S14 residuals remain unchanged. Expected/model uncertainty, combined measurement/model bands and uncertainty-aware S14/P4 decisions remain validation work; Bracon is not numerically admitted.

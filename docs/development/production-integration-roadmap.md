@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a`, PR #121 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `95547e6782c3b98c3ad0ccaf108e04319f966a2f`, PR #123 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -87,7 +87,7 @@ P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source 
 7. **Platform access control:** remove browser-bundled admin secrets as an authorization boundary and enforce server-side site authorization for site-scoped routes before shadow data is exposed beyond the trusted development team.
 8. **S9-4A Q semantics:** explicitly declare the fixed-Q sign convention for `reactive_power_min_var/reactive_power_max_var` and require source evidence using another convention to be transformed before authority construction.
 
-P0 is complete. Generic module thermal was completed in PR #119; generic date-consistent weather-time/irradiance boundary was completed in PR #120; the bounded population-residual authority was completed in PR #121; generic S14B support eligibility is completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
+P0 is complete. Generic module thermal was completed in PR #119; generic date-consistent weather-time/irradiance boundary was completed in PR #120; the bounded population-residual authority was completed in PR #121; generic S14B support eligibility was completed in PR #122; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
 
 ```text
 P0 source isolation — COMPLETE
@@ -98,9 +98,15 @@ weather-time + date-consistent irradiance boundary — COMPLETE GENERICALLY (PR 
 ↓
 bounded module-population mismatch — COMPLETE GENERICALLY (PR #121, dormant)
 ↓
-S14B explicit support-density eligibility — THIS INCREMENT (generic, dormant)
+S14B explicit support-density eligibility — COMPLETE GENERICALLY (PR #122, dormant)
 ↓
-quantitative uncertainty
+measurement-chain numerical uncertainty — COMPLETE GENERICALLY (dormant)
+↓
+expected/model quantitative uncertainty
+↓
+combined measurement + expected uncertainty band
+↓
+uncertainty-aware S14/P4 interpretation
 ↓
 platform authorization
 ↓
@@ -154,7 +160,7 @@ This is a deliberately bounded post-MPPT current derate, not member-resolved I-V
 
 Finite piecewise-linear/trapezoidal reconstruction is not automatically eligible benchmark evidence. S14B v2 requires explicit per-meter maximum-gap seconds with policy scope, evidence kind, source, confidence, method and applicability. Exact equality passes; missing policy and excessive gap produce distinct ineligible states. No universal threshold, interval fraction, nominal cadence or constant-power exception is inferred. Policy failure retains reconstruction/energy diagnostics but publishes no accepted residual.
 
-The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; quantitative uncertainty is a separate next increment. No production benchmark switch or shadow execution is activated.
+The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; measurement-chain bounds are now available separately; expected/model and combined uncertainty remain open. No production benchmark switch or shadow execution is activated.
 
 ## Migration ledger
 
@@ -239,3 +245,12 @@ Before staging shadow data is exposed outside the trusted development team:
 - every site-scoped protected route must enforce server-side site membership/role checks;
 - negative cross-site authorization tests must exist;
 - staging and production authorization policy must be documented and independently testable.
+
+### Numerical uncertainty sequence
+
+1. **Measurement-chain numerical uncertainty: implemented generically, dormant.** Explicit complete-chain symmetric maximum P/Q bounds annotate canonical revenue-meter measurements. Numerical relative and absolute terms are supplied by evidence, not derived from categorical confidence or meter/CT/PT class strings. There is no internal component recombination.
+2. **Expected/model quantitative uncertainty: open.** Measurement bounds do not cover upstream physical/input/model error.
+3. **Combined measurement + expected uncertainty band: open.** No independence or probabilistic combination is implied.
+4. **Uncertainty-aware S14/P4 interpretation: open.** Existing residual semantics remain unchanged; measurement uncertainty alone cannot establish significance, model error, performance loss or commercial impact.
+
+This capability is separate from S14B support-density eligibility. Each site must admit numerical complete-chain evidence, channel applicability, temporal semantics and validity. Bracon has no admitted numerical bound. P1/P2 and production/shadow activation are not implemented by this increment.
