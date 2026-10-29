@@ -53,6 +53,15 @@ _ACTIVE = "resolved_common_voltage_mppt"
 _ZERO = "resolved_zero_common_voltage_mppt"
 _MEMBER = "unresolved_member_string_iv"
 _MIXED = "unresolved_mixed_active_zero_requires_blocking_model"
+# Exact unresolved cause vocabulary of the admitted S8-1 v1 contract.
+# This aggregated parent does not identify the cause of each individual string.
+_PARENT_UNRESOLVED_STRING_STATES = frozenset(
+    {
+        "unresolved_receiver_module_electrical",
+        "unresolved_tier5_voltage_dependent_iv_unavailable",
+        "unresolved_voltage_dependent_iv_unavailable",
+    }
+)
 _COUNTS = (
     "configured_string_count",
     "active_string_count",
@@ -295,6 +304,16 @@ def _admit(
             or bool(causes) != bool(unresolved)
         ):
             raise ValueError("upstream unresolved string summary disagrees")
+        if listed != [string_id for string_id in string_ids if string_id in listed]:
+            raise ValueError("upstream unresolved string IDs are not in topology order")
+        tokens = causes.split(",") if causes else []
+        if (
+            any(not token for token in tokens)
+            or tokens != sorted(set(tokens))
+            or not set(tokens) <= _PARENT_UNRESOLVED_STRING_STATES
+            or len(tokens) > unresolved
+        ):
+            raise ValueError("upstream unresolved string cause vocabulary/order disagrees")
         expected_state = (
             _MEMBER
             if unresolved
@@ -385,8 +404,19 @@ def _record(row: pd.Series, authority: ModulePopulationMismatchAuthority | None)
         result.update(
             population_mismatch_resolution_mode=authority.resolution_mode,
             population_mismatch_fraction=float(authority.equivalent_current_derate_fraction),
-            population_mismatch_is_lower_fidelity=True,
+            # Selected active residual calculation, not merely authority presence.
+            population_mismatch_is_lower_fidelity=bool(row["mppt_resolved"])
+            and row["mppt_state"] == _ACTIVE,
         )
+    if row["mppt_state"] == _ZERO:
+        # The admitted upstream zero is invariant for every admissible fraction.
+        # No population authority or invented fraction is needed for this path.
+        result.update(dict.fromkeys(_ADJUSTED, 0.0))
+        result.update(
+            population_mismatch_resolved=True,
+            population_mismatch_state="resolved_zero_population_mismatch",
+        )
+        return result
     if authority is None or not row["mppt_resolved"]:
         return result
     f = float(authority.equivalent_current_derate_fraction)
@@ -404,9 +434,7 @@ def _record(row: pd.Series, authority: ModulePopulationMismatchAuthority | None)
         total_mismatch_from_homogeneous_independent_w=total,
         total_mismatch_pct=100 * total / independent if independent else 0.0,
         population_mismatch_resolved=True,
-        population_mismatch_state="resolved_zero_population_mismatch"
-        if row["mppt_state"] == _ZERO
-        else "resolved_" + authority.resolution_mode,
+        population_mismatch_state="resolved_" + authority.resolution_mode,
     )
     return result
 
@@ -492,14 +520,15 @@ def validate_module_population_mismatch(
     for key, parent in baseline.iterrows():
         row = output.loc[key]
         authority = authorities.get((key[1], key[2]))
-        resolved = bool(parent.mppt_resolved) and authority is not None
+        zero = parent.mppt_state == _ZERO
+        resolved = bool(parent.mppt_resolved) and (zero or authority is not None)
         state = (
             "unresolved_upstream_mppt"
             if not parent.mppt_resolved
+            else "resolved_zero_population_mismatch"
+            if zero
             else "unresolved_population_mismatch_authority"
             if authority is None
-            else "resolved_zero_population_mismatch"
-            if parent.mppt_state == _ZERO
             else "resolved_" + authority.resolution_mode
         )
         states[state] += 1
@@ -511,7 +540,7 @@ def validate_module_population_mismatch(
         }
         expected.update(
             population_mismatch_authority_present=authority is not None,
-            population_mismatch_is_lower_fidelity=authority is not None,
+            population_mismatch_is_lower_fidelity=resolved and not zero,
             population_mismatch_resolution_mode=authority.resolution_mode if authority else "",
             population_mismatch_fraction=float(authority.equivalent_current_derate_fraction)
             if authority
@@ -526,7 +555,12 @@ def validate_module_population_mismatch(
         )
         expected.update({c: getattr(authority, c) if authority else "" for c in _PROVENANCE})
         expected.update(dict.fromkeys(_ADJUSTED, math.nan))
-        if resolved:
+        if zero:
+            # Reconstruct exact zero independently of authority and _record().
+            expected.update({column: 0.0 for column in _ADJUSTED})
+            if any(_real(row[column], column) != 0.0 for column in _ADJUSTED):
+                raise ValueError("resolved-zero population quantities must be exactly zero")
+        elif resolved:
             assert authority is not None
             fraction = float(authority.equivalent_current_derate_fraction)
             after = (

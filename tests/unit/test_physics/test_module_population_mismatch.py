@@ -174,11 +174,10 @@ def test_zero_generation_and_missing_zero_authority() -> None:
     assert row.population_mismatch_state == "resolved_zero_population_mismatch"
     assert row.population_mismatch_resolved
     assert row[list(module._ADJUSTED)].eq(0).all()
-    assert (
-        result.states.iloc[1].population_mismatch_state
-        == "unresolved_population_mismatch_authority"
-    )
-    assert result.diagnostics.zero_row_count == 1
+    assert result.states.iloc[1].population_mismatch_state == "resolved_zero_population_mismatch"
+    assert not result.states.population_mismatch_is_lower_fidelity.any()
+    assert result.diagnostics.zero_row_count == 2
+    assert result.diagnostics.missing_authority_row_count == 0
 
 
 @pytest.mark.parametrize(
@@ -542,3 +541,216 @@ def test_result_grid_and_boolean_diagnostics_rejected() -> None:
             upstream,
             authority_by_mppt=mapping(),
         )
+
+
+@pytest.mark.parametrize("fraction", [None, 0.0, 0.01, 0.75])
+def test_zero_does_not_require_or_exercise_population_authority(fraction: float | None) -> None:
+    topology, upstream = baseline("zero")
+    authorities = (
+        {}
+        if fraction is None
+        else mapping(
+            authority(
+                resolution_mode="explicit_negligible_by_evidence"
+                if fraction == 0
+                else "equivalent_post_mppt_current_derate",
+                equivalent_current_derate_fraction=fraction,
+            )
+        )
+    )
+    result = module.apply_module_population_mismatch(
+        topology, upstream, authority_by_mppt=authorities
+    )
+    assert result.states.population_mismatch_resolved.all()
+    assert result.states.population_mismatch_state.eq("resolved_zero_population_mismatch").all()
+    assert result.states[list(module._ADJUSTED)].eq(0.0).all().all()
+    assert not result.states.population_mismatch_is_lower_fidelity.any()
+    row = result.states.iloc[0]
+    assert row.population_mismatch_authority_present == (fraction is not None)
+    if fraction is None:
+        assert pd.isna(row.population_mismatch_fraction)
+        assert row.population_mismatch_resolution_mode == ""
+        assert row[list(module._PROVENANCE)].eq("").all()
+    else:
+        assert row.population_mismatch_fraction == fraction
+        assert row.parameter_source == authorities[("inverter-1", "mppt-1")].parameter_source
+    assert result.diagnostics.authority_mppt_count == len(authorities)
+    assert result.diagnostics.zero_row_count == len(upstream.operating_points)
+    assert result.diagnostics.resolved_row_count == len(upstream.operating_points)
+    assert result.diagnostics.missing_authority_row_count == 0
+    assert dict(result.diagnostics.state_counts) == {"resolved_zero_population_mismatch": 2}
+
+
+def test_zero_fraction_independence() -> None:
+    outputs = [
+        apply("zero", authorities=mapping(authority(equivalent_current_derate_fraction=f))).states
+        for f in [0.01, 0.75]
+    ]
+    pd.testing.assert_frame_equal(
+        outputs[0][list(module._ADJUSTED)], outputs[1][list(module._ADJUSTED)]
+    )
+
+
+def test_night_and_day_missing_authority_coverage() -> None:
+    topology, active = baseline()
+    _, zero = baseline("zero")
+    day = active.operating_points.copy()
+    day.index = pd.MultiIndex.from_tuples(
+        [(time + pd.Timedelta(hours=1), inv, mppt) for time, inv, mppt in day.index],
+        names=day.index.names,
+    )
+    parent = replace(
+        active,
+        operating_points=pd.concat([zero.operating_points, day]),
+        diagnostics=replace(
+            active.diagnostics,
+            timestamp_count=2,
+            state_row_count=4,
+            resolved_mppt_state_count=4,
+            zero_mppt_state_count=2,
+        ),
+    )
+    result = module.apply_module_population_mismatch(topology, parent, authority_by_mppt={})
+    assert result.states.population_mismatch_state.tolist() == [
+        "resolved_zero_population_mismatch",
+        "resolved_zero_population_mismatch",
+        "unresolved_population_mismatch_authority",
+        "unresolved_population_mismatch_authority",
+    ]
+    assert result.diagnostics.authority_mppt_count == 0
+    assert result.diagnostics.zero_row_count == result.diagnostics.resolved_row_count == 2
+    assert (
+        result.diagnostics.missing_authority_row_count
+        == result.diagnostics.unresolved_row_count
+        == 2
+    )
+    assert sum(result.diagnostics.state_counts.values()) == result.diagnostics.row_count == 4
+    assert result.states.iloc[:2][list(module._ADJUSTED)].eq(0).all().all()
+    assert result.states.iloc[2:][list(module._ADJUSTED)].isna().all().all()
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        "unresolved_receiver_module_electrical",
+        "unresolved_tier5_voltage_dependent_iv_unavailable",
+        "unresolved_voltage_dependent_iv_unavailable",
+    ],
+)
+def test_exact_parent_aggregated_cause_vocabulary(cause: str) -> None:
+    topology, parent = baseline("unresolved")
+    frame = parent.operating_points.copy()
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_states")] = cause
+    result = module.apply_module_population_mismatch(
+        topology, replace(parent, operating_points=frame), authority_by_mppt={}
+    )
+    assert result.states.iloc[0].unresolved_string_states == cause
+    assert result.states.iloc[0].population_mismatch_state == "unresolved_upstream_mppt"
+
+
+def aggregated_unresolved_parent() -> tuple[
+    ElectricalTopologyConfig, electrical.TopologyMPPTMismatchResult
+]:
+    topology, parent = baseline("unresolved")
+    frame = parent.operating_points.copy()
+    # The public aggregate can describe two unresolved members without exposing
+    # which admissible cause belongs to which member. Verify only that contract.
+    frame.iloc[0, frame.columns.get_loc("active_string_count")] = 0
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_count")] = 2
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_ids")] = "a,b"
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_states")] = (
+        "unresolved_receiver_module_electrical,unresolved_voltage_dependent_iv_unavailable"
+    )
+    return topology, replace(parent, operating_points=frame)
+
+
+def test_aggregate_causes_can_be_canonical_without_member_assignment() -> None:
+    topology, parent = aggregated_unresolved_parent()
+    result = module.apply_module_population_mismatch(topology, parent, authority_by_mppt={})
+    assert result.states.iloc[0].unresolved_string_ids == "a,b"
+    assert result.states.iloc[0].population_mismatch_state == "unresolved_upstream_mppt"
+
+
+@pytest.mark.parametrize(
+    "causes",
+    [
+        "forged",
+        "",
+        "unresolved_receiver_module_electrical,",
+        ",unresolved_receiver_module_electrical",
+        "unresolved_receiver_module_electrical,,unresolved_voltage_dependent_iv_unavailable",
+        "unresolved_receiver_module_electrical,unresolved_receiver_module_electrical",
+        "unresolved_voltage_dependent_iv_unavailable,unresolved_receiver_module_electrical",
+        " unresolved_receiver_module_electrical",
+        "unresolved_receiver_module_electrical ",
+        "unresolved_receiver_module_electrical,forged",
+    ],
+)
+def test_unresolved_parent_cause_tokens_rejected(causes: str) -> None:
+    topology, parent = aggregated_unresolved_parent()
+    frame = parent.operating_points.copy()
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_states")] = causes
+    with pytest.raises(ValueError):
+        module.apply_module_population_mismatch(
+            topology, replace(parent, operating_points=frame), authority_by_mppt={}
+        )
+
+
+@pytest.mark.parametrize("ids", ["b,a", "a,a", "a,c", "a", "a,b,", ",a,b"])
+def test_unresolved_member_ids_follow_topology_order_and_counts(ids: str) -> None:
+    topology, parent = aggregated_unresolved_parent()
+    frame = parent.operating_points.copy()
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_ids")] = ids
+    with pytest.raises(ValueError):
+        module.apply_module_population_mismatch(
+            topology, replace(parent, operating_points=frame), authority_by_mppt={}
+        )
+
+
+def test_zero_validator_is_independent_and_rejects_fabricated_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topology, parent = baseline("zero")
+    result = module.apply_module_population_mismatch(topology, parent, authority_by_mppt={})
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("production builder called")
+
+    for name in ["_record", "_frame", "_diagnostics", "apply_module_population_mismatch"]:
+        monkeypatch.setattr(module, name, forbidden)
+    module.validate_module_population_mismatch(result, topology, parent, authority_by_mppt={})
+    for column, value in [
+        ("population_mismatch_fraction", 0),
+        ("population_mismatch_is_lower_fidelity", True),
+        ("population_mismatch_state", "unresolved_population_mismatch_authority"),
+        ("population_mismatch_resolved", False),
+        ("population_mismatch_w", 1),
+        ("population_mismatch_w", 1e-12),
+    ]:
+        frame = result.states.copy()
+        frame.iloc[0, frame.columns.get_loc(column)] = value
+        with pytest.raises(ValueError):
+            module.validate_module_population_mismatch(
+                replace(result, states=frame), topology, parent, authority_by_mppt={}
+            )
+    with pytest.raises(ValueError):
+        module.validate_module_population_mismatch(
+            replace(result, diagnostics=replace(result.diagnostics, missing_authority_row_count=2)),
+            topology,
+            parent,
+            authority_by_mppt={},
+        )
+
+
+def test_unresolved_id_order_is_physical_not_lexicographic() -> None:
+    original, parent = aggregated_unresolved_parent()
+    topology = original.model_copy(deep=True)
+    topology.inverters[0].mppts[0].strings.reverse()
+    frame = parent.operating_points.copy()
+    frame.iloc[0, frame.columns.get_loc("unresolved_string_ids")] = "b,a"
+    result = module.apply_module_population_mismatch(
+        topology, replace(parent, operating_points=frame), authority_by_mppt={}
+    )
+    assert result.states.iloc[0].unresolved_string_ids == "b,a"
+    with pytest.raises(ValueError, match="topology order"):
+        module.apply_module_population_mismatch(topology, parent, authority_by_mppt={})

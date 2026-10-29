@@ -60,7 +60,7 @@ Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance
 
 ## Bounded population mismatch capability
 
-Generic mismatch coverage now supports physical shared-MPPT mismatch, an explicit lower-fidelity intra-string population residual, and explicit unresolved population output when evidence is absent. The two residual modes are negligible-by-evidence and equivalent post-MPPT current derate. Neither changes homogeneous string scaling. Valid S8 baseline survives missing residual authority; no legacy percentage is read. Bracon is not admitted and its aggregate 1.15% is not retired. Site applicability/MPPT coverage and non-overlap evidence remain required. P1/P2/P3 are not implemented here.
+Generic mismatch coverage now supports physical shared-MPPT mismatch, an explicit lower-fidelity intra-string population residual, and explicit unresolved active population output when evidence is absent. Resolved-zero upstream remains exact zero without population authority because the mechanism is inactive. The two residual modes are negligible-by-evidence and equivalent post-MPPT current derate. Neither changes homogeneous string scaling. Valid S8 baseline survives missing residual authority; no legacy percentage is read. Bracon is not admitted and its aggregate 1.15% is not retired. Site applicability/MPPT coverage and non-overlap evidence remain required. P1/P2/P3 are not implemented here.
 
 ## Bounded future physics
 

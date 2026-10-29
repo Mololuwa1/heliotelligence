@@ -75,7 +75,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 
 ## Module-population mismatch coverage
 
-Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while population-complete output remains unresolved. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
+Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while active population-complete output remains unresolved. Resolved-zero upstream states remain exact zero without authority because the residual mechanism is inactive. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
 
 Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. No production, expected-energy source or P1/P2/P3 activation occurs.
 
