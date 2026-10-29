@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -59,7 +59,7 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Legacy IAM ownership:** `calculate_poa()` publishes IAM-corrected beam output but builds `poa_total` from uncorrected front POA, so IAM does not affect production electrical irradiance.
 - **Measured-front bifacial ownership:** accepting measured front POA currently sets rear contribution to zero.
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
-- **Module population variability:** S8-1 is homogeneous string scaling. It does not represent module-to-module manufacturing/tolerance variation inside a series string.
+- **Module population site evidence:** S8-1 remains homogeneous string scaling. The separate bounded residual authority now covers an explicitly quantified intra-string population residual at lower fidelity; member-resolved variability remains unimplemented and site admission remains required.
 - **Interval benchmark support density:** S14B reports sample count and maximum gap but currently has no density/gap eligibility threshold.
 - **Quantitative uncertainty:** S13D provides source/confidence metadata, not meter accuracy class or numerical uncertainty propagation.
 
@@ -227,6 +227,38 @@ P_mismatch = P_independent - P_common
 Individual string MPP values are not enough to determine the connected operating point. Connected strings share a voltage, so full I-V curves are required.
 
 Mixed active and explicit-zero strings remain unresolved without a blocking / dark-string model because the electrical interaction cannot be invented.
+
+## Module-population mismatch boundary
+
+`module_population_mismatch.py` is a dormant composition boundary after the existing homogeneous-string/shared-voltage MPPT solution. It does not modify `scale_module_iv_to_string`, `calculate_physical_mismatch` or their model IDs. Shared MPPT mismatch remains `p_independent_mp_w − p_common_mppt_w`; the population residual is separate.
+
+The immutable authority requires exact scope `intra_string_module_population_only_excluding_shared_mppt_common_voltage_mismatch`, evidence kind, source, confidence, method and applicability description. Evidence kinds are factory flash population, commissioning I-V population, validated engineering study, measured operating population or other explicit evidence. Neither legacy configuration percentage nor nameplate power tolerance alone resolves it. All text is exact/unpadded and all fractions finite, real and non-Boolean.
+
+Modes are `explicit_negligible_by_evidence` (fraction exactly zero) and `equivalent_post_mppt_current_derate` (strictly 0<f<1). Authorities are explicitly mapped by `(inverter_id, mppt_id)`; partial coverage is admitted, no automatic fan-out occurs, and unknown/empty-MPPT keys are rejected.
+
+```text
+V_after = V_common
+I_after = I_common × (1 − f)
+P_after = V_after × I_after
+P_population = P_common − P_after
+P_total_mismatch = P_shared + P_population = P_independent − P_after
+```
+
+The publication retains baseline V/I/P and shared mismatch separately. Missing authority on a resolved active MPPT means `unresolved_population_mismatch_authority`, not zero residual; adjusted quantities remain NaN. Upstream unresolved means `unresolved_upstream_mppt`. Resolved-zero upstream gives exact zero loss and transfer with or without population authority: the mechanism is mathematically inactive. Without authority, fraction remains NaN and mode/provenance remain empty. Supplied authority may be retained, but `population_mismatch_is_lower_fidelity=False` on zero rows. That flag describes the selected active residual calculation, not mere authority presence, and is also false on unresolved rows. Both active authority modes are bounded lower fidelity, not member-resolved physics. Zero rows count as resolved/zero, never missing-authority gaps, without inflating authority counts.
+
+The published aggregated S8 contract and its internal consistency are independently admitted: exact result type, populated MPPT grid, native contracts/models, state/count consistency, P=VI, shared mismatch closure and diagnostics. Unresolved IDs must follow physical topology order and close to the unresolved count; cause tokens must be unique, non-empty, sorted and drawn from the exact admitted S8-1 v1 vocabulary. This does not reconstruct which individual string has which cause from an aggregate summary. The result validator independently replays the equations, authority lookup, metadata, no-legacy marker and diagnostics without calling production record/frame/result builders. Result identity remains `(timestamp, inverter_id, mppt_id)`.
+
+Canonical IDs:
+
+- authority: `explicit_intra_string_population_mismatch_residual_authority_v1`;
+- result: `admitted_s8_common_voltage_mppt_and_population_residual_authority_to_population_complete_dc_state_v1`;
+- model: `shared_mppt_physical_mismatch_plus_explicit_post_mppt_equivalent_current_derate_v1`;
+- scope: `mppt_resolved_dc_after_population_mismatch_before_dc_collection`;
+- coverage: `shared_mppt_physics_plus_explicit_lower_fidelity_intra_string_population_residual`.
+
+Nameplate power tolerance alone ≠ intra-string mismatch loss ≠ member current/voltage distribution. A future member-resolved path requires serial-number flash/I-V data or explicit manufacturing electrical parameter populations. Series composition must enforce common current and `V_string(I)=Σ V_module_j(I)`; it must not average powers. Different current domains require explicit reverse/bypass authority or visible unresolved domains. That engine is not implemented here.
+
+The new V/I/P state is available for a future reviewed DC-collection handoff; this increment does not change DC collection or activate any runtime. Legacy aggregate mismatch must never be added to this path without an evidence-backed non-overlap allocation. Bracon has no such allocation or residual authority; its 1.15% remains solely legacy compatibility data.
 
 ## DC collection architecture
 

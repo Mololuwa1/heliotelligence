@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -35,7 +35,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Next major phase — production integration
 
-Production integration + site evidence onboarding is the immediate workstream. The legacy expected-energy runtime remains active; S8–S14 capability is not automatically production-active. The canonical [production-integration roadmap](production-integration-roadmap.md) owns migration decisions, phases P0–P6, the loss-ownership ledger and the pre-shadow readiness gates. P0 expected-energy source isolation is complete at PR #118; module thermal is complete generically at PR #119 and weather-time/irradiance boundary is implemented in this increment; both remain dormant; shadow execution has not been activated and must not bypass the upstream readiness gates.
+Production integration + site evidence onboarding is the immediate workstream. The legacy expected-energy runtime remains active; S8–S14 capability is not automatically production-active. The canonical [production-integration roadmap](production-integration-roadmap.md) owns migration decisions, phases P0–P6, the loss-ownership ledger and the pre-shadow readiness gates. P0 expected-energy source isolation is complete at PR #118; module thermal is complete generically at PR #119 and weather-time/irradiance boundary was implemented in PR #120; both remain dormant; shadow execution has not been activated and must not bypass the upstream readiness gates.
 
 Production integration does not add S12N, S13E, S14D or S15. The S-stage sequence remains the physical modelling architecture.
 
@@ -50,17 +50,21 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - the new canonical boundary preserves measured front and modelled rear independently, without selecting a calibration/thermal basis; site evidence binding remains required;
 - generic canonical module thermal authority/state is now implemented; onboard explicit site evidence and thermal POA/time authority before using it in a physical run;
 - retain the legacy cell/module delta and PVsyst/Faiman mismatch in compatibility runtime until controlled migration; the new native-authority contract avoids both defects;
-- decide how module-to-module tolerance/series variability is represented before retiring the entire legacy mismatch percentage;
+- the generic bounded intra-string population-residual authority now complements physical shared-MPPT mismatch; admit site evidence and legacy allocation before retirement; member-resolved manufacturing/reverse/bypass physics remains future work;
 - establish S14B support-density/max-gap eligibility with sunrise/sunset regressions;
 - add quantitative uncertainty evidence, including meter accuracy/calibration evidence where available;
 - close browser-admin-secret and per-site authorization gaps before shadow data is exposed outside the trusted development team;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (this increment), all dormant from physical shadow activation. Next: site weather/optics/thermal evidence binding plus mismatch completeness → S14B density → quantitative uncertainty → platform authorization → P1/P2 finalisation → P3. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (this increment), all dormant from physical shadow activation. Next: site weather/optics/thermal evidence binding plus population-residual admission → S14B density → quantitative uncertainty → platform authorization → P1/P2 finalisation → P3. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+
+## Bounded population mismatch capability
+
+Generic mismatch coverage now supports physical shared-MPPT mismatch, an explicit lower-fidelity intra-string population residual, and explicit unresolved active population output when evidence is absent. Resolved-zero upstream remains exact zero without population authority because the mechanism is inactive. The two residual modes are negligible-by-evidence and equivalent post-MPPT current derate. Neither changes homogeneous string scaling. Valid S8 baseline survives missing residual authority; no legacy percentage is read. Bracon is not admitted and its aggregate 1.15% is not retired. Site applicability/MPPT coverage and non-overlap evidence remain required. P1/P2/P3 are not implemented here.
 
 ## Bounded future physics
 
-Genuine future physics extensions include arbitrary/shared DC collection beyond direct-branch coverage, substring/bypass-diode partial shading and multiple local maxima, dynamic physical/measured soiling, snow, arbitrary 3D/tracker/rear-obstruction coverage, explicit module-population variability where required, justified unbalanced/sequence network extensions, and transformer ageing/dynamic thermal models when evidence and use cases support them. These are separate extensions, not unfinished current S12–S14 contracts.
+Genuine future physics extensions include arbitrary/shared DC collection beyond direct-branch coverage, substring/bypass-diode partial shading and multiple local maxima, dynamic physical/measured soiling, snow, arbitrary 3D/tracker/rear-obstruction coverage, member-resolved module-population variability where required, justified unbalanced/sequence network extensions, and transformer ageing/dynamic thermal models when evidence and use cases support them. These are separate extensions, not unfinished current S12–S14 contracts.
 
 Direct-branch resistance does not cover shared post-parallel DC conductors. A shared feeder acts on total current and must not be duplicated across branches. Resolve as-built topology before claiming that coverage. Do not replace partial-shading or dynamic soiling mechanisms with renamed percentages.
 

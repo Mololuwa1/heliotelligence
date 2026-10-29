@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -67,15 +67,21 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 1. site weather-source temporal evidence binding to the new explicit authority;
 2. site optics/measurement coverage and integration of the new canonical boundary, whose optical ownership is already explicit;
 3. site thermal evidence admission and later integration of the new canonical contract; legacy thermal defects remain isolated in production compatibility code;
-4. the coverage gap between homogeneous S8 string scaling and real module-to-module tolerance/series mismatch;
+4. site admission of the generic bounded population-residual authority; homogeneous S8 string scaling remains unchanged and member-resolved variability remains future work;
 5. an S14B expected-sample density / maximum-gap eligibility policy, backed by deterministic sunrise/sunset regressions;
 6. quantitative uncertainty evidence, including revenue-meter accuracy/calibration evidence where available;
 7. platform authorization hardening before shadow data is exposed outside the trusted development team;
 8. local declaration of the S9-4A fixed-Q sign convention so `Qmin/Qmax` evidence cannot be interpreted ambiguously.
 
+## Module-population mismatch coverage
+
+Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while active population-complete output remains unresolved. Resolved-zero upstream states remain exact zero without authority because the residual mechanism is inactive. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
+
+Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. No production, expected-energy source or P1/P2/P3 activation occurs.
+
 ## Next major phase — production integration
 
-Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, mismatch coverage, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual site evidence, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 
@@ -95,7 +101,7 @@ Measured front incident POA is evidence alongside modelled front, not a replacem
 
 ## Future physics extensions
 
-Genuine future physics extensions include arbitrary/shared DC collection beyond direct-branch coverage, substring/bypass-diode partial shading and multiple local maxima, dynamic physical/measured soiling, snow, arbitrary 3D/tracker/rear-obstruction coverage, justified unbalanced/sequence network extensions, transformer ageing/dynamic thermal models, and explicit module-population variability where required. These are separate extensions from the completed S12–S14 contracts.
+Genuine future physics extensions include arbitrary/shared DC collection beyond direct-branch coverage, substring/bypass-diode partial shading and multiple local maxima, dynamic physical/measured soiling, snow, arbitrary 3D/tracker/rear-obstruction coverage, justified unbalanced/sequence network extensions, transformer ageing/dynamic thermal models, and member-resolved module-population variability where required. These are separate extensions from the completed S12–S14 contracts.
 
 ## Development and testing
 

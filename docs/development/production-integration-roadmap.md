@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86`, PR #119 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1`, PR #120 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -81,24 +81,24 @@ P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source 
 1. **Weather temporal semantics — generic authority implemented, dormant:** explicitly admit snapshot/interval labels, duration and representative geometry policy for each source/site; storage labels alone do not prove averaging semantics.
 2. **Irradiance/optics ownership — generic boundary implemented, dormant:** replay canonical raw, optical-effective, bifacial and final spectral results with exact observation/receiver keys. IAM/shading/bifacial/spectral factors are owned once upstream; measured front never erases rear. Site measurement/receiver evidence and calibrated thermal POA selection remain open. Legacy defects above are unchanged.
 3. **Canonical module thermal state — generic contract implemented, dormant:** the new authority/state modules distinguish cell/module-back evidence, explicit reference-irradiance deltaT conversion and native PVsyst/Faiman families. They avoid the legacy offset and model-family defects without altering compatibility numerics. Site evidence, zone binding and thermal POA/time admission remain required before activation.
-4. **Mismatch coverage:** distinguish S8 common-voltage string/MPPT mismatch from module-to-module manufacturing/tolerance variation inside a series string. Do not retire the full legacy mismatch percentage until ownership of all material mechanisms is established.
+4. **Mismatch coverage — bounded generic residual implemented, dormant:** physical shared-MPPT mismatch remains in S8; the separate explicit lower-fidelity intra-string population authority admits negligible-by-evidence or post-MPPT current derate. Missing authority preserves S8 baseline and leaves active population-complete output unresolved. Resolved-zero upstream remains exact zero without population authority and is not counted as a coverage gap. Member-resolved reverse/bypass variability remains future work. Site residual evidence, applicability and legacy allocation are required before retiring any aggregate percentage.
 5. **S14B support density:** add an explicit expected-sample density / maximum-gap eligibility policy. The existing `maximum_expected_sample_gap_seconds` diagnostic is not currently a gate. Quantify sunrise/sunset sensitivity with deterministic regressions before adopting numerical thresholds.
 6. **Uncertainty evidence:** define numerical measurement/model uncertainty inputs and reporting. Revenue-meter evidence should support accuracy/calibration information where available; categorical confidence alone is not an uncertainty model.
 7. **Platform access control:** remove browser-bundled admin secrets as an authorization boundary and enforce server-side site authorization for site-scoped routes before shadow data is exposed beyond the trusted development team.
 8. **S9-4A Q semantics:** explicitly declare the fixed-Q sign convention for `reactive_power_min_var/reactive_power_max_var` and require source evidence using another convention to be transformed before authority construction.
 
-P0 is complete. Generic module thermal was completed in PR #119; generic weather-time and canonical irradiance boundary are completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
+P0 is complete. Generic module thermal was completed in PR #119; generic date-consistent weather-time/irradiance boundary was completed in PR #120; the bounded population-residual authority is completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
 
 ```text
 P0 source isolation — COMPLETE
 ↓
 canonical module thermal authority/state — COMPLETE GENERICALLY (PR #119, dormant)
 ↓
-weather-time authority + canonical irradiance boundary — THIS INCREMENT (generic, dormant)
+weather-time authority + canonical irradiance boundary — COMPLETE GENERICALLY (PR #120, dormant)
 ↓
 site weather/optics/thermal evidence binding + calibrated thermal POA selection
 ↓
-mismatch coverage
+bounded population residual — THIS INCREMENT (generic, dormant); site admission pending
 ↓
 S14B density
 ↓
@@ -145,6 +145,13 @@ The boundary replays existing canonical optical results: incident broadband fron
 
 Measured front incident POA is evidence alongside modelled front, not a replacement for it or a front+rear total. It never erases rear irradiance. Incident front+rear is a diagnostic only; actual module-thermal POA selection remains unresolved until a calibration-basis authority is admitted. The dormant component/transposition/rear primitives admit explicit physical times; legacy runtime, collectors, storage, thermal schema and expected-energy sources remain unchanged.
 
+## Population-residual admission and migration decision
+
+Nameplate power tolerance alone does not define intra-string loss or member current/voltage distribution. No random manufacturing population or conversion from `ModuleConfig.mismatch_loss_pct` is allowed. The new residual requires an independently quantified study with source, method, confidence, physical coverage and applicability, explicitly excluding shared MPPT mismatch, wiring, optical/thermal effects, soiling, LID and conversion. Missing authority leaves active population-complete output unresolved while preserving valid S8 baseline. Resolved-zero upstream is exact zero independently of authority; no fraction is fabricated and no lower-fidelity residual path is exercised. Authority counts still reflect supplied MPPT authorities only.
+
+This is a deliberately bounded post-MPPT current derate, not member-resolved I-V physics. Advanced common-current series composition, reverse bias and bypass remain future extensions. No DC-collection integration, expected-energy source, P1/P2 contract or P3 execution is activated. Bracon's 1.15% remains unallocated legacy data; no mismatch percentage is retired by this capability.
+
+
 ## Migration ledger
 
 All candidate replacements below are validated generic capabilities unless stated otherwise; none is automatically active in the default expected-energy runtime.
@@ -157,9 +164,11 @@ All candidate replacements below are validated generic capabilities unless state
 | IAM | Beam IAM computed in legacy `calculate_poa` but not applied to `poa_total` | Canonical IAM/optical-effective irradiance | Correct total-irradiance ownership and regression proving beam IAM affects electrical input exactly once | Legacy defect unchanged; canonical boundary replays upstream IAM exactly once |
 | Bifacial rear | Legacy infinite-sheds path when modelled; measured-front shortcut forces rear to zero | Canonical front/rear optical combination | Explicit measured-front versus rear-model boundary and rear evidence | Legacy gap unchanged; canonical boundary preserves measured front and raw rear separately |
 | Module thermal | Legacy measured/Faiman/NOCT cell-temperature runtime | Canonical admitted module/cell thermal state | Quantity/model/parameter provenance; correct cell-module relation; PVsyst/Faiman semantic alignment | Generic authority/state implemented, dormant; site admission and integration pending |
-| Module tolerance / series variation | Collapsed into aggregate legacy mismatch percentage | Explicit module-population/series variability where required, combined with S8 network mismatch without double counting | Datasheet/manufacturing tolerance authority or measured module population model | Not covered by homogeneous S8-1 |
+| Intra-string module-population residual | Unallocated aggregate mismatch percentage | Explicit bounded negligible-by-evidence or post-MPPT equivalent-current-derate authority | Population study, explicit exclusion of shared MPPT/other mechanisms, physical MPPT/string coverage and applicability | Generic lower-fidelity authority available, dormant; Bracon not admitted |
 | Spectral treatment | Optional legacy spectral helper; pipeline omits required precipitable water | Canonical component spectral/electrical irradiance handoff | Spectral evidence and exactly one irradiance correction owner | Generic handoff exists; integration pending |
-| Mismatch | Static DC mismatch percentage | S8 common-voltage MPPT physical mismatch for admitted string I-V curves | Authoritative string/MPPT mapping and IV coverage **plus an explicit decision for module-tolerance/series variability not represented by homogeneous S8-1** | Partial physical ownership; do not retire full legacy percentage yet |
+| Legacy aggregate mismatch | Static `mismatch_loss_pct` | Evidence-backed mechanism ownership/allocation before retirement | Determine what the aggregate covered; nameplate tolerance alone is insufficient | Bracon 1.15% retained solely on legacy series |
+| Shared MPPT/common-voltage mismatch | Potential component of unallocated legacy mismatch | Existing physical S8 common-voltage mismatch | Admitted string I-V/topology and non-overlap with population residual | Physical S8 owner unchanged, dormant |
+| Advanced member-resolved manufacturing variability | No member-level runtime | Future common-current series-member I-V with reverse/bypass authority where required | Serial flash/I-V data or explicit electrical parameter populations and current-domain authority | Not implemented |
 | DC wiring | DC wiring percentage | S8 direct-branch series-loop resistance | Explicit resistance and same covered conductor path; arbitrary shared collection needs separate physics | Dormant for direct branches |
 | Inverter efficiency | Constant `eta_nom` | S9 physical inverter authority, Sandia conversion/accounting | Exact equipment/model mapping and DC input authority | Dormant |
 | Inverter clipping | Aggregate nameplate cap | S9 per-physical-inverter conversion/clipping accounting | Correct inverter/MPPT aggregation and model authority | Dormant |
@@ -177,7 +186,9 @@ For each mechanism/reference path transitioning from legacy to physical, **one a
 
 | Mechanism | Legacy owner | Physical owner | May coexist in same expected series? |
 |---|---|---|---|
-| MPPT mismatch | Mismatch percentage | S8 | No |
+| Legacy aggregate mismatch | `mismatch_loss_pct` | Shared-MPPT physics plus admitted population residual, by allocated scope | No, unless evidence proves non-overlapping allocation; Bracon has none |
+| Shared-MPPT mismatch | Unknown portion of aggregate | Existing S8 common-voltage mismatch | Only with separately scoped population residual; never apply overlapping legacy aggregate |
+| Intra-string module-population residual | Unknown portion of aggregate | Explicit lower-fidelity population authority | May accompany shared-MPPT physics because its exact scope excludes that mechanism; no overlapping legacy aggregate |
 | Direct DC cable loss | DC wiring percentage | S8 | No for the same covered conductor path |
 | Inverter conversion | `eta_nom` | S9 | No |
 | Inverter clipping | Aggregate inverter cap | S9 | No for the same inverter limit |

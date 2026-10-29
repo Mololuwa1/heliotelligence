@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `580327062d0f984c82888c5d394d60e380afaa86` (PR #119 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -411,13 +411,13 @@ Thermal POA is supplied incident broadband irradiance, not automatically electri
 
 ### Mismatch coverage
 
-S8 common-voltage mismatch is not a complete proxy for all causes that may have been included in the legacy mismatch percentage. Validation must separately account for, or explicitly exclude:
+Validate the new dormant population-residual boundary separately from physical shared-MPPT mismatch and homogeneous series scaling. Admit only explicit negligible (f=0) or equivalent post-MPPT current derate (0<f<1), with exact scope excluding shared MPPT and all other losses. Nameplate tolerance alone and the legacy aggregate percentage are not resolving authority.
 
-- module-to-module manufacturing/tolerance variability within a series string;
-- substring/bypass effects where relevant;
-- topology-driven string/MPPT mismatch already owned by S8.
+Required regressions prove unchanged V, I_after=I_common(1−f), P_after=VI, population=P_common−P_after, and total=shared+population=P_independent−P_after. Preserve upstream shared mismatch. Test active, zero, unresolved, missing and partial authority. Zero must resolve exactly without authority, be fraction-independent with authority, retain no fabricated fraction/provenance, and never count as a missing-authority gap. Mixed night/day coverage must distinguish zero resolution from active missing authority. Test repeated MPPT IDs scoped by inverter, empty grids, extra/empty-MPPT keys and invalid authority domains/provenance.
 
-Do not retire the full legacy mismatch percentage until ownership closes.
+Independently verify the published aggregated S8 contract and its internal consistency: exact types, topology row universe, timezone/duplicates, contracts/models, state/count consistency, P=VI, mismatch/percentage closure and every diagnostics count. Verify topology-ordered unresolved IDs, sorted unique non-empty cause tokens from the admitted S8-1 vocabulary, and reject unknown causes without inventing member-to-cause assignments. Independently validate output replay and tamper rejection with production builders disabled. Prove no legacy percentage leakage and unchanged S8 numerical behaviour through the immediate string/MPPT regression slice.
+
+Generic bounded coverage is implemented; site admission remains evidence-dependent. Bracon is not admitted and 1.15% is not retired. Member-resolved reverse/bypass physics remains outside this lower-fidelity contract. Do not retire the full legacy percentage until ownership closes.
 
 ### S14B support density
 
@@ -447,7 +447,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is site evidence binding plus mismatch completeness, S14B density, quantitative uncertainty and platform authorization before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is site evidence binding including population-residual authority, S14B density, quantitative uncertainty and platform authorization before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 

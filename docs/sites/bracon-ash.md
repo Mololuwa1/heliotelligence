@@ -221,6 +221,14 @@ No deltaT=3°C, mounting/construction, sensor placement or calibration is inferr
 
 Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather/optical site evidence and runtime integration, mismatch, S14B density, uncertainty and authorization gates remain open; generic temporal/irradiance-boundary implementation alone does not close them.
 
+## Module-population mismatch evidence onboarding
+
+Bracon Ash remains **module-population mismatch authority not admitted**. Repository evidence establishes only the legacy aggregate `mismatch_loss_pct = 1.15%`; it does not allocate that percentage among manufacturing variability, operating-condition differences, shared-MPPT interaction or other assumptions. The new generic authority does not consume 1.15%, and this percentage is not retired.
+
+Admission requires a factory flash population study, commissioning/string-I-V study, validated engineering mismatch study or other independently justified population evidence. Supply the quantified fraction (or explicit negligible conclusion), source, confidence, method, physical applicability period, and exact MPPT/string coverage. The study must explicitly isolate the intra-string population residual and exclude shared-MPPT common-voltage mismatch, wiring, shading, spectral/thermal effects, soiling, LID and conversion. Existing missing string/MPPT mappings are not inferred.
+
+Nameplate power tolerance alone is neither mismatch loss nor a current/voltage distribution. The generic fallback is an honestly labelled lower-fidelity post-MPPT current derate, not member-resolved reverse/bypass physics. Legacy aggregate mismatch cannot coexist with this replacement in one expected series without an evidence-backed non-overlap allocation; none is established for Bracon. Legacy production stays unchanged and no P1/P2/P3 activation follows.
+
 ## Legacy compatibility note
 
 The site's current aggregate soiling, LID, mismatch, DC wiring, AC wiring and grid-limit configuration belong to the legacy compatibility path. The generic S8–S14 component chain remains dormant from the default production path; S11 does not consume `wiring_loss_ac_pct`. Legacy and physical replacements must not be combined without an explicit production migration demonstrating no double counting.
