@@ -3,8 +3,8 @@
 Only admitted numerical coefficients affect the deterministic symmetric bound.
 Accuracy/calibration descriptions and categorical confidence are provenance.
 No component recombination, probability, expected-model uncertainty or S14
-interpretation is performed. Validity is evaluated at the exact S13D timestamp
-(the interval-end label for interval averages); no dates are inferred from text.
+interpretation is performed. Validity covers the complete represented interval
+for averages and the observation timestamp for snapshots; no dates are inferred.
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ REVENUE_METER_MEASUREMENT_UNCERTAINTY_SCOPE = (
     "combined_model_measurement_benchmark_uncertainty"
 )
 UNCERTAINTY_INTERPRETATION = "symmetric_maximum_absolute_error_bound"
+RELATIVE_ERROR_REFERENCE_BASIS = "absolute_same_channel_measured_power_in_primary_engineering_units"
 COMBINATION_BASIS = "explicit_complete_chain_bound_no_internal_component_recombination"
 MEASUREMENT_CHAIN_SCOPE = (
     "complete_revenue_meter_measurement_chain_after_instrument_transformers_scaling_and_calibration"
@@ -78,6 +79,7 @@ _OPTIONAL_METADATA = (
 )
 _AUTHORITY_SEMANTICS = (
     "uncertainty_interpretation",
+    "relative_error_reference_basis",
     "combination_basis",
     "measurement_chain_scope",
     "measurement_time_scope",
@@ -173,8 +175,9 @@ class RevenueMeterMeasurementUncertaintyAuthority:
     """Already-combined complete-chain bound; descriptions do not set coefficients.
 
     None leaves a term unavailable. Explicit zero is numerical evidence.
-    Validity applies inclusively at the S13D observation timestamp, including
-    interval-end labels. Aware zones may differ without coercing provenance.
+    Validity covers complete intervals, or snapshot timestamps, inclusively.
+    Aware zones may differ without coercing provenance. Relative terms refer
+    only to the magnitude of the same measured channel in primary units.
     """
 
     active_power_relative_error_bound_fraction: float | None
@@ -182,6 +185,7 @@ class RevenueMeterMeasurementUncertaintyAuthority:
     reactive_power_relative_error_bound_fraction: float | None
     reactive_power_absolute_error_bound_var: float | None
     uncertainty_interpretation: str
+    relative_error_reference_basis: str
     combination_basis: str
     measurement_chain_scope: str
     measurement_time_scope: str
@@ -211,6 +215,7 @@ class RevenueMeterMeasurementUncertaintyAuthority:
             _text(getattr(self, field), field)
         if (
             self.uncertainty_interpretation != UNCERTAINTY_INTERPRETATION
+            or self.relative_error_reference_basis != RELATIVE_ERROR_REFERENCE_BASIS
             or self.combination_basis != COMBINATION_BASIS
             or self.measurement_chain_scope != MEASUREMENT_CHAIN_SCOPE
         ):
@@ -426,6 +431,25 @@ def _channel(
     )
 
 
+def _validity_interval_start(end: pd.Timestamp, seconds: float) -> pd.Timestamp | None:
+    """Exact nanosecond round-trip and bounded elapsed-time arithmetic, or unavailable."""
+    try:
+        product = seconds * 1_000_000_000.0
+        if not math.isfinite(product):
+            return None
+        nanoseconds = round(product)
+        if (
+            nanoseconds <= 0
+            or nanoseconds > pd.Timedelta.max.value
+            or nanoseconds / 1_000_000_000.0 != seconds
+        ):
+            return None
+        start = end - pd.Timedelta(nanoseconds, unit="ns")
+        return None if pd.isna(start) else start
+    except (OverflowError, ValueError, TypeError):
+        return None
+
+
 def _record(
     timestamp: pd.Timestamp,
     row: pd.Series,
@@ -465,9 +489,19 @@ def _record(
             compatible = all(
                 bound is None or (bound.tz is None) == (timestamp.tz is None) for bound in bounds
             )
+            lower_instant = timestamp
+            if (
+                bounds[0] is not None
+                and row["measurement_time_semantics"] == "interval_average_ending_at_timestamp"
+            ):
+                lower_instant = _validity_interval_start(
+                    timestamp, float(row["averaging_interval_seconds"])
+                )
             temporal = (
                 compatible
-                and (bounds[0] is None or timestamp >= bounds[0])
+                and (
+                    bounds[0] is None or (lower_instant is not None and lower_instant >= bounds[0])
+                )
                 and (bounds[1] is None or timestamp <= bounds[1])
             )
             record["measurement_uncertainty_temporally_applicable"] = temporal
@@ -641,10 +675,33 @@ def _validator_frame(
                     (policy.valid_from_timestamp, True),
                     (policy.valid_to_timestamp, False),
                 ):
-                    if boundary is not None and (
-                        (timestamp.tz is None) != (boundary.tz is None)
-                        or (lower and timestamp < boundary)
-                        or (not lower and timestamp > boundary)
+                    if boundary is None:
+                        continue
+                    comparison_time = timestamp
+                    if lower and row.measurement_time_semantics == (
+                        "interval_average_ending_at_timestamp"
+                    ):
+                        # Independent reconstruction; no production arithmetic helper.
+                        try:
+                            seconds = float(row.averaging_interval_seconds)
+                            product = seconds * 1e9
+                            ns = round(product)
+                            exact = (
+                                math.isfinite(product)
+                                and 0 < ns <= pd.Timedelta.max.value
+                                and ns / 1e9 == seconds
+                            )
+                            comparison_time = (
+                                timestamp - pd.Timedelta(ns, unit="ns") if exact else None
+                            )
+                        except (OverflowError, ValueError, TypeError):
+                            comparison_time = None
+                    if (
+                        comparison_time is None
+                        or pd.isna(comparison_time)
+                        or (comparison_time.tz is None) != (boundary.tz is None)
+                        or (lower and comparison_time < boundary)
+                        or (not lower and comparison_time > boundary)
                     ):
                         valid = False
                 out["measurement_uncertainty_temporally_applicable"] = valid

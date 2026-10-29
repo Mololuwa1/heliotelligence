@@ -20,6 +20,7 @@ def authority(**changes: Any) -> m.RevenueMeterMeasurementUncertaintyAuthority:
         reactive_power_relative_error_bound_fraction=None,
         reactive_power_absolute_error_bound_var=None,
         uncertainty_interpretation=m.UNCERTAINTY_INTERPRETATION,
+        relative_error_reference_basis=m.RELATIVE_ERROR_REFERENCE_BASIS,
         combination_basis=m.COMBINATION_BASIS,
         measurement_chain_scope=m.MEASUREMENT_CHAIN_SCOPE,
         measurement_time_scope="instantaneous_and_interval_average",
@@ -107,6 +108,7 @@ def test_strict_text(field: str, value: Any) -> None:
         "combination_basis",
         "measurement_chain_scope",
         "uncertainty_interpretation",
+        "relative_error_reference_basis",
     ],
 )
 def test_unknown_enums(field: str) -> None:
@@ -491,4 +493,167 @@ def test_independent_validation_other_resolution_paths(
         monkeypatch.setattr(m, name, fail)
     m.validate_revenue_meter_measurement_uncertainty(
         result, **values, revenue_meter_measurement_uncertainty_by_meter_id=mapping
+    )
+
+
+@pytest.mark.parametrize(
+    "start_offset,end_offset,expected",
+    [
+        (0, None, False),
+        (-1800, None, True),
+        (-1799, None, False),
+        (None, 0, True),
+        (None, -1, False),
+        (-1800, 0, True),
+    ],
+)
+def test_full_interval_validity_and_independent_replay(
+    monkeypatch: Any, start_offset: Any, end_offset: Any, expected: bool
+) -> None:
+    values = inputs(
+        {
+            (T, "meter"): parent._measurement(
+                temporal="interval_average_ending_at_timestamp", interval=1800
+            )
+        }
+    )
+    a = authority(
+        valid_from_timestamp=None
+        if start_offset is None
+        else T + pd.Timedelta(seconds=start_offset),
+        valid_to_timestamp=None if end_offset is None else T + pd.Timedelta(seconds=end_offset),
+    )
+    mapping = {"meter": a}
+    result = resolve(values, mapping)
+    row = result.states.iloc[0]
+    assert bool(row.measurement_uncertainty_temporally_applicable) == expected
+    assert bool(row.active_power_measurement_uncertainty_resolved) == expected
+    assert bool(row.active_energy_measurement_uncertainty_resolved) == expected
+    if not expected:
+        assert row.measurement_uncertainty_state == m._STATES[2]
+        assert math.isnan(row.active_energy_measurement_uncertainty_bound_wh)
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("production helper invoked")
+
+    for name in ("_record", "_frame", "_diagnostics", "_validity_interval_start"):
+        monkeypatch.setattr(m, name, fail)
+    m.validate_revenue_meter_measurement_uncertainty(
+        result, **values, revenue_meter_measurement_uncertainty_by_meter_id=mapping
+    )
+
+
+@pytest.mark.parametrize("naive,expected", [(False, True), (True, False)])
+def test_interval_validity_zone_semantics_and_exact_provenance(naive: bool, expected: bool) -> None:
+    start = T - pd.Timedelta(seconds=1800)
+    lower = start.tz_localize(None) if naive else start.tz_convert("Europe/Paris")
+    upper = T.tz_localize(None) if naive else T.tz_convert("Europe/Paris")
+    values = inputs(
+        {
+            (T, "meter"): parent._measurement(
+                temporal="interval_average_ending_at_timestamp", interval=1800
+            )
+        }
+    )
+    row = resolve(
+        values, {"meter": authority(valid_from_timestamp=lower, valid_to_timestamp=upper)}
+    ).states.iloc[0]
+    assert bool(row.active_power_measurement_uncertainty_resolved) == expected
+    assert str(row.valid_from_timestamp.tz) == str(lower.tz)
+    assert str(row.valid_to_timestamp.tz) == str(upper.tz)
+
+
+@pytest.mark.parametrize(
+    "timestamp,duration",
+    [
+        (T, 1e-10),
+        (T, 1800.0000000001),
+        (T, 1e308),
+        (pd.Timestamp.min.tz_localize("UTC") + pd.Timedelta(seconds=1), 1800),
+    ],
+)
+def test_unrepresentable_interval_start_cannot_pass_lower_validity(
+    monkeypatch: Any, timestamp: Any, duration: float
+) -> None:
+    values = inputs(
+        {
+            (timestamp, "meter"): parent._measurement(
+                temporal="interval_average_ending_at_timestamp", interval=duration
+            )
+        }
+    )
+    # A rounded/clamped start could pass these bounds; it must not be used.
+    if duration == 1800.0000000001:
+        lower = timestamp - pd.Timedelta(seconds=1800)
+    elif duration == 1e-10:
+        lower = timestamp - pd.Timedelta(seconds=1)
+    elif timestamp != T:
+        lower = pd.Timestamp.min.tz_localize("UTC")
+    else:
+        lower = timestamp
+    mapping = {"meter": authority(valid_from_timestamp=lower)}
+    result = resolve(values, mapping)
+    assert result.states.iloc[0].measurement_uncertainty_state == m._STATES[2]
+    assert not result.states.iloc[0].active_power_measurement_uncertainty_resolved
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("production interval arithmetic invoked")
+
+    monkeypatch.setattr(m, "_validity_interval_start", fail)
+    m.validate_revenue_meter_measurement_uncertainty(
+        result, **values, revenue_meter_measurement_uncertainty_by_meter_id=mapping
+    )
+
+
+@pytest.mark.parametrize("duration", [1e-10, 1e308])
+def test_no_lower_validity_boundary_does_not_require_interval_start(
+    monkeypatch: Any, duration: float
+) -> None:
+    values = inputs(
+        {
+            (T, "meter"): parent._measurement(
+                temporal="interval_average_ending_at_timestamp", interval=duration
+            )
+        }
+    )
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("unneeded interval-start arithmetic invoked")
+
+    monkeypatch.setattr(m, "_validity_interval_start", fail)
+    result = resolve(values, {"meter": authority(valid_to_timestamp=T)})
+    assert result.states.iloc[0].measurement_uncertainty_temporally_applicable
+    assert result.states.iloc[0].active_power_measurement_uncertainty_resolved
+
+
+@pytest.mark.parametrize(
+    "basis",
+    [
+        "unknown_true_value",
+        "full_scale",
+        "rated_value",
+        "plant_capacity",
+        "ct_primary_current",
+        "nominal_current",
+        "another_reference_quantity",
+    ],
+)
+def test_other_relative_reference_bases_are_not_admissible(basis: str) -> None:
+    with pytest.raises(ValueError):
+        authority(relative_error_reference_basis=basis)
+    a = authority()
+    object.__setattr__(a, "relative_error_reference_basis", basis)
+    with pytest.raises(ValueError):
+        resolve(mapping={"meter": a})
+
+
+def test_relative_reference_basis_explicit_attestation_required() -> None:
+    from dataclasses import asdict
+
+    values = asdict(authority())
+    del values["relative_error_reference_basis"]
+    with pytest.raises(TypeError):
+        m.RevenueMeterMeasurementUncertaintyAuthority(**values)
+    assert authority().relative_error_reference_basis == (
+        "absolute_same_channel_measured_power_in_primary_engineering_units"
     )

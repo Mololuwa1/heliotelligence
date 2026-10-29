@@ -87,7 +87,7 @@ There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset 
 
 ## Revenue-meter measurement uncertainty
 
-A dormant generic contract now evaluates explicit complete-measurement-chain symmetric maximum error bounds for P and Q independently. It uses only supplied numerical relative/absolute terms; categorical confidence and meter/CT/PT accuracy descriptions do not imply numerical bounds. It performs no internal component recombination or accuracy-class lookup.
+A dormant generic contract now evaluates explicit complete-measurement-chain symmetric maximum error bounds for P and Q independently. It uses only supplied numerical relative/absolute terms; categorical confidence and meter/CT/PT accuracy descriptions do not imply numerical bounds. Relative terms require explicit attestation to the magnitude of the same measured P/Q in primary units; other reference bases need an evidence-backed conversion before admission. Declared validity covers complete intervals for interval-average measurements, with exact boundary arithmetic, or the observation timestamp for snapshots. It performs no internal component recombination or accuracy-class lookup.
 
 This is measurement uncertainty only, separate from S14B support-density eligibility. Expected/model uncertainty, combined measurement + model bands and uncertainty-aware S14/P4 interpretation remain open. Bracon Ash has no admitted numerical measurement uncertainty. Production and shadow execution remain unchanged.
 

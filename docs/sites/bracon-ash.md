@@ -257,8 +257,9 @@ Generic complete-chain measurement bounds are implemented but **Bracon numerical
 - CT ratio/class and applicable numerical accuracy evidence.
 - PT/VT ratio/class and applicable numerical accuracy evidence.
 - Scaling configuration and calibration certificate/results.
-- Calibration validity/applicability period.
+- Calibration validity/applicability period covering the complete represented measurement interval for interval averages (or the observation timestamp for snapshots), inclusive of the declared boundaries.
 - Whether a quoted bound is component-only or an admitted complete-chain bound after instrument transformers, scaling and calibration.
 - P/Q applicability, snapshot versus interval-average applicability, and source/provenance.
+- Relative-bound reference basis: magnitude of the same measured P/Q in primary engineering units. Other specifications (true value, full scale/rating, capacity or instrument current) require an explicit compatible bound conversion and its provenance before admission.
 
 Site admission must supply the already-combined complete-chain numerical bound; the generic module does not add or RSS component specifications. Measurement-only bounds do not establish expected/model uncertainty or S14/P4 significance. Combined interpretation and production/shadow activation remain pending.
