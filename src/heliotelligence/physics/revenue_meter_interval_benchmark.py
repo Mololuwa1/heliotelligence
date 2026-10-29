@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, TypeVar
 
@@ -20,6 +20,10 @@ from heliotelligence.physics.mv_hv_operating_solution import (
     MV_HV_OPERATING_SOLUTION_MODEL_ID,
     calculate_topology_mv_hv_operating_solution,
 )
+from heliotelligence.physics.revenue_meter_interval_support_policy import (
+    REVENUE_METER_INTERVAL_SUPPORT_POLICY_CONTRACT_ID,
+    RevenueMeterIntervalSupportPolicyAuthority,
+)
 from heliotelligence.physics.revenue_meter_measurement_authority import (
     REVENUE_METER_MEASUREMENT_AUTHORITY_CONTRACT_ID,
     REVENUE_METER_MEASUREMENT_AUTHORITY_MODEL_ID,
@@ -27,18 +31,19 @@ from heliotelligence.physics.revenue_meter_measurement_authority import (
 )
 
 REVENUE_METER_INTERVAL_BENCHMARK_CONTRACT_ID = (
-    "admitted_s13a_s13c_s13d_to_exact_interval_average_revenue_meter_energy_benchmark_v1"
+    "admitted_s13a_s13c_s13d_and_support_policy_to_exact_interval_average_"
+    "revenue_meter_energy_benchmark_v2"
 )
 REVENUE_METER_INTERVAL_BENCHMARK_MODEL_ID = (
     "piecewise_linear_s13c_expected_power_trapezoidal_interval_integration_"
-    "against_s13d_interval_average_measurement_v1"
+    "with_explicit_maximum_support_gap_eligibility_v2"
 )
 REVENUE_METER_INTERVAL_BENCHMARK_SCOPE = (
     "revenue_meter_interval_average_power_and_energy_benchmark_before_component_loss_attribution"
 )
 REVENUE_METER_INTERVAL_BENCHMARK_COVERAGE_SCOPE = (
     "exact_revenue_meter_interval_boundaries_with_resolved_s13c_support_and_"
-    "s13d_interval_average_power"
+    "s13d_interval_average_power_and_explicit_meter_support_gap_policy"
 )
 TEMPORAL_RECONSTRUCTION_SEMANTICS = (
     "piecewise_linear_between_resolved_s13c_meter_samples_with_exact_interval_boundaries_v1"
@@ -64,6 +69,8 @@ _STATES = (
     "unresolved_expected_interval_operating_solution",
     "unresolved_nonfinite_interval_benchmark_arithmetic",
     "resolved_interval_average_revenue_meter_energy_benchmark",
+    "unresolved_missing_expected_interval_support_policy",
+    "unresolved_expected_interval_support_gap_exceeds_policy",
 )
 _COLUMNS = (
     "network_basis_resolved",
@@ -109,6 +116,19 @@ _COLUMNS = (
     "expected_reactive_energy_varh",
     "measured_active_energy_wh",
     "measured_reactive_energy_varh",
+    "expected_interval_reconstruction_resolved",
+    "expected_interval_support_policy_present",
+    "maximum_expected_sample_gap_allowed_seconds",
+    "maximum_expected_sample_gap_fraction_of_interval",
+    "expected_interval_support_gap_policy_satisfied",
+    "expected_interval_support_eligible",
+    "support_policy_scope",
+    "support_policy_evidence_kind",
+    "support_policy_parameter_source",
+    "support_policy_confidence",
+    "support_policy_method_reference",
+    "support_policy_applicability_description",
+    "revenue_meter_interval_support_policy_contract",
     "benchmark_eligible",
     "active_power_residual_measured_minus_expected_w",
     "reactive_power_residual_measured_minus_expected_var",
@@ -142,6 +162,10 @@ _BOOL = {
     "expected_interval_start_row_present",
     "expected_interval_end_row_present",
     "expected_interval_all_samples_resolved",
+    "expected_interval_reconstruction_resolved",
+    "expected_interval_support_policy_present",
+    "expected_interval_support_gap_policy_satisfied",
+    "expected_interval_support_eligible",
     "benchmark_eligible",
 }
 _INT = {
@@ -155,6 +179,8 @@ _FLOAT = {
     "measured_interval_average_reactive_power_var",
     "averaging_interval_seconds",
     "maximum_expected_sample_gap_seconds",
+    "maximum_expected_sample_gap_allowed_seconds",
+    "maximum_expected_sample_gap_fraction_of_interval",
     "expected_start_active_power_w",
     "expected_start_reactive_power_var",
     "expected_end_active_power_w",
@@ -178,6 +204,14 @@ _FLOAT = {
 
 @dataclass(frozen=True)
 class TopologyRevenueMeterIntervalBenchmarkDiagnostics:
+    """Policy counts apply only to finite reconstructed interval rows.
+
+    Present + missing = reconstruction resolved. Pass + fail = present.
+    Policy presence/provenance columns may also describe earlier-failed rows;
+    such rows do not enter these policy partitions. All rows enter the final
+    benchmark eligible/unresolved partition.
+    """
+
     revenue_meter_count: int
     timestamp_count: int
     row_count: int
@@ -191,6 +225,11 @@ class TopologyRevenueMeterIntervalBenchmarkDiagnostics:
     expected_interval_boundary_incomplete_count: int
     expected_interval_all_samples_resolved_count: int
     expected_interval_with_unresolved_samples_count: int
+    expected_interval_reconstruction_resolved_count: int
+    support_policy_present_count: int
+    support_policy_missing_count: int
+    support_gap_policy_satisfied_count: int
+    support_gap_policy_failed_count: int
     benchmark_eligible_count: int
     benchmark_unresolved_count: int
     total_expected_support_sample_count: int
@@ -383,10 +422,53 @@ def _base_record(s13a: Any, timestamp: pd.Timestamp, meter_id: str) -> dict[str,
     return record
 
 
+def _policies(
+    meters: tuple[str, ...],
+    supplied: Mapping[str, RevenueMeterIntervalSupportPolicyAuthority] | None,
+) -> Mapping[str, RevenueMeterIntervalSupportPolicyAuthority]:
+    if supplied is None:
+        return MappingProxyType({})
+    if not isinstance(supplied, Mapping):
+        raise ValueError("interval support policy must be an explicit meter mapping")
+    admitted = {}
+    for meter_id, policy in supplied.items():
+        if type(meter_id) is not str or meter_id not in meters:
+            raise ValueError("interval support policy key must name a canonical revenue meter")
+        if type(policy) is not RevenueMeterIntervalSupportPolicyAuthority:
+            raise ValueError("exact RevenueMeterIntervalSupportPolicyAuthority required")
+        admitted[meter_id] = replace(policy)
+    return MappingProxyType(admitted)
+
+
 def _record(
-    s13a: Any, s13c: Any, s13d: Any, timestamp: pd.Timestamp, meter_id: str
+    s13a: Any,
+    s13c: Any,
+    s13d: Any,
+    timestamp: pd.Timestamp,
+    meter_id: str,
+    policies: Mapping[str, RevenueMeterIntervalSupportPolicyAuthority] | None = None,
 ) -> dict[str, object]:
     record = _base_record(s13a, timestamp, meter_id)
+    policy = policies.get(meter_id) if policies is not None else None
+    record["revenue_meter_interval_support_policy_contract"] = (
+        REVENUE_METER_INTERVAL_SUPPORT_POLICY_CONTRACT_ID
+    )
+    if policy is not None:
+        record["expected_interval_support_policy_present"] = True
+        record["maximum_expected_sample_gap_allowed_seconds"] = float(
+            policy.maximum_expected_sample_gap_seconds
+        )
+        for field in (
+            "policy_scope",
+            "evidence_kind",
+            "parameter_source",
+            "confidence",
+            "method_reference",
+            "applicability_description",
+        ):
+            record["support_" + field if field == "policy_scope" else "support_policy_" + field] = (
+                getattr(policy, field)
+            )
     key = (timestamp, meter_id)
     present = key in s13d.states.index
     measured = s13d.states.loc[key] if present else None
@@ -475,6 +557,8 @@ def _record(
         return record
     finite, expected_wh, expected_varh, gap = _integrate(selected)
     record["maximum_expected_sample_gap_seconds"] = gap
+    if math.isfinite(gap) and duration > 0:
+        record["maximum_expected_sample_gap_fraction_of_interval"] = gap / duration
     try:
         hours = duration / 3600.0
         expected_p = expected_wh / hours
@@ -513,6 +597,17 @@ def _record(
         expected_reactive_energy_varh=expected_varh,
         measured_active_energy_wh=measured_wh,
         measured_reactive_energy_varh=measured_varh,
+        expected_interval_reconstruction_resolved=True,
+    )
+    if policy is None:
+        record["revenue_meter_interval_benchmark_state"] = _STATES[7]
+        return record
+    if gap > float(policy.maximum_expected_sample_gap_seconds):
+        record["revenue_meter_interval_benchmark_state"] = _STATES[8]
+        return record
+    record.update(
+        expected_interval_support_gap_policy_satisfied=True,
+        expected_interval_support_eligible=True,
         benchmark_eligible=True,
         active_power_residual_measured_minus_expected_w=dp,
         reactive_power_residual_measured_minus_expected_var=dq,
@@ -573,6 +668,33 @@ def _diagnostics(
         int((frame["interval_boundary_exactly_representable"] & ~boundary_complete).sum()),
         int(frame["expected_interval_all_samples_resolved"].sum()),
         int((frame["expected_interval_unresolved_sample_count"] > 0).sum()),
+        int(frame["expected_interval_reconstruction_resolved"].sum()),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & ~frame["expected_interval_support_policy_present"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+                & frame["expected_interval_support_gap_policy_satisfied"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+                & ~frame["expected_interval_support_gap_policy_satisfied"]
+            ).sum()
+        ),
         eligible,
         rows - eligible,
         int(frame["expected_interval_sample_count"].sum()),
@@ -583,6 +705,11 @@ def _diagnostics(
 
 
 def calculate_topology_revenue_meter_interval_benchmark(
+    *,
+    revenue_meter_interval_support_policy_by_meter_id: Mapping[
+        str, RevenueMeterIntervalSupportPolicyAuthority
+    ]
+    | None = None,
     **values: Any,
 ) -> TopologyRevenueMeterIntervalBenchmarkResult:
     """Benchmark S13D interval averages against integrated S13C meter power."""
@@ -591,19 +718,27 @@ def calculate_topology_revenue_meter_interval_benchmark(
     timestamps = _timestamps(s13c, s13d)
     meters = tuple(s13a.revenue_meter_boundary_by_id)
     keys = tuple((timestamp, meter) for timestamp in timestamps for meter in meters)
-    records = [_record(s13a, s13c, s13d, timestamp, meter) for timestamp, meter in keys]
+    policies = _policies(meters, revenue_meter_interval_support_policy_by_meter_id)
+    records = [_record(s13a, s13c, s13d, timestamp, meter, policies) for timestamp, meter in keys]
     frame = _frame(keys, records)
     result = TopologyRevenueMeterIntervalBenchmarkResult(
         frame.copy(deep=True), _diagnostics(meters, timestamps, frame)
     )
-    _validate_result((s13a, s13c, s13d), result)
+    _validate_result(
+        (s13a, s13c, s13d), result, revenue_meter_interval_support_policy_by_meter_id=policies
+    )
     return result
 
 
 # The validator duplicates boundary arithmetic, integration, frame construction,
 # and diagnostics without calling or capturing production builders/helpers.
 def _validator_record(
-    s13a: Any, s13c: Any, s13d: Any, timestamp: pd.Timestamp, meter_id: str
+    s13a: Any,
+    s13c: Any,
+    s13d: Any,
+    timestamp: pd.Timestamp,
+    meter_id: str,
+    policies: Mapping[str, RevenueMeterIntervalSupportPolicyAuthority] | None = None,
 ) -> dict[str, object]:
     # Use a separately defined local implementation by evaluating the complete
     # contract from canonical parents.  No production helper is invoked.
@@ -646,6 +781,23 @@ def _validator_record(
         revenue_meter_interval_benchmark_scope=REVENUE_METER_INTERVAL_BENCHMARK_SCOPE,
         revenue_meter_interval_benchmark_coverage_scope=REVENUE_METER_INTERVAL_BENCHMARK_COVERAGE_SCOPE,
     )
+    selected_policy = policies.get(meter_id) if policies is not None else None
+    out["revenue_meter_interval_support_policy_contract"] = (
+        REVENUE_METER_INTERVAL_SUPPORT_POLICY_CONTRACT_ID
+    )
+    if selected_policy is not None:
+        out.update(
+            expected_interval_support_policy_present=True,
+            maximum_expected_sample_gap_allowed_seconds=float(
+                selected_policy.maximum_expected_sample_gap_seconds
+            ),
+            support_policy_scope=selected_policy.policy_scope,
+            support_policy_evidence_kind=selected_policy.evidence_kind,
+            support_policy_parameter_source=selected_policy.parameter_source,
+            support_policy_confidence=selected_policy.confidence,
+            support_policy_method_reference=selected_policy.method_reference,
+            support_policy_applicability_description=selected_policy.applicability_description,
+        )
     key = (timestamp, meter_id)
     present = key in s13d.states.index
     m = s13d.states.loc[key] if present else None
@@ -763,7 +915,10 @@ def _validator_record(
     except (OverflowError, ValueError, TypeError):
         finite = False
         ewh = eqh = math.nan
-    out["maximum_expected_sample_gap_seconds"] = max(gaps, default=math.nan)
+    max_gap = max(gaps, default=math.nan)
+    out["maximum_expected_sample_gap_seconds"] = max_gap
+    if math.isfinite(max_gap) and duration > 0:
+        out["maximum_expected_sample_gap_fraction_of_interval"] = max_gap / duration
     try:
         hours = duration / 3600
         epa = ewh / hours
@@ -801,6 +956,21 @@ def _validator_record(
         expected_reactive_energy_varh=eqh,
         measured_active_energy_wh=mwh,
         measured_reactive_energy_varh=mqh,
+        expected_interval_reconstruction_resolved=True,
+    )
+    if selected_policy is None:
+        out["revenue_meter_interval_benchmark_state"] = (
+            "unresolved_missing_expected_interval_support_policy"
+        )
+        return out
+    if not max_gap <= float(selected_policy.maximum_expected_sample_gap_seconds):
+        out["revenue_meter_interval_benchmark_state"] = (
+            "unresolved_expected_interval_support_gap_exceeds_policy"
+        )
+        return out
+    out.update(
+        expected_interval_support_gap_policy_satisfied=True,
+        expected_interval_support_eligible=True,
         benchmark_eligible=True,
         active_power_residual_measured_minus_expected_w=dp,
         reactive_power_residual_measured_minus_expected_var=dq,
@@ -861,6 +1031,33 @@ def _validator_diagnostics(
         int((frame["interval_boundary_exactly_representable"] & ~complete).sum()),
         int(frame["expected_interval_all_samples_resolved"].sum()),
         int((frame["expected_interval_unresolved_sample_count"] > 0).sum()),
+        int(frame["expected_interval_reconstruction_resolved"].sum()),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & ~frame["expected_interval_support_policy_present"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+                & frame["expected_interval_support_gap_policy_satisfied"]
+            ).sum()
+        ),
+        int(
+            (
+                frame["expected_interval_reconstruction_resolved"]
+                & frame["expected_interval_support_policy_present"]
+                & ~frame["expected_interval_support_gap_policy_satisfied"]
+            ).sum()
+        ),
         eligible,
         rows - eligible,
         int(frame["expected_interval_sample_count"].sum()),
@@ -871,7 +1068,13 @@ def _validator_diagnostics(
 
 
 def _validate_result(
-    parents: tuple[Any, Any, Any], result: TopologyRevenueMeterIntervalBenchmarkResult
+    parents: tuple[Any, Any, Any],
+    result: TopologyRevenueMeterIntervalBenchmarkResult,
+    *,
+    revenue_meter_interval_support_policy_by_meter_id: Mapping[
+        str, RevenueMeterIntervalSupportPolicyAuthority
+    ]
+    | None = None,
 ) -> None:
     if type(result) is not TopologyRevenueMeterIntervalBenchmarkResult:
         raise RuntimeError("S14B result type is invalid")
@@ -880,7 +1083,22 @@ def _validate_result(
     timestamps = _timestamps(s13c, s13d)
     meters = tuple(s13a.revenue_meter_boundary_by_id)
     keys = tuple((t, m) for t in timestamps for m in meters)
-    expected = _validator_frame(keys, [_validator_record(s13a, s13c, s13d, t, m) for t, m in keys])
+    # Independent policy admission: never call production _policies().
+    supplied = revenue_meter_interval_support_policy_by_meter_id
+    if supplied is None:
+        supplied = {}
+    if not isinstance(supplied, Mapping):
+        raise ValueError("validator requires an explicit support-policy mapping")
+    admitted = {}
+    for identity, authority in supplied.items():
+        if type(identity) is not str or identity not in meters:
+            raise ValueError("validator policy meter identity is invalid")
+        if type(authority) is not RevenueMeterIntervalSupportPolicyAuthority:
+            raise ValueError("validator policy authority type is invalid")
+        admitted[identity] = replace(authority)
+    expected = _validator_frame(
+        keys, [_validator_record(s13a, s13c, s13d, t, m, admitted) for t, m in keys]
+    )
     try:
         pd.testing.assert_frame_equal(result.states, expected, check_exact=True)
     except AssertionError as error:

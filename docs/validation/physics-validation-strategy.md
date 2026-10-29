@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -421,9 +421,13 @@ Generic bounded coverage is implemented; site admission remains evidence-depende
 
 ### S14B support density
 
-S14B currently records support sample count and `maximum_expected_sample_gap_seconds` but does not reject sparse support solely because the gap is large. Add deterministic daylight-edge regressions and then define an explicit admissibility policy, for example a maximum gap relative to interval duration or a required support cadence.
+Generic S14B v2 support eligibility is implemented, dormant. Prove reconstruction resolved ≠ benchmark eligible: exact boundaries/all resolved samples and finite integration can coexist with missing policy or excessive support gap. Such rows retain expected averages/energy, measured energy and support diagnostics; all eight benchmark residual fields remain NaN. Only explicit policy with actual maximum gap ≤ admitted seconds allows eligibility. No default or gap-fraction threshold is inferred.
 
-Do not document a numerical sunrise/sunset error range as a project fact until it is reproduced by a checked-in regression or analysis.
+Test frozen authority domains/provenance and tamper revalidation, meter-specific/partial mappings, unknown keys, explicit reuse and insertion-order invariance. Test inclusive equality, irregular-gap integration invariance, missing-policy diagnostics, earlier failure precedence and constant-power rejection under a stricter policy. Policy counts partition only finite reconstructed intervals, excluding snapshot/upstream-failure rows.
+
+Synthetic sunrise proxy `P(x)=P_peak*x²` and mirrored sunset `P(x)=P_peak*(1−x)²`, 0≤x≤1, have exact average P_peak/3. Endpoint-only trapezoids give P_peak/2; four equal support segments give 11*P_peak/32. With test-only P_peak=96, exact/sparse/denser averages are 32/48/33 and absolute errors 16/1. A test-only 900-second policy admits the quarter-hour support and rejects one-hour endpoints. These are analytic regression facts only, not Bracon or universal PV accuracy/cadence claims.
+
+Independently replay support timestamps, gaps/fraction, policy lookup, provenance, eligibility, residual publication and diagnostics with production record/integration/frame/policy helpers disabled. Tampering with every new field and count must fail. S14C regressions must resolve under passing policy and suppress component-energy attribution under missing/excess-gap policy, using S14B's exact published support rather than a new downstream interpretation. S14A and S14C accounting physics remain unchanged.
 
 ### Quantitative uncertainty
 
@@ -447,7 +451,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is site evidence binding including population-residual authority, S14B density, quantitative uncertainty and platform authorization before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next workstream is quantitative uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 

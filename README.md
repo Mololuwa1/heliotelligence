@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -68,7 +68,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 2. site optics/measurement coverage and integration of the new canonical boundary, whose optical ownership is already explicit;
 3. site thermal evidence admission and later integration of the new canonical contract; legacy thermal defects remain isolated in production compatibility code;
 4. site admission of the generic bounded population-residual authority; homogeneous S8 string scaling remains unchanged and member-resolved variability remains future work;
-5. an S14B expected-sample density / maximum-gap eligibility policy, backed by deterministic sunrise/sunset regressions;
+5. site-specific admission of the generic S14B maximum-support-gap eligibility policy; no universal cadence threshold is chosen;
 6. quantitative uncertainty evidence, including revenue-meter accuracy/calibration evidence where available;
 7. platform authorization hardening before shadow data is exposed outside the trusted development team;
 8. local declaration of the S9-4A fixed-Q sign convention so `Qmin/Qmax` evidence cannot be interpreted ambiguously.
@@ -79,9 +79,15 @@ Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-volta
 
 Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. No production, expected-energy source or P1/P2/P3 activation occurs.
 
+## Interval benchmark support eligibility
+
+Generic dormant S14B v2 now requires explicit per-meter maximum-gap policy for a finite reconstructed interval to become benchmark eligible. Exact boundaries, selected support timestamps, piecewise-linear reconstruction and trapezoidal integration are unchanged. Reconstruction resolved ≠ benchmark eligible: missing policy or excess gap retains reconstructed averages/energy and support diagnostics, but all benchmark residuals remain NaN. S14C consumes that eligibility gate without reinterpreting support density.
+
+There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission, quantitative uncertainty, platform authorization and P1/P2 finalisation remain open; no production or shadow activation occurs.
+
 ## Next major phase — production integration
 
-Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual site evidence, S14B density, uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, quantitative uncertainty and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,23 @@ from heliotelligence.physics.revenue_meter_interval_benchmark import (
     calculate_topology_revenue_meter_interval_benchmark,
 )
 from tests.unit.test_physics import test_inverter_dispatch_feasibility as support
+from tests.unit.test_physics.test_revenue_meter_interval_support_policy import policy
 from tests.unit.test_physics.test_revenue_meter_power_benchmark import _values as _s14a_values
+
+
+def _policy_mapping(maximum_gap: float | None = 3600.0) -> dict[str, Any]:
+    """Explicit permissive test authority; never a production/default policy."""
+    return {} if maximum_gap is None else {"meter": policy(maximum_gap)}
+
+
+def _validate(parents: tuple[Any, ...], result: Any, *, policies: Any = None) -> None:
+    module._validate_result(
+        parents,
+        result,
+        revenue_meter_interval_support_policy_by_meter_id=_policy_mapping()
+        if policies is None
+        else policies,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +41,7 @@ def fake_cec_database(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(inverter_envelope_lookup, "_load_cec_inverter_database", database)
 
 
+@cache
 def _parents() -> tuple[Any, Any, Any]:
     return module._parents(
         _s14a_values(
@@ -43,6 +61,7 @@ def _bounded(
     measured_p: float = 50.0,
     measured_q: float = 10.0,
     temporal: str = "interval_average_ending_at_timestamp",
+    maximum_gap: float | None = 3600.0,
 ) -> tuple[tuple[Any, Any, Any], Any]:
     s13a, s13c, s13d = parents
     end = s13d.states.index.get_level_values("timestamp")[0]
@@ -78,7 +97,7 @@ def _bounded(
         replace(s13c, revenue_meter_states=expected),
         replace(s13d, states=measured),
     )
-    record = module._record(*bounded_parents, end, "meter")
+    record = module._record(*bounded_parents, end, "meter", _policy_mapping(maximum_gap))
     frame = module._frame(((end, "meter"),), [record])
     result = module.TopologyRevenueMeterIntervalBenchmarkResult(
         frame,
@@ -119,10 +138,10 @@ def test_constant_linear_irregular_and_signed_interval_equations() -> None:
         assert row["reactive_power_residual_measured_minus_expected_var"] == pytest.approx(-2.0)
         assert row["active_energy_residual_measured_minus_expected_wh"] == pytest.approx(5.0)
         assert row["reactive_energy_residual_measured_minus_expected_varh"] == pytest.approx(-2.0)
-        module._validate_result(bounded, result)
+        _validate(bounded, result)
 
 
-def test_irregular_spacing_uses_all_samples_and_reports_unclassified_max_gap() -> None:
+def test_irregular_spacing_uses_all_samples_with_explicit_permissive_policy() -> None:
     parents = _parents()
     bounded, result = _bounded(
         parents,
@@ -139,7 +158,7 @@ def test_irregular_spacing_uses_all_samples_and_reports_unclassified_max_gap() -
     assert row["expected_interval_segment_count"] == 2
     assert row["maximum_expected_sample_gap_seconds"] == 3000.0
     assert row["expected_interval_average_active_power_w"] == pytest.approx(80.0)
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
 
 
 def test_snapshot_missing_boundaries_and_unresolved_samples_have_exact_states() -> None:
@@ -167,7 +186,7 @@ def test_snapshot_missing_boundaries_and_unresolved_samples_have_exact_states() 
         assert not row["benchmark_eligible"]
         assert row["revenue_meter_interval_benchmark_state"] == state
         assert pd.isna(row["expected_active_energy_wh"])
-        module._validate_result(bounded, result)
+        _validate(bounded, result)
 
 
 def test_exact_subsecond_and_nonrepresentable_interval_boundaries() -> None:
@@ -180,7 +199,7 @@ def test_exact_subsecond_and_nonrepresentable_interval_boundaries() -> None:
         measured_q=0.0,
     )
     assert result.states.iloc[0]["benchmark_eligible"]
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
     bounded, result = _bounded(
         parents,
         [(0.0, 10.0, 0.0, True)],
@@ -191,7 +210,7 @@ def test_exact_subsecond_and_nonrepresentable_interval_boundaries() -> None:
     assert row["revenue_meter_interval_benchmark_state"] == (
         "unresolved_interval_boundary_not_exactly_representable"
     )
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
 
 
 def test_nonfinite_integration_measured_energy_and_residual_are_controlled() -> None:
@@ -225,7 +244,7 @@ def test_nonfinite_integration_measured_energy_and_residual_are_controlled() -> 
             "active_energy_residual_measured_minus_expected_wh",
         ):
             assert pd.isna(row[column])
-        module._validate_result(bounded, result)
+        _validate(bounded, result)
 
 
 def test_public_resolution_preserves_interval_measurement_when_start_is_missing() -> None:
@@ -315,7 +334,7 @@ def test_half_hour_power_and_energy_residual_representations_close() -> None:
     assert row["reactive_energy_residual_measured_minus_expected_varh"] == pytest.approx(
         row["reactive_power_residual_measured_minus_expected_var"] * hours
     )
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
 
 
 def test_strong_parent_replay_rejects_each_parent() -> None:
@@ -376,9 +395,9 @@ def test_independent_validator_rejects_tampering_and_ignores_production_helpers(
         changed = result.states.copy(deep=True)
         changed.at[changed.index[0], column] = value
         with pytest.raises(RuntimeError, match="independent exact closure"):
-            module._validate_result(bounded, replace(result, states=changed))
+            _validate(bounded, replace(result, states=changed))
     with pytest.raises(RuntimeError, match="diagnostics"):
-        module._validate_result(
+        _validate(
             bounded,
             replace(
                 result,
@@ -389,9 +408,9 @@ def test_independent_validator_rejects_tampering_and_ignores_production_helpers(
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("production helper called")
 
-    for name in ("_interval_start", "_integrate", "_record", "_frame", "_diagnostics"):
+    for name in ("_interval_start", "_integrate", "_record", "_frame", "_diagnostics", "_policies"):
         monkeypatch.setattr(module, name, fail)
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
 
 
 def test_empty_schema_dtypes_and_source_exclusions() -> None:
@@ -432,7 +451,7 @@ def test_downstream_fallback_support_integrates_without_special_adjustment() -> 
         measured_p=p + 10.0,
         measured_q=q,
     )
-    module._validate_result(bounded, result)
+    _validate(bounded, result)
     row = result.states.iloc[0]
     end = row.name[0]
     assert row["expected_interval_sample_timestamps"] == (
@@ -446,3 +465,306 @@ def test_downstream_fallback_support_integrates_without_special_adjustment() -> 
     assert row["expected_active_energy_wh"] == pytest.approx(p * 0.5)
     assert row["measured_active_energy_wh"] == pytest.approx((p + 10.0) * 0.5)
     assert row["active_energy_residual_measured_minus_expected_wh"] == pytest.approx(5.0)
+
+
+_RESIDUAL_COLUMNS = tuple(
+    column
+    for column in module._COLUMNS
+    if "residual" in column and column != "residual_sign_semantics"
+)
+
+
+def test_missing_policy_preserves_reconstruction_but_not_benchmark_residuals() -> None:
+    parents, result = _bounded(
+        _parents(), [(3600, 50, 10, True), (0, 50, 10, True)], maximum_gap=None
+    )
+    row = result.states.iloc[0]
+    assert row.expected_interval_reconstruction_resolved
+    assert row.expected_interval_all_samples_resolved
+    assert not row.expected_interval_support_policy_present
+    assert not row.expected_interval_support_eligible
+    assert not row.benchmark_eligible
+    assert (
+        row.revenue_meter_interval_benchmark_state
+        == "unresolved_missing_expected_interval_support_policy"
+    )
+    assert row.expected_active_energy_wh == row.measured_active_energy_wh == 50
+    assert row.expected_interval_average_active_power_w == 50
+    assert row.maximum_expected_sample_gap_seconds == 3600
+    assert row.maximum_expected_sample_gap_fraction_of_interval == 1
+    assert pd.isna(row.maximum_expected_sample_gap_allowed_seconds)
+    assert row.support_policy_parameter_source == row.support_policy_confidence == ""
+    assert row[list(_RESIDUAL_COLUMNS)].isna().all()
+    assert result.diagnostics.support_policy_missing_count == 1
+    assert result.diagnostics.expected_interval_reconstruction_resolved_count == 1
+    _validate(parents, result, policies={})
+
+
+@pytest.mark.parametrize("allowed,eligible", [(2999.0, False), (3000.0, True), (3600.0, True)])
+def test_irregular_gap_changes_eligibility_not_integration(allowed: float, eligible: bool) -> None:
+    samples = [(3600, 0, 0, True), (3000, 60, 0, True), (0, 120, 0, True)]
+    parents, result = _bounded(_parents(), samples, maximum_gap=allowed)
+    row = result.states.iloc[0]
+    assert (
+        row.expected_interval_reconstruction_resolved and row.expected_interval_all_samples_resolved
+    )
+    assert row.expected_interval_average_active_power_w == pytest.approx(80)
+    assert row.expected_active_energy_wh == pytest.approx(80)
+    assert row.maximum_expected_sample_gap_fraction_of_interval == pytest.approx(5 / 6)
+    assert row.expected_interval_support_gap_policy_satisfied == eligible
+    assert row.expected_interval_support_eligible == row.benchmark_eligible == eligible
+    if not eligible:
+        assert (
+            row.revenue_meter_interval_benchmark_state
+            == "unresolved_expected_interval_support_gap_exceeds_policy"
+        )
+        assert row[list(_RESIDUAL_COLUMNS)].isna().all()
+    assert result.diagnostics.support_policy_present_count == 1
+    assert result.diagnostics.support_gap_policy_satisfied_count == int(eligible)
+    assert result.diagnostics.support_gap_policy_failed_count == int(not eligible)
+    _validate(parents, result, policies=_policy_mapping(allowed))
+
+
+@pytest.mark.parametrize("sunset", [False, True], ids=["sunrise", "sunset"])
+def test_analytic_daylight_edge_support_sensitivity_and_policy(sunset: bool) -> None:
+    peak = 96.0
+    exact_average = peak / 3
+    results = []
+    for divisions in [1, 4]:
+        samples = []
+        for index in range(divisions + 1):
+            x = index / divisions
+            p = peak * ((1 - x) ** 2 if sunset else x**2)
+            samples.append((3600 * (1 - x), p, 0.0, True))
+        parents, result = _bounded(
+            _parents(), samples, maximum_gap=900, measured_p=exact_average, measured_q=0
+        )
+        row = result.states.iloc[0]
+        assert row.expected_interval_reconstruction_resolved
+        assert row.maximum_expected_sample_gap_seconds == 3600 / divisions
+        assert row.benchmark_eligible == (divisions == 4)
+        assert row.expected_interval_average_active_power_w == pytest.approx(
+            48 if divisions == 1 else 33
+        )
+        assert row.expected_active_energy_wh == pytest.approx(48 if divisions == 1 else 33)
+        if divisions == 1:
+            assert row[list(_RESIDUAL_COLUMNS)].isna().all()
+        _validate(parents, result, policies=_policy_mapping(900))
+        results.append(abs(row.expected_interval_average_active_power_w - exact_average))
+    assert results == pytest.approx([16, 1])
+    assert results[1] < results[0]  # Analytic proxy only, not a real-site accuracy claim.
+
+
+def test_constant_power_does_not_bypass_conservative_support_policy() -> None:
+    parents, result = _bounded(
+        _parents(), [(3600, 50, 10, True), (0, 50, 10, True)], maximum_gap=900
+    )
+    row = result.states.iloc[0]
+    assert row.expected_interval_reconstruction_resolved
+    assert row.expected_active_energy_wh == 50
+    assert row.expected_interval_average_active_power_w == 50
+    assert not row.benchmark_eligible
+    assert row[list(_RESIDUAL_COLUMNS)].isna().all()
+    _validate(parents, result, policies=_policy_mapping(900))
+
+
+@pytest.mark.parametrize("allowed", [None, 900.0])
+@pytest.mark.parametrize(
+    "samples,temporal",
+    [
+        ([(0, 1, 0, True)], "instantaneous_snapshot"),
+        ([(3599, 1, 0, True), (0, 1, 0, True)], "interval_average_ending_at_timestamp"),
+        (
+            [(3600, 1, 0, True), (1800, 1, 0, False), (0, 1, 0, True)],
+            "interval_average_ending_at_timestamp",
+        ),
+    ],
+)
+def test_upstream_failures_are_not_support_policy_gaps(
+    samples: Any, temporal: str, allowed: float | None
+) -> None:
+    parents, result = _bounded(_parents(), samples, maximum_gap=allowed, temporal=temporal)
+    assert not result.states.iloc[0].expected_interval_reconstruction_resolved
+    assert not result.states.iloc[0].expected_interval_support_eligible
+    assert result.diagnostics.support_policy_present_count == 0
+    assert result.diagnostics.support_policy_missing_count == 0
+    assert result.diagnostics.support_gap_policy_satisfied_count == 0
+    assert result.diagnostics.support_gap_policy_failed_count == 0
+    _validate(parents, result, policies=_policy_mapping(allowed))
+
+
+def _two_meter_parents() -> tuple[Any, Any, Any]:
+    from types import MappingProxyType
+
+    parents, _ = _bounded(_parents(), [(1800, 50, 10, True), (0, 50, 10, True)], duration=1800)
+    a, c, d = parents
+    boundaries = dict(a.revenue_meter_boundary_by_id)
+    boundaries["meter-2"] = replace(boundaries["meter"], revenue_meter_id="meter-2")
+
+    def duplicate(frame: pd.DataFrame) -> pd.DataFrame:
+        other = frame.copy()
+        other.index = pd.MultiIndex.from_tuples(
+            [(t, "meter-2") for t, _ in frame.index], names=frame.index.names
+        )
+        return pd.concat([frame, other]).sort_index()
+
+    return (
+        replace(a, revenue_meter_boundary_by_id=MappingProxyType(boundaries)),
+        replace(c, revenue_meter_states=duplicate(c.revenue_meter_states)),
+        replace(d, states=duplicate(d.states)),
+    )
+
+
+def test_public_mapping_partial_coverage_reuse_and_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    parents = _two_meter_parents()
+    monkeypatch.setattr(module, "_parents", lambda _values: parents)
+    first = module.calculate_topology_revenue_meter_interval_benchmark(
+        revenue_meter_interval_support_policy_by_meter_id={"meter": policy(1800)}
+    )
+    assert first.states.benchmark_eligible.tolist() == [True, False]
+    assert (
+        first.diagnostics.support_policy_present_count
+        == first.diagnostics.support_policy_missing_count
+        == 1
+    )
+    evidence = policy(1800)
+    mapping = {"meter-2": evidence, "meter": evidence}
+    reused = module.calculate_topology_revenue_meter_interval_benchmark(
+        revenue_meter_interval_support_policy_by_meter_id=mapping
+    )
+    reordered = module.calculate_topology_revenue_meter_interval_benchmark(
+        revenue_meter_interval_support_policy_by_meter_id=dict(reversed(list(mapping.items())))
+    )
+    assert reused.states.benchmark_eligible.all()
+    pd.testing.assert_frame_equal(reused.states, reordered.states)
+    assert reused.diagnostics == reordered.diagnostics
+    differing = module.calculate_topology_revenue_meter_interval_benchmark(
+        revenue_meter_interval_support_policy_by_meter_id={
+            "meter": policy(900),
+            "meter-2": policy(1800),
+        }
+    )
+    assert differing.states.benchmark_eligible.tolist() == [False, True]
+    assert differing.diagnostics.support_gap_policy_failed_count == 1
+
+
+@pytest.mark.parametrize(
+    "supplied", [{"unknown": policy()}, {1: policy()}, [], "policy", False, {"meter": object()}]
+)
+def test_public_rejects_invalid_policy_mapping(
+    monkeypatch: pytest.MonkeyPatch, supplied: Any
+) -> None:
+    parents, _ = _bounded(_parents(), [(3600, 50, 10, True), (0, 50, 10, True)])
+    monkeypatch.setattr(module, "_parents", lambda _values: parents)
+    with pytest.raises(ValueError):
+        module.calculate_topology_revenue_meter_interval_benchmark(
+            revenue_meter_interval_support_policy_by_meter_id=supplied
+        )
+
+
+def test_omitted_policy_and_tampered_frozen_authority_public_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parents, _ = _bounded(_parents(), [(3600, 50, 10, True), (0, 50, 10, True)])
+    monkeypatch.setattr(module, "_parents", lambda _values: parents)
+    omitted = module.calculate_topology_revenue_meter_interval_benchmark()
+    assert (
+        omitted.states.iloc[0].revenue_meter_interval_benchmark_state
+        == "unresolved_missing_expected_interval_support_policy"
+    )
+    forged = policy()
+    object.__setattr__(forged, "maximum_expected_sample_gap_seconds", 0)
+    with pytest.raises(ValueError):
+        module.calculate_topology_revenue_meter_interval_benchmark(
+            revenue_meter_interval_support_policy_by_meter_id={"meter": forged}
+        )
+    with pytest.raises(ValueError):
+        module._validate_result(
+            parents, omitted, revenue_meter_interval_support_policy_by_meter_id={"meter": forged}
+        )
+
+
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("expected_interval_reconstruction_resolved", False),
+        ("expected_interval_support_policy_present", False),
+        ("maximum_expected_sample_gap_allowed_seconds", 1),
+        ("maximum_expected_sample_gap_fraction_of_interval", 0.3),
+        ("expected_interval_support_gap_policy_satisfied", False),
+        ("expected_interval_support_eligible", False),
+        ("support_policy_scope", "wrong"),
+        ("support_policy_evidence_kind", "wrong"),
+        ("support_policy_parameter_source", "wrong"),
+        ("support_policy_confidence", "low"),
+        ("support_policy_method_reference", "wrong"),
+        ("support_policy_applicability_description", "wrong"),
+        ("revenue_meter_interval_support_policy_contract", "wrong"),
+    ],
+)
+def test_new_policy_public_fields_tamper_rejected(column: str, value: Any) -> None:
+    parents, result = _bounded(_parents(), [(3600, 50, 10, True), (0, 50, 10, True)])
+    frame = result.states.copy()
+    frame.at[frame.index[0], column] = value
+    with pytest.raises(RuntimeError, match="independent exact closure"):
+        _validate(parents, replace(result, states=frame))
+
+
+@pytest.mark.parametrize("allowed", [None, 900.0, 3600.0])
+def test_independent_validator_replays_each_policy_outcome(
+    monkeypatch: pytest.MonkeyPatch, allowed: float | None
+) -> None:
+    parents, result = _bounded(
+        _parents(), [(3600, 50, 10, True), (0, 50, 10, True)], maximum_gap=allowed
+    )
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production support helper called")
+
+    for name in [
+        "_record",
+        "_base_record",
+        "_interval_start",
+        "_integrate",
+        "_frame",
+        "_diagnostics",
+        "_policies",
+    ]:
+        monkeypatch.setattr(module, name, forbidden)
+    _validate(parents, result, policies=_policy_mapping(allowed))
+
+
+def test_v2_identities_reconstruction_semantics_unchanged() -> None:
+    assert module.REVENUE_METER_INTERVAL_BENCHMARK_CONTRACT_ID == (
+        "admitted_s13a_s13c_s13d_and_support_policy_to_exact_interval_average_"
+        "revenue_meter_energy_benchmark_v2"
+    )
+    assert module.REVENUE_METER_INTERVAL_BENCHMARK_MODEL_ID == (
+        "piecewise_linear_s13c_expected_power_trapezoidal_interval_integration_"
+        "with_explicit_maximum_support_gap_eligibility_v2"
+    )
+    assert (
+        module.TEMPORAL_RECONSTRUCTION_SEMANTICS
+        == "piecewise_linear_between_resolved_s13c_meter_samples_with_exact_interval_boundaries_v1"
+    )
+    assert (
+        module.ENERGY_INTEGRATION_SEMANTICS
+        == "trapezoidal_time_integral_of_piecewise_linear_expected_power_v1"
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "expected_interval_reconstruction_resolved_count",
+        "support_policy_present_count",
+        "support_policy_missing_count",
+        "support_gap_policy_satisfied_count",
+        "support_gap_policy_failed_count",
+    ],
+)
+def test_support_diagnostics_tamper_rejected(field: str) -> None:
+    parents, result = _bounded(_parents(), [(3600, 50, 10, True), (0, 50, 10, True)])
+    diagnostics = replace(result.diagnostics, **{field: getattr(result.diagnostics, field) + 1})
+    with pytest.raises(RuntimeError, match="diagnostics"):
+        _validate(parents, replace(result, diagnostics=diagnostics))

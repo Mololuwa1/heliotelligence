@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1`, PR #120 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a`, PR #121 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -82,31 +82,29 @@ P0, P1 and P2 are necessary but not sufficient for P3. Before a physical source 
 2. **Irradiance/optics ownership — generic boundary implemented, dormant:** replay canonical raw, optical-effective, bifacial and final spectral results with exact observation/receiver keys. IAM/shading/bifacial/spectral factors are owned once upstream; measured front never erases rear. Site measurement/receiver evidence and calibrated thermal POA selection remain open. Legacy defects above are unchanged.
 3. **Canonical module thermal state — generic contract implemented, dormant:** the new authority/state modules distinguish cell/module-back evidence, explicit reference-irradiance deltaT conversion and native PVsyst/Faiman families. They avoid the legacy offset and model-family defects without altering compatibility numerics. Site evidence, zone binding and thermal POA/time admission remain required before activation.
 4. **Mismatch coverage — bounded generic residual implemented, dormant:** physical shared-MPPT mismatch remains in S8; the separate explicit lower-fidelity intra-string population authority admits negligible-by-evidence or post-MPPT current derate. Missing authority preserves S8 baseline and leaves active population-complete output unresolved. Resolved-zero upstream remains exact zero without population authority and is not counted as a coverage gap. Member-resolved reverse/bypass variability remains future work. Site residual evidence, applicability and legacy allocation are required before retiring any aggregate percentage.
-5. **S14B support density:** add an explicit expected-sample density / maximum-gap eligibility policy. The existing `maximum_expected_sample_gap_seconds` diagnostic is not currently a gate. Quantify sunrise/sunset sensitivity with deterministic regressions before adopting numerical thresholds.
+5. **S14B support-density eligibility — generic v2 policy implemented, dormant:** finite exact-boundary reconstruction now needs explicit per-meter maximum-gap authority before benchmark eligibility. Missing policy/excess gap retains reconstruction diagnostics but withholds benchmark residuals. Synthetic sunrise/sunset tests demonstrate sensitivity without establishing a global or Bracon threshold. Site-specific policy admission remains required.
 6. **Uncertainty evidence:** define numerical measurement/model uncertainty inputs and reporting. Revenue-meter evidence should support accuracy/calibration information where available; categorical confidence alone is not an uncertainty model.
 7. **Platform access control:** remove browser-bundled admin secrets as an authorization boundary and enforce server-side site authorization for site-scoped routes before shadow data is exposed beyond the trusted development team.
 8. **S9-4A Q semantics:** explicitly declare the fixed-Q sign convention for `reactive_power_min_var/reactive_power_max_var` and require source evidence using another convention to be transformed before authority construction.
 
-P0 is complete. Generic module thermal was completed in PR #119; generic date-consistent weather-time/irradiance boundary was completed in PR #120; the bounded population-residual authority is completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
+P0 is complete. Generic module thermal was completed in PR #119; generic date-consistent weather-time/irradiance boundary was completed in PR #120; the bounded population-residual authority was completed in PR #121; generic S14B support eligibility is completed by this increment; site thermal admission and all remaining readiness gates stay explicit. Recommended engineering order:
 
 ```text
 P0 source isolation — COMPLETE
 ↓
-canonical module thermal authority/state — COMPLETE GENERICALLY (PR #119, dormant)
+canonical module thermal — COMPLETE GENERICALLY (PR #119, dormant)
 ↓
-weather-time authority + canonical irradiance boundary — COMPLETE GENERICALLY (PR #120, dormant)
+weather-time + date-consistent irradiance boundary — COMPLETE GENERICALLY (PR #120, dormant)
 ↓
-site weather/optics/thermal evidence binding + calibrated thermal POA selection
+bounded module-population mismatch — COMPLETE GENERICALLY (PR #121, dormant)
 ↓
-bounded population residual — THIS INCREMENT (generic, dormant); site admission pending
+S14B explicit support-density eligibility — THIS INCREMENT (generic, dormant)
 ↓
-S14B density
-↓
-uncertainty
+quantitative uncertainty
 ↓
 platform authorization
 ↓
-P1/P2 finalisation
+site evidence / P1-P2 finalisation
 ↓
 P3 shadow execution
 ```
@@ -151,6 +149,12 @@ Nameplate power tolerance alone does not define intra-string loss or member curr
 
 This is a deliberately bounded post-MPPT current derate, not member-resolved I-V physics. Advanced common-current series composition, reverse bias and bypass remain future extensions. No DC-collection integration, expected-energy source, P1/P2 contract or P3 execution is activated. Bracon's 1.15% remains unallocated legacy data; no mismatch percentage is retired by this capability.
 
+
+## S14B support eligibility and site decision
+
+Finite piecewise-linear/trapezoidal reconstruction is not automatically eligible benchmark evidence. S14B v2 requires explicit per-meter maximum-gap seconds with policy scope, evidence kind, source, confidence, method and applicability. Exact equality passes; missing policy and excessive gap produce distinct ineligible states. No universal threshold, interval fraction, nominal cadence or constant-power exception is inferred. Policy failure retains reconstruction/energy diagnostics but publishes no accepted residual.
+
+The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; quantitative uncertainty is a separate next increment. No production benchmark switch or shadow execution is activated.
 
 ## Migration ledger
 

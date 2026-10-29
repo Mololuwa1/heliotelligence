@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #120 merge daa503dcbdd5e75cd72f6af38e3a55d15eca40a1
+PR #121 merge 1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -19,10 +19,10 @@ Production:
 legacy expected-energy path remains active
 Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
-Next: site evidence, population-residual admission, density, uncertainty and authorization; no shadow activation
+Next: quantitative uncertainty, authorization and site/P1-P2 evidence; no shadow activation
 ```
 
-Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -45,7 +45,7 @@ Do not describe the full weather-to-meter chain as production-validated yet.
 - **Measured-front bifacial gap:** the measured-POA shortcut explicitly sets rear irradiance to zero.
 - **Module thermal integration remains dormant:** the generic canonical authority/state contract now exists, but `physics/thermal.py` remains the active legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
 - **Population-residual site admission remains open:** S8-1 remains homogeneous series scaling and shared-MPPT mismatch remains physical S8 ownership. A separate generic bounded intra-string residual authority now exists, with explicit negligible or post-MPPT equivalent-current-derate modes. It is lower fidelity, not member-resolved I-V physics. Missing authority leaves active population-complete output unresolved; resolved-zero upstream states remain exact zero without authority; legacy aggregate mismatch cannot be retired without allocation evidence.
-- **S14B has no density gate:** sample count and `maximum_expected_sample_gap_seconds` are published, but no maximum-gap/minimum-density rule currently controls benchmark eligibility. Quantify sunrise/sunset sensitivity before selecting a threshold.
+- **S14B site support-policy admission remains open:** generic v2 eligibility now requires explicit per-meter maximum-gap authority after finite reconstruction. No default gap/cadence or Bracon threshold is inferred. Synthetic daylight-edge tests justify the distinction, not a universal policy value.
 - **Uncertainty is not yet quantitative:** S13D preserves source and categorical confidence, but not meter accuracy class, calibration uncertainty or propagated model/measurement uncertainty.
 - **Platform access control is not shadow-ready:** the frontend sends `VITE_ADMIN_KEY`, which is browser-bundled, and ordinary site-scoped protected routes reviewed so far authenticate users but do not enforce `user_site_access` membership.
 - **S9-4A fixed-Q sign semantics are not locally declared:** downstream convention is positive Q injection / negative Q absorption; source evidence using another convention must be transformed before S9-4A construction.
@@ -60,6 +60,16 @@ For resolved active authority rows, V_after=V_common, I_after=I_common(1−f), P
 
 No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1/P2/P3 remain unimplemented.
 
+## S14B support-policy recovery notes
+
+`revenue_meter_interval_support_policy.py` defines frozen `RevenueMeterIntervalSupportPolicyAuthority`, supplied to S14B via `revenue_meter_interval_support_policy_by_meter_id`. Omission means an empty mapping. Partial meter coverage is allowed; unknown/non-string keys, malformed mappings and tampered frozen authorities are rejected. No global/site-config policy or automatic fan-out exists.
+
+S14B v2 preserves exact boundaries, exact selected S13C support, piecewise-linear reconstruction and trapezoidal integration. It publishes reconstruction resolved separately from support eligibility. Missing policy gives `unresolved_missing_expected_interval_support_policy`; actual max gap greater than the admitted seconds gives `unresolved_expected_interval_support_gap_exceeds_policy`. Equality passes. Finite reconstructed energy/averages and gap diagnostics remain visible in both failure cases; all eight benchmark residual fields remain NaN. Gap/interval fraction is diagnostic, never an implicit threshold.
+
+Policy presence/provenance is visible on supplied rows even when an earlier failure prevents assessment. Diagnostics count missing/present policy only after finite reconstruction; pass/fail partition the reconstructed rows with policy. Instantaneous and upstream-failed rows are not missing-policy gaps. The independent validator rebuilds support, integration, policy admission, fields and diagnostics without production builders or the policy-resolution helper. S14C consumes S14B eligibility and exact support timestamps; its accounting contract/numerics are unchanged.
+
+The generic policy gate is complete in this increment; site policy evidence, quantitative uncertainty, platform authorization and P1/P2 remain open. No production/shadow switch is activated. Bracon has no admitted support threshold. Synthetic quadratic-edge errors describe only the checked-in proxy.
+
 ## Canonical module thermal authority/state
 
 `module_thermal_authority.py` separates explicit native PVsyst cell parameters (`u_c_w_per_m2k`, `u_v_w_per_m2k_per_ms`, efficiency, absorption), native Faiman parameters (`u0_w_per_m2k`, `u1_w_per_m2k_per_ms`, declared cell/module-back output quantity), module-back conversion authority and exact temperature evidence. No site configuration is promoted to authority.
@@ -70,7 +80,7 @@ The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit 
 
 Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (this increment). Remaining sequence: site evidence binding plus population-residual admission → S14B density → uncertainty → platform authorization → P1/P2 finalisation → P3. P1 and shadow activation are not implemented here.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility is implemented by this increment. Remaining sequence: quantitative uncertainty → platform authorization → site evidence (including population residual and support policy) / P1-P2 finalisation → P3. P1 and shadow activation are not implemented here.
 
 ## Weather-time and irradiance handoff recovery notes
 
