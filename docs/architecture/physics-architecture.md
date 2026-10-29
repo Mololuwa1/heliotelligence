@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `95547e6782c3b98c3ad0ccaf108e04319f966a2f` (PR #123 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -61,7 +61,7 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
 - **Module population site evidence:** S8-1 remains homogeneous string scaling. The separate bounded residual authority now covers an explicitly quantified intra-string population residual at lower fidelity; member-resolved variability remains unimplemented and site admission remains required.
 - **Interval benchmark site policy:** S14B v2 now requires explicit meter-specific maximum-gap authority for benchmark eligibility. No global or Bracon threshold exists; site admission remains pending.
-- **Quantitative uncertainty:** S13D provides source/confidence metadata, not meter accuracy class or numerical uncertainty propagation.
+- **Quantitative measurement uncertainty:** a separate dormant contract adds explicit complete-chain P/Q bounds around canonical S13D. S13D source/confidence is preserved; expected/model uncertainty and combined interpretation remain open.
 
 These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation is complete at the PR #118 checkpoint. P3 shadow execution and P4 accuracy claims must still address the remaining integration/evidence gates explicitly.
 
@@ -608,7 +608,7 @@ Do not upgrade the dependency as part of an unrelated model increment.
 
 ## Live contract index
 
-Exact contract IDs copied from live source. Existing stages retain their IDs except the explicitly reviewed S14B v2 eligibility contract in this increment.
+Exact contract IDs copied from live source. Existing stages retain their IDs except the explicitly reviewed S14B v2 eligibility contract from PR #122.
 
 | Stage | Source module | Contract ID |
 |---|---|---|
@@ -632,3 +632,19 @@ Exact contract IDs copied from live source. Existing stages retain their IDs exc
 | S14A | `revenue_meter_power_benchmark.py` | `admitted_s13a_s13c_s13d_to_exact_timestamp_instantaneous_revenue_meter_power_benchmark_v1` |
 | S14B | `revenue_meter_interval_benchmark.py` | `admitted_s13a_s13c_s13d_and_support_policy_to_exact_interval_average_revenue_meter_energy_benchmark_v2` |
 | S14C | `revenue_meter_loss_attribution.py` | `admitted_s11c_s12a_s12m_s13a_s13c_s14a_s14b_to_revenue_meter_delivery_loss_attribution_v1` |
+
+## Quantitative revenue-meter measurement uncertainty
+
+The dormant `revenue_meter_measurement_uncertainty.py` composes S13A meter identity, canonical S13D measured P/Q and explicit per-meter complete-chain uncertainty authority. It preserves the entire S13D frame and adds annotations on exactly its `(timestamp, revenue_meter_id)` universe. It does not change electrical physics or S14 residual/eligibility/accounting semantics.
+
+Authority contract: `explicit_revenue_meter_complete_measurement_chain_quantitative_uncertainty_authority_v1`. Result contract: `admitted_s13a_s13d_and_measurement_uncertainty_authority_to_timestamped_revenue_meter_measurement_uncertainty_state_v1`. Model: `explicit_complete_chain_symmetric_pq_measurement_uncertainty_bound_evaluation_v1`.
+
+Interpretation is `symmetric_maximum_absolute_error_bound`; combination is `explicit_complete_chain_bound_no_internal_component_recombination`. Scope is the complete measurement chain after instrument transformers, scaling and calibration, in primary engineering units at the revenue-meter boundary. Supplied complete-chain evidence may describe meter, CT, PT and calibration, but no textual specification/class numerically affects the bound. Categorical confidence remains provenance, distinct from numerical uncertainty. No RSS, independence, distribution or confidence-interval assumption is made.
+
+For each channel, sum only supplied terms: `abs(measured power) × relative fraction + absolute bound`. The required invariant `relative_error_reference_basis = absolute_same_channel_measured_power_in_primary_engineering_units` attests that each fraction refers to the magnitude of the represented measured P or Q at the primary-engineering-units revenue-meter boundary. Fractions referenced to unknown true value, full scale/rated value, plant capacity, CT primary current, nominal current or any other quantity are not directly admissible. Such evidence needs an explicit compatible bound conversion with retained conversion provenance; the engine performs no lookup or conversion inference. None is unavailable, explicit zero is admitted evidence, and fractions greater than one remain permitted. Lower/upper bounds are measured power minus/plus the bound, without clipping signed power. P and Q resolve independently. An interval-average channel also yields energy bound `power bound × averaging_interval_seconds / 3600`; snapshots have no energy uncertainty. Nonfinite arithmetic remains explicitly unresolved rather than publishing infinity.
+
+Authority time scope explicitly admits snapshots, interval averages, or both. Optional validity limits are inclusive. Snapshots compare their observation timestamp. Interval averages require complete coverage: a supplied lower boundary must be at or before `interval_end - averaging_interval_seconds`, and a supplied upper boundary must be at or after the interval end. When the lower boundary requires a start comparison, duration must round-trip exactly through positive bounded integer nanoseconds and timestamp subtraction must be representable; otherwise temporal applicability is unresolved. An absent lower boundary does not require an interval-start calculation. No dates are inferred from text. Aware timestamps in different zones are compared as physical instants without coercing public evidence; incompatible naive/aware semantics cannot resolve. Missing mapping entries do not fan out from other meters. Frozen authorities are revalidated on admission.
+
+Original measurement `parameter_source`/`confidence` are preserved; authority provenance is separately published as `uncertainty_parameter_source`, `uncertainty_confidence` and other `uncertainty_` provenance fields. Diagnostics use nested partitions: measurement presence across all rows; authority presence only for resolved measurements; temporal applicability only with measurement + authority; time-scope applicability only after temporal validity. P/Q resolved/unresolved counts each span all rows. Earlier parent failures therefore do not become missing-policy gaps.
+
+The independent validator separately reconstructs admission, temporal applicability, arithmetic, provenance, frame/dtypes and diagnostic partitions. It does not call production record/frame/diagnostic builders. S14B expected-support density remains a separate evidence question. Expected/model uncertainty, combined measurement/model bands and S14/P4 significance interpretation are not implemented. No production or shadow model is activated.
