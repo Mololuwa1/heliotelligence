@@ -402,7 +402,7 @@ def _attribution_fidelity_case(
     return _FIDELITY_CACHE[mode]
 
 
-def _fidelity_interval_parents(mode: str) -> tuple[Any, ...]:
+def _fidelity_interval_parents(mode: str, *, maximum_gap: float | None = 900.0) -> tuple[Any, ...]:
     """Exact stationary boundary support from real advanced/fallback parent solves.
 
     Only the admitted timestamp boundary is assembled internally; every component
@@ -456,14 +456,18 @@ def _fidelity_interval_parents(mode: str) -> tuple[Any, ...]:
         resolve_topology_revenue_meter_measurement_authority, measurement_values
     )
     interval_parents = parents[3], parents[4], measured
-    record = interval_module._record(*interval_parents, end, meter_id)
+    from tests.unit.test_physics.test_revenue_meter_interval_support_policy import policy
+
+    policies = {} if maximum_gap is None else {meter_id: policy(maximum_gap)}
+    record = interval_module._record(*interval_parents, end, meter_id, policies)
     frame = interval_module._frame(((end, meter_id),), [record])
     benchmark = interval_module.TopologyRevenueMeterIntervalBenchmarkResult(
         frame,
         interval_module._diagnostics((meter_id,), (end,), frame),
     )
-    interval_module._validate_result(interval_parents, benchmark)
-    assert benchmark.states.iloc[0]["benchmark_eligible"]
+    interval_module._validate_result(
+        interval_parents, benchmark, revenue_meter_interval_support_policy_by_meter_id=policies
+    )
     parents[6] = benchmark
     return tuple(parents)
 
@@ -661,4 +665,55 @@ def test_downstream_fallback_attribution_validator_is_independent(
         "_diagnostics",
     ):
         monkeypatch.setattr(module, name, fail)
+    module._validate_result(parents, result)
+
+
+@pytest.mark.parametrize("allowed,eligible", [(None, False), (450.0, False), (900.0, True)])
+def test_s14b_support_eligibility_controls_interval_delivery_attribution(
+    allowed: float | None, eligible: bool
+) -> None:
+    parents = _fidelity_interval_parents("advanced", maximum_gap=allowed)
+    benchmark = parents[6].states.iloc[0]
+    assert benchmark.expected_interval_reconstruction_resolved
+    assert benchmark.expected_interval_all_samples_resolved
+    assert bool(benchmark.benchmark_eligible) == eligible
+    result = _instant_result(parents)
+    row = result.interval_states.iloc[0]
+    assert row.expected_interval_sample_timestamps == benchmark.expected_interval_sample_timestamps
+    assert bool(row.s14b_benchmark_eligible) == eligible
+    from heliotelligence.physics.revenue_meter_interval_benchmark import (
+        REVENUE_METER_INTERVAL_BENCHMARK_CONTRACT_ID,
+    )
+
+    assert row.s14b_contract == REVENUE_METER_INTERVAL_BENCHMARK_CONTRACT_ID
+    if eligible:
+        assert (
+            row.revenue_meter_interval_delivery_attribution_state
+            == "resolved_interval_revenue_meter_delivery_attribution"
+        )
+        expected_transformer_loss = (
+            float(parents[2].states.iloc[0].p_total_transformer_active_loss_w) * 0.5
+        )
+        assert row.transformer_owned_active_loss_energy_wh == pytest.approx(
+            expected_transformer_loss
+        )
+        assert row.unexplained_meter_residual_measured_minus_expected_wh == pytest.approx(5.0)
+    else:
+        assert (
+            row.revenue_meter_interval_delivery_attribution_state
+            == "unresolved_interval_benchmark_not_eligible"
+        )
+        assert not row.interval_delivery_component_states_resolved
+        assert not row.interval_delivery_component_rows_complete
+        for column in [
+            "selected_inverter_ac_source_energy_wh",
+            "lv_ac_owned_series_loss_energy_wh",
+            "transformer_owned_active_loss_energy_wh",
+            "transformer_network_terminal_energy_wh",
+            "mv_hv_active_consumption_to_meter_energy_wh",
+            "modeled_delivery_active_consumption_energy_wh",
+            "reconstructed_expected_meter_active_energy_wh",
+            "unexplained_meter_residual_measured_minus_expected_wh",
+        ]:
+            assert pd.isna(row[column])
     module._validate_result(parents, result)

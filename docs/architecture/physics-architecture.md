@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `daa503dcbdd5e75cd72f6af38e3a55d15eca40a1` (PR #120 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -60,7 +60,7 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Measured-front bifacial ownership:** accepting measured front POA currently sets rear contribution to zero.
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
 - **Module population site evidence:** S8-1 remains homogeneous string scaling. The separate bounded residual authority now covers an explicitly quantified intra-string population residual at lower fidelity; member-resolved variability remains unimplemented and site admission remains required.
-- **Interval benchmark support density:** S14B reports sample count and maximum gap but currently has no density/gap eligibility threshold.
+- **Interval benchmark site policy:** S14B v2 now requires explicit meter-specific maximum-gap authority for benchmark eligibility. No global or Bracon threshold exists; site admission remains pending.
 - **Quantitative uncertainty:** S13D provides source/confidence metadata, not meter accuracy class or numerical uncertainty propagation.
 
 These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation is complete at the PR #118 checkpoint. P3 shadow execution and P4 accuracy claims must still address the remaining integration/evidence gates explicitly.
@@ -464,6 +464,24 @@ The physical S11C instantaneous losses replace no production quantity automatica
 
 S11C is balanced equivalent-phase physics only: no unbalanced phases, neutral, loads, shunts, cable charging, transformer, voltage-compliance logic, inverter voltage feedback, energy integration, or measured-output claim.
 
+## Revenue-meter interval support policy
+
+`RevenueMeterIntervalSupportPolicyAuthority` is an immutable eligibility authority with a strictly positive finite real non-Boolean maximum gap in seconds. Its exact policy scope is `s14b_expected_interval_support_density_eligibility_only`. Evidence kinds are `validated_sampling_sensitivity_study`, `explicit_model_cadence_requirement`, `commissioning_validation_study` and `other_explicit`. Source, categorical confidence, method and applicability are exact non-empty unpadded strings. This is not quantitative uncertainty or a new physics stage.
+
+The authority contract is `explicit_revenue_meter_interval_expected_support_maximum_gap_policy_v1`; its scope is `revenue_meter_interval_expected_support_density_eligibility`. The caller supplies an explicit meter-ID mapping; omitted mapping is empty, partial coverage is allowed, and frozen inputs are revalidated. No default cadence, gap fraction, site policy or automatic authority reuse is inferred.
+
+S14B contract: `admitted_s13a_s13c_s13d_and_support_policy_to_exact_interval_average_revenue_meter_energy_benchmark_v2`.
+
+S14B model: `piecewise_linear_s13c_expected_power_trapezoidal_interval_integration_with_explicit_maximum_support_gap_eligibility_v2`.
+
+The v2 revision changes `benchmark_eligible`, while retaining reconstruction semantics `piecewise_linear_between_resolved_s13c_meter_samples_with_exact_interval_boundaries_v1` and integration semantics `trapezoidal_time_integral_of_piecewise_linear_expected_power_v1`.
+
+Existing missing/unresolved measurement, instantaneous/S14A ownership, exact-boundary, unresolved-support and nonfinite-arithmetic failures retain precedence. Finite reconstructed rows publish `expected_interval_reconstruction_resolved=True`. Missing policy or actual gap greater than the admitted maximum makes support/benchmark ineligible; equality passes. Their reconstructed expected averages/energy, measured energy, max gap and gap/interval diagnostic remain available. All eight residual fields remain NaN until eligible. `expected_interval_all_samples_resolved` still describes individual parent readiness, not support quality.
+
+Policy-present metadata reflects supplied authority even on rows stopped by earlier failures; missing-policy diagnostics never count such rows. Reconstructed rows partition into missing-policy versus policy-present; present rows partition into maximum-gap pass/fail. Eligible/unresolved benchmark counts partition all result rows. The independent validator reconstructs policy lookup, exact support, gaps, integration, residual publication, frames and diagnostics without production policy/record/integration helpers.
+
+S14C admits the v2 S14B result through its existing canonical replay and imported contract constant. It gates interval energy attribution on S14B eligibility and uses precisely the published support timestamps. Its numerical accounting and v1 contract remain unchanged. Site evidence is still required, and no production/shadow activation or universal sampling threshold follows.
+
 ## Completed S12 — transformer
 
 S12A–M form an authority-first chain. Live implementations are the `transformer_*.py` modules under `src/heliotelligence/physics/`.
@@ -542,7 +560,7 @@ The transformer terminal frame retains exact `s12m_operating_state`, `s12m_termi
 ## Completed S14 — benchmark and delivery-loss attribution
 
 - **S14A:** expected S13C versus measured S13D instantaneous P/Q at the same meter ID, physical boundary and exact timestamp. Residual is measured minus expected; no nearest-time match, hidden calibration or correction factor.
-- **S14B:** exact interval boundaries and admitted S13C support timestamps, piecewise-linear expected-power reconstruction and trapezoidal energy integration against S13D interval-average measurement authority. No nearest boundary or extrapolation. Expected and measured energy retain the same meter boundary.
+- **S14B v2:** exact interval boundaries and admitted S13C support timestamps, unchanged piecewise-linear expected-power reconstruction and trapezoidal integration, plus explicit meter-specific maximum-gap eligibility policy. No nearest boundary or extrapolation. Expected/measured energy stays boundary-aligned. Finite reconstruction is separate from eligibility; absent/failed policy retains reconstructed values but withholds benchmark residuals.
 - **S14C:** instantaneous and interval post-inverter delivery-loss accounting:
 
 ```text
@@ -590,7 +608,7 @@ Do not upgrade the dependency as part of an unrelated model increment.
 
 ## Live contract index
 
-Exact contract IDs at the checkpoint, copied from the source constants. Existing v1 IDs remain in use.
+Exact contract IDs copied from live source. Existing stages retain their IDs except the explicitly reviewed S14B v2 eligibility contract in this increment.
 
 | Stage | Source module | Contract ID |
 |---|---|---|
@@ -612,5 +630,5 @@ Exact contract IDs at the checkpoint, copied from the source constants. Existing
 | S13C | `mv_hv_operating_solution.py` | `admitted_s12m_s13a_s13b_to_balanced_radial_nominal_pi_mv_hv_operating_solution_v1` |
 | S13D | `revenue_meter_measurement_authority.py` | `admitted_revenue_meter_boundary_to_timestamped_measured_power_state_v1` |
 | S14A | `revenue_meter_power_benchmark.py` | `admitted_s13a_s13c_s13d_to_exact_timestamp_instantaneous_revenue_meter_power_benchmark_v1` |
-| S14B | `revenue_meter_interval_benchmark.py` | `admitted_s13a_s13c_s13d_to_exact_interval_average_revenue_meter_energy_benchmark_v1` |
+| S14B | `revenue_meter_interval_benchmark.py` | `admitted_s13a_s13c_s13d_and_support_policy_to_exact_interval_average_revenue_meter_energy_benchmark_v2` |
 | S14C | `revenue_meter_loss_attribution.py` | `admitted_s11c_s12a_s12m_s13a_s13c_s14a_s14b_to_revenue_meter_delivery_loss_attribution_v1` |

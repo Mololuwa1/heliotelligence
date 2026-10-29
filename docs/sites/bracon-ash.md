@@ -219,7 +219,7 @@ The generic `module_thermal_authority.py` / `module_thermal_state.py` contract i
 
 No deltaT=3°C, mounting/construction, sensor placement or calibration is inferred from channel labels, module name, geometry or `temp_mod_avg_c`. Existing `ModuleConfig.u_c/u_v/noct_c` values are legacy compatibility fields, not canonical authority. Thermal POA is not automatically electrical-effective irradiance. Generic implementation ≠ Bracon thermal admission.
 
-Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather/optical site evidence and runtime integration, mismatch, S14B density, uncertainty and authorization gates remain open; generic temporal/irradiance-boundary implementation alone does not close them.
+Production still uses `physics/thermal.py`: its measured-module offset and PVsyst/Faiman semantic mismatch remain unchanged until controlled migration. The new explicit-authority conversion and the legacy compatibility API must not be presented as numerically equivalent. Weather/optical site evidence and runtime integration, population-residual and S14B support-policy site admission, uncertainty and authorization gates remain open; generic temporal/irradiance-boundary implementation alone does not close them.
 
 ## Module-population mismatch evidence onboarding
 
@@ -228,6 +228,12 @@ Bracon Ash remains **module-population mismatch authority not admitted**. Reposi
 Admission requires a factory flash population study, commissioning/string-I-V study, validated engineering mismatch study or other independently justified population evidence. Supply the quantified fraction (or explicit negligible conclusion), source, confidence, method, physical applicability period, and exact MPPT/string coverage. The study must explicitly isolate the intra-string population residual and exclude shared-MPPT common-voltage mismatch, wiring, shading, spectral/thermal effects, soiling, LID and conversion. Existing missing string/MPPT mappings are not inferred.
 
 Nameplate power tolerance alone is neither mismatch loss nor a current/voltage distribution. The generic fallback is an honestly labelled lower-fidelity post-MPPT current derate, not member-resolved reverse/bypass physics. Legacy aggregate mismatch cannot coexist with this replacement in one expected series without an evidence-backed non-overlap allocation; none is established for Bracon. Legacy production stays unchanged and no P1/P2/P3 activation follows.
+
+## Interval support-policy evidence onboarding
+
+No Bracon Ash support-gap threshold is inferred, and **Bracon support policy is not admitted**. Generic S14B v2 now requires explicit per-meter maximum-gap eligibility authority for a finite reconstructed interval to become benchmark eligible. Mathematical reconstruction alone does not admit benchmark evidence. Missing/excess-gap policy keeps reconstructed energy visible but residuals unpublished; S14C does not bypass eligibility.
+
+Required evidence includes intended physical-shadow model cadence, actual timestamp completeness, measurement interval duration, daylight-edge/fast-ramp and representative operating-regime sensitivity, benchmark accuracy objective, and temporal applicability. Supply the study/method, source, confidence and explicit meter coverage. Nominal source cadence, hourly duration or SCADA label format alone does not establish an acceptable gap. Synthetic quadratic regressions and their test policies are not site evidence or threshold recommendations. No production or shadow activation occurs.
 
 ## Legacy compatibility note
 
