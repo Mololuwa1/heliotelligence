@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+# PR commits supersede only runs for the same PR. Main gets a unique run group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend-unit-tests:
     runs-on: ubuntu-latest
@@ -13,18 +18,79 @@ jobs:
       APP_ENV: development
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select backend unit tests
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            python3 scripts/ci/select_pr_unit_tests.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
+              --github-output "$GITHUB_OUTPUT"
+          else
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "Backend test selection:"
+            echo "mode: full"
+            echo "reason: push to main"
+          fi
+
+      - name: Validate selection mode
+        env:
+          TEST_MODE: ${{ steps.select.outputs.mode }}
+        run: |
+          case "$TEST_MODE" in
+            skip|targeted|full) ;;
+            *) echo "Invalid backend test selection mode"; exit 1 ;;
+          esac
 
       - name: Setup Python
+        if: steps.select.outputs.mode != 'skip'
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: 'pip'
 
       - name: Install dependencies
+        if: steps.select.outputs.mode != 'skip'
         run: python -m pip install ".[dev]"
 
-      - name: Run unit tests
+      - name: Run targeted unit tests
+        if: steps.select.outputs.mode == 'targeted'
+        env:
+          SELECTED_TESTS_JSON: ${{ steps.select.outputs.tests }}
+        run: |
+          python - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          tests = json.loads(os.environ["SELECTED_TESTS_JSON"])
+          if not isinstance(tests, list) or not tests or not all(
+              isinstance(path, str) and path.startswith("tests/unit/")
+              and path.endswith(".py") for path in tests
+          ):
+              raise SystemExit("Invalid or empty targeted test selection")
+          print("Selected backend unit test files:", flush=True)
+          print("\n".join(tests), flush=True)
+          subprocess.run(
+              [sys.executable, "-m", "pytest", *tests, "-q", "--no-header", "--no-cov"],
+              check=True,
+          )
+          PYTHON
+
+      - name: Run full unit tests
+        if: steps.select.outputs.mode == 'full'
         run: python -m pytest tests/unit/ -q --no-header --no-cov
+
+      - name: No backend unit tests required
+        if: steps.select.outputs.mode == 'skip'
+        run: echo "No backend unit tests required for this PR."
 
   frontend-build:
     runs-on: ubuntu-latest
