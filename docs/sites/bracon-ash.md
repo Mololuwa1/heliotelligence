@@ -274,4 +274,8 @@ No nameplate/site capacity, component specification, legacy loss percentage, cat
 
 The generic discrete S14B propagation capability does not admit Bracon numerically. A valid complete-model pointwise envelope must already resolve at every exact selected S14B support timestamp for each channel. No new interval percentage, cadence rule or uncertainty authority is inferred. Existing complete-model evidence, model/version/study provenance, channel/domain coverage, dates and meter binding remain required; missing evidence stays visible.
 
-Support-density policy remains separate: mathematical propagation can resolve while a benchmark is ineligible, and the bound does not quantify sparse-support error or continuous physical truth. Combined measurement/model interval uncertainty is next. No measurement uncertainty, S14B/S14C calculation, source selection, production or shadow activation changes.
+Support-density policy remains separate: mathematical propagation can resolve while a benchmark is ineligible, and the bound does not quantify sparse-support error or continuous physical truth. Combined measurement/model interval magnitudes are implemented separately; interpretation remains next. No measurement uncertainty, S14B/S14C calculation, source selection, production or shadow activation changes.
+
+## Combined interval uncertainty admission
+
+The generic combined interval contract adds validated measurement and expected-model bound magnitudes only. Bracon has no admitted numerical measurement or model bound; no percentage, legacy loss or equipment class is inferred. It still needs independently evidenced complete-chain P/Q bounds, temporal validity, exact meter/interval applicability and its separate S14B support policy. Mathematical combination does not admit the site or a benchmark. No production/shadow activation occurs.

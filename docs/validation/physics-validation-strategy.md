@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `2d81b7ed43a4f4dca410e62b3441cfdbd32bb182` (PR #125 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b` (PR #126 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -451,7 +451,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next uncertainty workstream is combined measurement/model interval uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next uncertainty workstream is uncertainty-aware S14/P4 interpretation, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
@@ -496,3 +496,11 @@ The deterministic box-bound tightness test perturbs all support central values b
 Independent validation reconstructs parent composition, support selection, elapsed times, weights, channel arithmetic, snapshot, schema and nested diagnostics without production helpers. Every appended field, support-provenance column/identity and diagnostic is tamper tested; either supplied parent failing canonical replay is rejected. Focused tests include the feature, both immediate parent suites and source isolation; no full backend suite is run locally.
 
 The claim is uncertainty of the discrete S14B reconstructed functional, not support-density error, continuous physical truth, measurement uncertainty, model error outside the admitted pointwise bound or a probability interval. Combined measurement/model interval bounds are next; uncertainty-aware S14/P4 interpretation is later. Bracon admission and production/shadow execution remain pending.
+
+### Combined interval uncertainty validation
+
+The dormant combined layer exact-replays both public uncertainty parents from their original inputs and authority mappings. Tests verify ordered timestamp/meter identity and timezone representation, interval duration, reference plane, signs, power basis and measurement provenance. The full model-interval state is retained unchanged, with the exact measurement-parent snapshot.
+
+For each channel, power and energy bounds are independently summed using `math.fsum((measurement_bound, model_bound))`. Tests include 5 + 15 = 20 W/Wh, 4 + 6 = 10 var/varh, half-hour energy consistency, zero, partial channels, unavailable parents and overflow. Opposite-sign extremal errors reach ±20, proving tightness under the admitted deterministic box constraints without probability or independence assumptions.
+
+Missing/exceeded support policy can coexist with resolved combined bounds: inherited eligibility and residual NaNs are exact-replayed, and no residual is regenerated. Independent validation reconstructs alignment, arithmetic, schema, snapshot and nested diagnostics with all production combined helpers disabled; every appended field, snapshot column and diagnostic is tamper-tested. Measurement, pointwise-model and interval-propagation parents retain their ownership. Significance interpretation remains future work.

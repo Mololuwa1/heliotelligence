@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `2d81b7ed43a4f4dca410e62b3441cfdbd32bb182` (PR #125 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b` (PR #126 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -52,11 +52,11 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - retain the legacy cell/module delta and PVsyst/Faiman mismatch in compatibility runtime until controlled migration; the new native-authority contract avoids both defects;
 - the generic bounded intra-string population-residual authority now complements physical shared-MPPT mismatch; admit site evidence and legacy allocation before retirement; member-resolved manufacturing/reverse/bypass physics remains future work;
 - generic S14B v2 maximum-gap eligibility authority and synthetic daylight-edge regressions are now implemented; admit an evidence-backed per-meter site policy without inferring a universal threshold;
-- admit site evidence for the generic measurement and pointwise expected-model bounds; retain separate discrete interval propagation and implement combined interval bands next;
+- admit site evidence for the generic measurement and pointwise expected-model bounds; retain separate discrete interval propagation and implement uncertainty-aware S14/P4 interpretation next;
 - close browser-admin-secret and per-site authorization gaps before shadow data is exposed outside the trusted development team;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is implemented by this increment. Next: combined measurement/model interval bands → uncertainty-aware S14/P4 interpretation → platform authorization → site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are implemented by this increment. Next: uncertainty-aware S14/P4 interpretation → platform authorization → site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
 
 ## Bounded population mismatch capability
 
@@ -77,3 +77,13 @@ GitHub CI is the authoritative full-backend validation. Do not repeatedly run th
 ## Site evidence
 
 Bracon Ash remains a reference site, not a topology template. Review its [evidence gaps and capacity discrepancy](../sites/bracon-ash.md) before attempting a resolved end-to-end timestamp. Do not infer mappings, dispatch, thermal state, network voltage or meter identity from configuration labels or aggregate capacities.
+
+## Combined revenue-meter interval uncertainty
+
+`physics/revenue_meter_combined_interval_uncertainty.py` is a dormant annotation of independently validated measurement uncertainty and expected-model interval uncertainty. It introduces no numerical authority. Both parents are canonically reconstructed from original inputs/mappings and exact-replayed. The interval parent defines the ordered timestamp/meter universe; shared interval, reference-plane, sign and power-basis semantics must agree. Its complete frame is preserved, with an exact measurement-uncertainty snapshot.
+
+For each P/Q channel and each published interval-average power/energy quantity, `B_combined = math.fsum((B_measurement, B_expected_model))`. This is the deterministic tight triangle-inequality bound for `δ_measurement - δ_model`, with no probability, independence, covariance or RSS assumption. The layer consumes published magnitudes; it does not recalculate either parent or repeat trapezoidal propagation. Missing channels and nonfinite arithmetic stay unresolved independently.
+
+Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
+
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes implemented generically by this increment; uncertainty-aware S14/P4 interpretation next. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
