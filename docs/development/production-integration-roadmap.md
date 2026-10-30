@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `95547e6782c3b98c3ad0ccaf108e04319f966a2f`, PR #123 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `9f43d619ac1068ded0d283ae9bca360d0099676d`, PR #124 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -100,9 +100,11 @@ bounded module-population mismatch — COMPLETE GENERICALLY (PR #121, dormant)
 ↓
 S14B explicit support-density eligibility — COMPLETE GENERICALLY (PR #122, dormant)
 ↓
-measurement-chain numerical uncertainty — COMPLETE GENERICALLY (dormant)
+measurement-chain numerical uncertainty — COMPLETE GENERICALLY (PR #124, dormant)
 ↓
-expected/model quantitative uncertainty
+pointwise expected/model uncertainty — COMPLETE GENERICALLY (dormant)
+↓
+expected interval uncertainty propagation — NEXT
 ↓
 combined measurement + expected uncertainty band
 ↓
@@ -160,7 +162,7 @@ This is a deliberately bounded post-MPPT current derate, not member-resolved I-V
 
 Finite piecewise-linear/trapezoidal reconstruction is not automatically eligible benchmark evidence. S14B v2 requires explicit per-meter maximum-gap seconds with policy scope, evidence kind, source, confidence, method and applicability. Exact equality passes; missing policy and excessive gap produce distinct ineligible states. No universal threshold, interval fraction, nominal cadence or constant-power exception is inferred. Policy failure retains reconstruction/energy diagnostics but publishes no accepted residual.
 
-The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; measurement-chain bounds are now available separately; expected/model and combined uncertainty remain open. No production benchmark switch or shadow execution is activated.
+The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; measurement-chain bounds are now available separately; expected interval propagation and combined uncertainty remain open. No production benchmark switch or shadow execution is activated.
 
 ## Migration ledger
 
@@ -249,8 +251,15 @@ Before staging shadow data is exposed outside the trusted development team:
 ### Numerical uncertainty sequence
 
 1. **Measurement-chain numerical uncertainty: implemented generically, dormant.** Explicit complete-chain symmetric maximum P/Q bounds annotate canonical revenue-meter measurements. Numerical relative and absolute terms are supplied by evidence, not derived from categorical confidence or meter/CT/PT class strings. There is no internal component recombination.
-2. **Expected/model quantitative uncertainty: open.** Measurement bounds do not cover upstream physical/input/model error.
-3. **Combined measurement + expected uncertainty band: open.** No independence or probabilistic combination is implied.
-4. **Uncertainty-aware S14/P4 interpretation: open.** Existing residual semantics remain unchanged; measurement uncertainty alone cannot establish significance, model error, performance loss or commercial impact.
+2. **Pointwise expected/model quantitative uncertainty: implemented generically, dormant.** A separate explicit complete-chain envelope annotates canonical S13C P/Q; it is not derived from component budgets or measurement bounds.
+3. **Expected interval uncertainty propagation: next.** Requires explicit semantics over the exact S14B support timestamps, not one point bound multiplied by duration.
+4. **Combined measurement + expected uncertainty band: later.** No independence or probabilistic combination is implied.
+5. **Uncertainty-aware S14/P4 interpretation: later.** Existing residual semantics remain unchanged; measurement uncertainty alone cannot establish significance, model error, performance loss or commercial impact.
 
 This capability is separate from S14B support-density eligibility. Each site must admit numerical complete-chain evidence, channel applicability, temporal semantics and validity covering the complete represented interval for averages or the snapshot timestamp. Relative terms must explicitly refer to the magnitude of the same measured P/Q in primary units; specifications on another basis require an explicit compatible bound conversion with retained provenance, never engine inference. Bracon has no admitted numerical bound. P1/P2 and production/shadow activation are not implemented by this increment.
+
+### Expected-model envelope admission
+
+The generic pointwise expected-model annotation is implemented, dormant and separate from measurement uncertainty. Site evidence must supply a validated complete-chain numerical P/Q maximum-bound envelope, applicable model/version/study, exact meter boundary, operating domain, timestamp validity and same-channel expected-power reference basis. Neither categorical confidence, legacy loss percentages nor observed S14 residuals manufacture that authority. Bracon has no admitted model bound.
+
+Next is expected interval propagation over the exact admitted S14B support set. It requires explicit reconstruction/propagation semantics; a point bound multiplied by duration is not a substitute. Per-point bounds, original S13C metadata, complete-chain semantics and full authority provenance are retained for that future contract. Combined measurement/model bands and significance interpretation follow later. No production/shadow output or activation is introduced.

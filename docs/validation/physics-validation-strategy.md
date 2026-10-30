@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `95547e6782c3b98c3ad0ccaf108e04319f966a2f` (PR #123 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `9f43d619ac1068ded0d283ae9bca360d0099676d` (PR #124 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -451,7 +451,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next uncertainty workstream is expected/model and combined uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. The next uncertainty workstream is expected interval propagation and combined uncertainty, platform authorization and site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
@@ -477,4 +477,12 @@ Generic revenue-meter measurement uncertainty now has quantitative tests: strict
 
 Independent validation reconstructs bounds, state, schema/dtypes, provenance and diagnostics without production builders. Public-field and diagnostic tampering must fail; parent replay rejects altered S13A/S13D. Arithmetic overflow must remain unresolved. Missing parent evidence precedes missing uncertainty authority so diagnostics do not misclassify parent failures.
 
-The deterministic symmetric maximum error bound is neither a probability interval nor total model/benchmark uncertainty. There is no meter/CT/PT accuracy-class inference, component RSS/recombination or Monte Carlo. S14B support eligibility and S14 residuals remain unchanged. Expected/model uncertainty, combined measurement/model bands and uncertainty-aware S14/P4 decisions remain validation work; Bracon is not numerically admitted.
+The deterministic symmetric maximum error bound is neither a probability interval nor total model/benchmark uncertainty. There is no meter/CT/PT accuracy-class inference, component RSS/recombination or Monte Carlo. S14B support eligibility and S14 residuals remain unchanged. Expected interval propagation, combined measurement/model bands and uncertainty-aware S14/P4 decisions remain validation work; Bracon is not numerically admitted.
+
+### Pointwise expected-model uncertainty validation
+
+The standalone expected-model contract strongly replays S13A and S13C and preserves every canonical expected-meter column, row order and dtype. Focused tests cover P-only/Q-only/both, independent relative/absolute components, explicit zero, signed/zero expected power, fractions above one, absent/partial/reused authorities, strict frozen revalidation, exact reference/chain/time semantics, inclusive point validity, timezone compatibility and overflow without infinity publication. Altered or deleted parent rows fail canonical replay rather than being repaired.
+
+The validator independently reconstructs admission, applicability, arithmetic, provenance, schema/dtypes and nested diagnostic partitions. Monkeypatch tests disable production helpers, while every new material field and diagnostic is tested for tamper rejection. Descriptor/confidence changes must leave numbers identical. Immediate S13C and source-isolation regressions protect parent semantics and legacy behaviour; targeted PR CI applies, with no full backend run locally.
+
+Expected interval-energy uncertainty is deliberately absent. The next validation increment must define propagation over S14B's exact multiple-support-point piecewise-linear/trapezoidal reconstruction. A point uncertainty multiplied by duration must not masquerade as that contract. Combined measurement/model envelopes and uncertainty-aware S14/P4 decisions remain later work; no probability, component recombination, commercial calculation or site admission is implied.

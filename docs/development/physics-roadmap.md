@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `1a4b06f1b3ba6fa8dc26d859cb55b5de25accc4a` (PR #121 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `9f43d619ac1068ded0d283ae9bca360d0099676d` (PR #124 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -52,11 +52,11 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - retain the legacy cell/module delta and PVsyst/Faiman mismatch in compatibility runtime until controlled migration; the new native-authority contract avoids both defects;
 - the generic bounded intra-string population-residual authority now complements physical shared-MPPT mismatch; admit site evidence and legacy allocation before retirement; member-resolved manufacturing/reverse/bypass physics remains future work;
 - generic S14B v2 maximum-gap eligibility authority and synthetic daylight-edge regressions are now implemented; admit an evidence-backed per-meter site policy without inferring a universal threshold;
-- add quantitative uncertainty evidence, including meter accuracy/calibration evidence where available;
+- admit site evidence for the generic measurement and pointwise expected-model bounds; implement expected interval propagation and combined bands separately;
 - close browser-admin-secret and per-site authorization gaps before shadow data is exposed outside the trusted development team;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is implemented in this increment. Next: quantitative uncertainty → platform authorization → site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are implemented generically in this increment. Next: expected interval uncertainty propagation → combined measurement/model bands → uncertainty-aware S14/P4 interpretation → platform authorization → site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
 
 ## Bounded population mismatch capability
 

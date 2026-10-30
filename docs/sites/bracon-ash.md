@@ -263,3 +263,9 @@ Generic complete-chain measurement bounds are implemented but **Bracon numerical
 - Relative-bound reference basis: magnitude of the same measured P/Q in primary engineering units. Other specifications (true value, full scale/rating, capacity or instrument current) require an explicit compatible bound conversion and its provenance before admission.
 
 Site admission must supply the already-combined complete-chain numerical bound; the generic module does not add or RSS component specifications. Measurement-only bounds do not establish expected/model uncertainty or S14/P4 significance. Combined interpretation and production/shadow activation remain pending.
+
+## Expected-model uncertainty evidence
+
+Pointwise complete-model uncertainty is implemented generically but **Bracon numerical expected/model uncertainty remains unadmitted**. Admission needs an explicit validated complete-chain bound or engineering uncertainty budget at the canonical S13C revenue-meter P/Q boundary, with model/version/study provenance, applicable operating domain and dates, P/Q channel coverage and exact meter mapping. Relative terms must reference the magnitude of the same expected P/Q in primary engineering units; other references require an externally documented compatible conversion.
+
+No nameplate/site capacity, component specification, legacy loss percentage, categorical confidence or S14 residual is numerical model-bound authority. Measurement uncertainty is separate. Expected interval propagation, combined envelopes, uncertainty-aware interpretation and production/shadow activation remain pending; no Bracon percentage or interval rule is inferred.
