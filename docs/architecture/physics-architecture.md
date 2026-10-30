@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `9f43d619ac1068ded0d283ae9bca360d0099676d` (PR #124 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `2d81b7ed43a4f4dca410e62b3441cfdbd32bb182` (PR #125 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -61,7 +61,7 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
 - **Module population site evidence:** S8-1 remains homogeneous string scaling. The separate bounded residual authority now covers an explicitly quantified intra-string population residual at lower fidelity; member-resolved variability remains unimplemented and site admission remains required.
 - **Interval benchmark site policy:** S14B v2 now requires explicit meter-specific maximum-gap authority for benchmark eligibility. No global or Bracon threshold exists; site admission remains pending.
-- **Quantitative measurement uncertainty:** a separate dormant contract adds explicit complete-chain P/Q bounds around canonical S13D. S13D source/confidence is preserved; pointwise expected-model bounds now exist separately; interval propagation and combined interpretation remain open.
+- **Quantitative measurement uncertainty:** a separate dormant contract adds explicit complete-chain P/Q bounds around canonical S13D. S13D source/confidence is preserved; pointwise expected-model bounds now exist separately; discrete S14B interval propagation now exists separately; combined interpretation remains open.
 
 These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation is complete at the PR #118 checkpoint. P3 shadow execution and P4 accuracy claims must still address the remaining integration/evidence gates explicitly.
 
@@ -647,7 +647,7 @@ Authority time scope explicitly admits snapshots, interval averages, or both. Op
 
 Original measurement `parameter_source`/`confidence` are preserved; authority provenance is separately published as `uncertainty_parameter_source`, `uncertainty_confidence` and other `uncertainty_` provenance fields. Diagnostics use nested partitions: measurement presence across all rows; authority presence only for resolved measurements; temporal applicability only with measurement + authority; time-scope applicability only after temporal validity. P/Q resolved/unresolved counts each span all rows. Earlier parent failures therefore do not become missing-policy gaps.
 
-The independent validator separately reconstructs admission, temporal applicability, arithmetic, provenance, frame/dtypes and diagnostic partitions. It does not call production record/frame/diagnostic builders. S14B expected-support density remains a separate evidence question. Expected interval propagation, combined measurement/model bands and S14/P4 significance interpretation are not implemented. No production or shadow model is activated.
+The independent validator separately reconstructs admission, temporal applicability, arithmetic, provenance, frame/dtypes and diagnostic partitions. It does not call production record/frame/diagnostic builders. S14B expected-support density remains a separate evidence question. Combined measurement/model bands and S14/P4 significance interpretation are not implemented. No production or shadow model is activated.
 
 ## Pointwise complete expected-model uncertainty
 
@@ -666,4 +666,31 @@ Evidence kinds are `validated_complete_model_chain_bound`, `engineering_uncertai
 
 The annotation distinguishes missing expected state, unresolved upstream solution, missing bound authority, temporal mismatch, unavailable individual channels and nonfinite arithmetic. Per-channel flags/states preserve partial resolution. Diagnostics first partition expected-state presence/readiness, then authority presence for ready rows, then temporal applicability for admitted ready rows; P/Q resolved/unresolved counts each span all rows. An independent validator reconstructs authority admission, temporal comparisons, arithmetic, exact schema/dtypes and diagnostics without production record/channel/frame/diagnostic builders.
 
-Only pointwise power uncertainty is published, together with the coefficients, components, lower/upper bounds, original S13C contract/model, validity and complete authority provenance. This supports a future independently reviewed envelope-propagation contract over exact S14B support timestamps. It does not publish expected energy uncertainty or infer interval coverage: S14B uses piecewise-linear reconstruction and trapezoidal integration across multiple points, so a point bound times duration is not valid interval propagation. Measurement uncertainty remains separately owned with no dependency in either direction. Interval propagation is next; combined measurement/model bands and uncertainty-aware S14/P4 interpretation are later. S14 numerics, source isolation and production/shadow activation remain unchanged.
+Only pointwise power uncertainty is published, together with the coefficients, components, lower/upper bounds, original S13C contract/model, validity and complete authority provenance. The separate interval annotation now consumes these published values over exact S14B support timestamps. The pointwise module itself does not publish expected energy uncertainty or infer interval coverage: S14B uses piecewise-linear reconstruction and trapezoidal integration across multiple points, so a point bound times duration is not valid interval propagation. Measurement uncertainty remains separately owned with no dependency in either direction. Discrete interval propagation is implemented separately; combined measurement/model interval bands are next and uncertainty-aware S14/P4 interpretation is later. S14 numerics, source isolation and production/shadow activation remain unchanged.
+
+## Expected-model interval uncertainty through S14B
+
+The standalone dormant `revenue_meter_expected_model_interval_uncertainty.py` consumes canonical S14B and canonical pointwise expected-model uncertainty. Both parents are publicly reconstructed and exact-replayed using original inputs, `revenue_meter_interval_support_policy_by_meter_id` and `revenue_meter_expected_model_uncertainty_by_meter_id`. Supplied support tuples, bound magnitudes, metadata and diagnostics are never trusted directly. No new uncertainty authority exists here; the numerical evidence remains entirely pointwise-owned.
+
+Contract: `admitted_s14b_and_pointwise_expected_model_uncertainty_to_exact_interval_expected_model_uncertainty_state_v1`.
+Model: `deterministic_worst_case_trapezoidal_propagation_of_pointwise_symmetric_expected_model_bounds_v1`.
+Scope: `exact_s14b_reconstructed_interval_expected_model_uncertainty_before_measurement_combination`.
+
+For each channel on exact S14B support `t_0 ... t_n`, use its published resolved nonnegative magnitudes `b_i` and compute:
+
+```text
+B_E = fsum((b_i / 2 + b_(i+1) / 2) × ((t_(i+1)-t_i).value / 1e9 / 3600))
+B_avg = B_E / (averaging_interval_seconds / 3600)
+energy range = canonical S14B expected energy ± B_E
+average range = canonical S14B expected interval-average power ± B_avg
+```
+
+The half-plus-half form avoids avoidable intermediate bound-sum overflow. Exact elapsed nanoseconds preserve S14B subsecond arithmetic; no duration snapping, cadence inference, resampling, nearest matching, interpolation to missing points or extrapolation occurs. Every nonfinite duration, contribution, accumulated bound, average bound or range leaves the affected channel unresolved. P and Q propagate independently. All canonical S14B columns, dtypes, identities, support tuples, policies, eligibility flags and residuals are copied unchanged. `pointwise_support_states` is an exact unmodified snapshot of the union of admitted support rows in canonical pointwise order, retaining all numerical evidence and provenance for audit.
+
+Fixed propagation semantics are `deterministic_worst_case_positive_trapezoidal_weight_propagation_no_probability_or_covariance`, with weight basis `sum_of_nonnegative_s14b_trapezoidal_weights_times_pointwise_symmetric_bound_magnitudes`. Positive trapezoidal weights imply `|delta E| <= B_E` for `|delta_i| <= b_i`; taking all deviations at their positive or negative maxima reaches either bound. This is tight under the admitted support-point box constraints, without statistical independence or covariance assumptions.
+
+The exact coverage limitation is `uncertainty_of_s14b_discrete_reconstructed_expected_path_not_support_gap_or_continuous_physical_truth`. This does not quantify sparse-support/interpolation error, unobserved continuous behaviour, error outside the admitted pointwise envelope, measurement uncertainty or probability of physical truth lying inside a range.
+
+Only `expected_interval_reconstruction_resolved` and complete pointwise support gate the mathematical result. Support policy and benchmark eligibility remain orthogonal: missing or exceeded policy may leave them false while interval model propagation resolves. No bound magnitude overrides S14B policy, and policy is not an uncertainty term. Diagnostics partition coverage only after resolved reconstruction, track P/Q resolution separately and mirror policy/benchmark eligibility independently. The validator independently reconstructs support, elapsed times, weights, bounds, ranges, schema, snapshots and diagnostics without production helpers.
+
+Combined measurement + expected-model interval uncertainty is next and must validate both independently owned parents at the same meter/interval boundary. S14/P4 significance interpretation is later. S14B numerics, S14C accounting, measurement uncertainty, source isolation and production/shadow behaviour remain unchanged; Bracon has no admitted numerical model envelope.

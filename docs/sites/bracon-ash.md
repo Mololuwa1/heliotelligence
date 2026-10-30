@@ -268,4 +268,10 @@ Site admission must supply the already-combined complete-chain numerical bound; 
 
 Pointwise complete-model uncertainty is implemented generically but **Bracon numerical expected/model uncertainty remains unadmitted**. Admission needs an explicit validated complete-chain bound or engineering uncertainty budget at the canonical S13C revenue-meter P/Q boundary, with model/version/study provenance, applicable operating domain and dates, P/Q channel coverage and exact meter mapping. Relative terms must reference the magnitude of the same expected P/Q in primary engineering units; other references require an externally documented compatible conversion.
 
-No nameplate/site capacity, component specification, legacy loss percentage, categorical confidence or S14 residual is numerical model-bound authority. Measurement uncertainty is separate. Expected interval propagation, combined envelopes, uncertainty-aware interpretation and production/shadow activation remain pending; no Bracon percentage or interval rule is inferred.
+No nameplate/site capacity, component specification, legacy loss percentage, categorical confidence or S14 residual is numerical model-bound authority. Measurement uncertainty is separate. Combined envelopes, uncertainty-aware interpretation and production/shadow activation remain pending; no Bracon percentage or interval rule is inferred.
+
+## Expected-model interval propagation applicability
+
+The generic discrete S14B propagation capability does not admit Bracon numerically. A valid complete-model pointwise envelope must already resolve at every exact selected S14B support timestamp for each channel. No new interval percentage, cadence rule or uncertainty authority is inferred. Existing complete-model evidence, model/version/study provenance, channel/domain coverage, dates and meter binding remain required; missing evidence stays visible.
+
+Support-density policy remains separate: mathematical propagation can resolve while a benchmark is ineligible, and the bound does not quantify sparse-support error or continuous physical truth. Combined measurement/model interval uncertainty is next. No measurement uncertainty, S14B/S14C calculation, source selection, production or shadow activation changes.
