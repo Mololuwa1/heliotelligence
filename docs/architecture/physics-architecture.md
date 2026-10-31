@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -703,7 +703,7 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 The combined v1 identifiers are:
 
@@ -730,3 +730,11 @@ For finite `R` and finite `B >= 0`, the residual's zero-centred envelope is `[-B
 Diagnostics partition eligibility first, availability only among eligible rows, and resolved/nonfinite outcomes among available channels. Channel unresolved totals span all rows. Quantity relation counts track only finite interpreted quantities, independently of channel completeness. Independent validation rebuilds gates, relations, excess, schema/dtypes and counts without production interpretation helpers.
 
 Inside does not establish model correctness. Outside means only that the absolute canonical residual exceeds the admitted combined deterministic maximum bound. It establishes no physical loss, fault, causality, commercial impact, probability or statistical significance. Support eligibility stays mandatory and S14C accounting is untouched. Generic implementation does not admit Bracon, validate production P4 accuracy, authorize a cutover or activate production/shadow output.
+
+## Server-side authorization readiness
+
+Firebase authentication now exposes only uid, email and the exact boolean `platform_admin` custom claim. Global operations require that claim; site reads require exact viewer/admin membership and site mutations require admin membership. Verified platform administrators explicitly bypass membership. Missing or invalid membership fails closed; viewers cannot mutate and site admins are not platform admins. No email/domain, browser-secret, environment or Bracon inference exists.
+
+The [platform authorization policy](platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
+
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.

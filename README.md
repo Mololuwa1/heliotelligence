@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -70,7 +70,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 4. site admission of the generic bounded population-residual authority; homogeneous S8 string scaling remains unchanged and member-resolved variability remains future work;
 5. site-specific admission of the generic S14B maximum-support-gap eligibility policy; no universal cadence threshold is chosen;
 6. quantitative uncertainty evidence, including revenue-meter accuracy/calibration evidence where available;
-7. platform authorization hardening before shadow data is exposed outside the trusted development team;
+7. retain the implemented server-side authorization boundary and verify deployment membership/claim provisioning before exposing shadow data;
 8. local declaration of the S9-4A fixed-Q sign convention so `Qmin/Qmax` evidence cannot be interpreted ambiguously.
 
 ## Module-population mismatch coverage
@@ -83,7 +83,7 @@ Nameplate power tolerance alone is neither mismatch loss nor a member current/vo
 
 Generic dormant S14B v2 now requires explicit per-meter maximum-gap policy for a finite reconstructed interval to become benchmark eligible. Exact boundaries, selected support timestamps, piecewise-linear reconstruction and trapezoidal integration are unchanged. Reconstruction resolved ≠ benchmark eligible: missing policy or excess gap retains reconstructed averages/energy and support diagnostics, but all benchmark residuals remain NaN. S14C consumes that eligibility gate without reinterpreting support density.
 
-There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission, platform authorization and P1/P2 finalisation remain open; no production or shadow activation occurs.
+There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission and P1/P2 finalisation remain open; authorization implementation is complete; no production or shadow activation occurs.
 
 ## Revenue-meter measurement uncertainty
 
@@ -105,7 +105,7 @@ Resolved interval model uncertainty **does not imply benchmark eligibility**. Mi
 
 ## Next major phase — production integration
 
-Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, the implemented authorization boundary before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 
@@ -154,10 +154,18 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Eligible interval uncertainty-envelope interpretation
 
 The dormant `revenue_meter_interval_uncertainty_interpretation.py` exact-replays the combined parent and interprets only already-published, benchmark-eligible S14B residuals. Each P/Q power and energy residual is compared independently to `[-B, +B]`: strictly within, exactly on either boundary, outside positive or outside negative. There is no epsilon or statistical interpretation. Zero bound with zero residual is on the boundary.
 
-The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is the next backend readiness gate; site evidence / P1-P2 remain later, and P3 is not activated.
+The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is implemented and tested; site evidence / P1-P2 finalisation is next, and P3 is not activated.
+
+## Server-side authorization readiness
+
+Firebase authentication now exposes only uid, email and the exact boolean `platform_admin` custom claim. Global operations require that claim; site reads require exact viewer/admin membership and site mutations require admin membership. Verified platform administrators explicitly bypass membership. Missing or invalid membership fails closed; viewers cannot mutate and site admins are not platform admins. No email/domain, browser-secret, environment or Bracon inference exists.
+
+The [platform authorization policy](docs/architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
+
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.

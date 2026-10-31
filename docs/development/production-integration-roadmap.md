@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52`, PR #127 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941`, PR #128 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -110,9 +110,9 @@ combined measurement + expected-model interval uncertainty — IMPLEMENTED GENER
 ↓
 uncertainty-aware deterministic S14B envelope interpretation — IMPLEMENTED GENERICALLY
 ↓
-platform authorization — NEXT BACKEND READINESS GATE
+platform authorization — IMPLEMENTED AND TESTED
 ↓
-site evidence / P1-P2 finalisation
+site evidence / P1-P2 finalisation — NEXT BACKEND READINESS WORK
 ↓
 P3 shadow execution
 ```
@@ -237,16 +237,11 @@ A complete probabilistic uncertainty engine is not required before P0, but P4 ac
 
 ## Platform security gate
 
-Authentication and site authorization are separate concerns. The API currently applies Firebase authentication to normal protected routers, but the repository's `get_user_sites()` / `user_site_access` mechanism is not currently enforced by the ordinary site-scoped routes reviewed for expected energy, benchmarking and reports.
+Authentication remains Firebase ID-token verification. Authorization implementation is complete and tested: exact boolean `platform_admin` controls global operations; exact `user_site_access` viewer/admin memberships control site reads/mutations. Platform administrators intentionally bypass site membership. Invalid roles fail closed, viewers cannot mutate, site admins cannot perform global administration and Bracon has no special case.
 
-The frontend also sends `VITE_ADMIN_KEY` as `X-Admin-Key` for admin calls. `VITE_*` values are embedded in browser JavaScript, so this key must not remain an admin authorization boundary.
+The browser-key mechanism is retired with no compatibility fallback. All 19 current application routes have a reviewed policy; negative cross-site, indirect alert ownership and grant-validation tests protect it. No real memberships are changed implicitly and no migration is required. See the [authorization policy and trusted Firebase bootstrap](../architecture/platform-authorization.md). Operational claim provisioning/verification is separate from code readiness and must precede exposure to non-team users.
 
-Before staging shadow data is exposed outside the trusted development team:
-
-- admin authorization must be server-side and user/role based rather than dependent on a browser-bundled shared secret;
-- every site-scoped protected route must enforce server-side site membership/role checks;
-- negative cross-site authorization tests must exist;
-- staging and production authorization policy must be documented and independently testable.
+The next backend readiness work is site evidence / P1-P2 finalisation. P1, P2 and P3 remain incomplete; no shadow source or deployment is activated.
 
 ### Numerical uncertainty sequence
 
@@ -274,10 +269,10 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ### Eligible deterministic interpretation boundary
 
 The generic interpretation capability is implemented after the complete combined-bound layer. It exact-replays that parent and requires canonical S14B benchmark eligibility before any relation is published. Missing/exceeded support policy remains a hard interpretation gate even if combined uncertainty resolves. No residual is reconstructed and no S14B/S14C behavior changes.
 
-Relations describe only exact interior, endpoint equality, positive exterior or negative exterior of the admitted deterministic envelope; excess magnitude is mathematical, not a loss. Inside is not correctness and outside is not a fault or causal/commercial finding. No probability or statistical significance is claimed. Platform authorization is next; site evidence / P1-P2 remain later and P3 remains inactive.
+Relations describe only exact interior, endpoint equality, positive exterior or negative exterior of the admitted deterministic envelope; excess magnitude is mathematical, not a loss. Inside is not correctness and outside is not a fault or causal/commercial finding. No probability or statistical significance is claimed. Platform authorization is implemented and tested; site evidence / P1-P2 finalisation is next and P3 remains inactive.

@@ -12,12 +12,14 @@ POST /api/v1/alerts/{alert_id}/acknowledge
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from heliotelligence.db.session import get_session_factory
+from heliotelligence.api.auth import authorize_site_access, get_current_user, require_site_access
+from heliotelligence.db.session import get_db, get_session_factory
 from heliotelligence.models.alerts import Alert
 
 logger = logging.getLogger(__name__)
@@ -25,12 +27,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
-@router.get("/{site_id}")
+@router.get("/{site_id}", dependencies=[Depends(require_site_access)])
 async def list_alerts(
     site_id: str,
     unacknowledged_only: bool = Query(False, description="Return only unacknowledged alerts"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of alerts to return"),
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     factory = get_session_factory()
     async with factory() as session:
         stmt = (
@@ -62,21 +64,29 @@ async def list_alerts(
     ]
 
 
+async def require_alert_site_admin(
+    alert_id: int,
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Alert:
+    """Resolve the alert's canonical site before checking mutation authority."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert: Alert | None = result.scalar_one_or_none()
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
+    await authorize_site_access(alert.site_id, user, require_admin=True, session=db)
+    return alert
+
+
 @router.post("/{alert_id}/acknowledge")
-async def acknowledge_alert(alert_id: int) -> dict:
-    factory = get_session_factory()
-    async with factory() as session:
-        result = await session.execute(
-            select(Alert).where(Alert.id == alert_id)
-        )
-        alert = result.scalar_one_or_none()
-        if alert is None:
-            raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
-
-        alert.acknowledged = True
-        await session.commit()
-        await session.refresh(alert)
-
+async def acknowledge_alert(
+    alert: Annotated[Alert, Depends(require_alert_site_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    # FastAPI shares the dependency's session; authorization precedes mutation.
+    alert.acknowledged = True
+    await db.commit()
+    await db.refresh(alert)
     return {
         "id": alert.id,
         "acknowledged": alert.acknowledged,

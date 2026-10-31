@@ -17,9 +17,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable
 from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import text
 
@@ -27,6 +29,7 @@ from heliotelligence.analysis.anomaly import detect_anomalies
 from heliotelligence.analysis.degradation import calculate_degradation
 from heliotelligence.analysis.inverter_health import analyse_inverter_health
 from heliotelligence.analysis.string_health import analyse_string_health
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.benchmarking.availability import calculate_availability
 from heliotelligence.benchmarking.losses import calculate_losses
 from heliotelligence.benchmarking.performance_ratio import calculate_pr
@@ -43,7 +46,9 @@ from heliotelligence.reporting.report_data import ReportData
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+router = APIRouter(
+    prefix="/api/v1/reports", tags=["reports"], dependencies=[Depends(require_site_access)]
+)
 
 
 def _site_name(site_id: str) -> str:
@@ -62,7 +67,7 @@ def _get_capacity_kwp(site_id: str) -> float | None:
     return None
 
 
-async def _safe_fetch(coro):
+async def _safe_fetch(coro: Awaitable[Any]) -> Any:
     """Run a metric coroutine, returning None on any error."""
     try:
         return await coro
@@ -74,8 +79,8 @@ async def _safe_fetch(coro):
 @router.post("/{site_id}")
 async def generate_report(
     site_id: str,
-    start: datetime = Query(..., description="Report window start (ISO-8601)"),
-    end: datetime = Query(..., description="Report window end (ISO-8601)"),
+    start: datetime = Query(..., description="Report window start (ISO-8601)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="Report window end (ISO-8601)"),  # noqa: B008 -- FastAPI parameter metadata
     sections: str | None = Query(
         None,
         description="Comma-separated section names to include (default: all)",
@@ -117,37 +122,37 @@ async def generate_report(
         )
 
     # Fetch all metrics in parallel, each with its own session
-    async def _pr():
+    async def _pr() -> Any:
         async with factory() as s:
             return await _safe_fetch(calculate_pr(site_id, start, end, s, source=source))
 
-    async def _losses():
+    async def _losses() -> Any:
         async with factory() as s:
             return await _safe_fetch(calculate_losses(site_id, start, end, s, source=source))
 
-    async def _avail():
+    async def _avail() -> Any:
         async with factory() as s:
             return await _safe_fetch(calculate_availability(site_id, start, end, s))
 
-    async def _yield():
+    async def _yield() -> Any:
         async with factory() as s:
             return await _safe_fetch(
                 calculate_yield(site_id, start, end, s, capacity_kwp=_get_capacity_kwp(site_id))
             )
 
-    async def _deg():
+    async def _deg() -> Any:
         async with factory() as s:
             return await _safe_fetch(calculate_degradation(site_id, start, end, s, source=source))
 
-    async def _anom():
+    async def _anom() -> Any:
         async with factory() as s:
             return await _safe_fetch(detect_anomalies(site_id, start, end, s, source=source))
 
-    async def _str_health():
+    async def _str_health() -> Any:
         async with factory() as s:
             return await _safe_fetch(analyse_string_health(site_id, start, end, s))
 
-    async def _inv_health():
+    async def _inv_health() -> Any:
         async with factory() as s:
             return await _safe_fetch(analyse_inverter_health(site_id, start, end, s))
 

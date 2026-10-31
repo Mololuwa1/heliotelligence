@@ -20,13 +20,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from heliotelligence.analysis.anomaly import detect_anomalies
 from heliotelligence.analysis.degradation import calculate_degradation
 from heliotelligence.analysis.inverter_health import analyse_inverter_health
 from heliotelligence.analysis.string_health import analyse_string_health
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.db.session import get_session_factory
 from heliotelligence.engine.expected_energy_source import (
     LEGACY_EXPECTED_ENERGY_SOURCE,
@@ -35,7 +36,9 @@ from heliotelligence.engine.expected_energy_source import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
+router = APIRouter(
+    prefix="/api/v1/analysis", tags=["analysis"], dependencies=[Depends(require_site_access)]
+)
 
 
 async def _check_expected_energy_data(
@@ -100,8 +103,8 @@ def _validate_window(start: datetime, end: datetime) -> None:
 @router.get("/{site_id}/degradation")
 async def get_degradation(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
     source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Return long-run PR degradation analysis for a site."""
@@ -121,8 +124,8 @@ async def get_degradation(
 @router.get("/{site_id}/anomalies")
 async def get_anomalies(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
     threshold_sigma: float = Query(2.0, description="Flag threshold in std deviations"),
     source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
@@ -145,8 +148,8 @@ async def get_anomalies(
 @router.get("/{site_id}/string-health")
 async def get_string_health(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
     threshold_sigma: float = Query(2.0, description="Flag threshold in std deviations"),
 ) -> dict:
     """Return per-string current health analysis for a site."""
@@ -160,8 +163,8 @@ async def get_string_health(
 @router.get("/{site_id}/inverter-health")
 async def get_inverter_health(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
 ) -> dict:
     """Return per-inverter fault event analysis for a site."""
     _validate_window(start, end)

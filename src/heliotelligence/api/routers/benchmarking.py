@@ -23,10 +23,12 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.benchmarking.availability import calculate_availability
 from heliotelligence.benchmarking.losses import calculate_losses
 from heliotelligence.benchmarking.performance_ratio import calculate_pr
@@ -41,7 +43,11 @@ from heliotelligence.engine.expected_energy_source import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/benchmarking", tags=["benchmarking"])
+router = APIRouter(
+    prefix="/api/v1/benchmarking",
+    tags=["benchmarking"],
+    dependencies=[Depends(require_site_access)],
+)
 
 
 def _get_capacity_kwp(site_id: str) -> float | None:
@@ -56,8 +62,8 @@ def _get_capacity_kwp(site_id: str) -> float | None:
 @router.get("/{site_id}")
 async def get_benchmarking(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
     source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> dict:
     """Return all benchmarking metrics for a site over a time window.
@@ -126,23 +132,23 @@ async def get_benchmarking(
     _tot_inv = sum(len(g.inverters) for g in _groups)
 
     # Each benchmarking function gets its own session so they can run concurrently.
-    async def _pr():
+    async def _pr() -> Any:
         async with factory() as s:
             return await calculate_pr(site_id, start, end, s, source=source)
 
-    async def _losses():
+    async def _losses() -> Any:
         async with factory() as s:
             return await calculate_losses(site_id, start, end, s, source=source)
 
-    async def _avail():
+    async def _avail() -> Any:
         async with factory() as s:
             return await calculate_availability(site_id, start, end, s)
 
-    async def _yield():
+    async def _yield() -> Any:
         async with factory() as s:
             return await calculate_yield(site_id, start, end, s, capacity_kwp=capacity_kwp)
 
-    async def _group_actuals():
+    async def _group_actuals() -> Any:
         async with factory() as s:
             rows = await s.execute(
                 text("""
