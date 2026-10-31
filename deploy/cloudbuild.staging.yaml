@@ -59,7 +59,7 @@ steps:
       - '--max-instances=2'
       - '--service-account=${_RUNTIME_SERVICE_ACCOUNT}'
       - '--add-cloudsql-instances=${_STAGING_PROJECT_ID}:${_REGION}:heliotelligence-staging-db'
-      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,SECRET_KEY=SECRET_KEY:latest'
       - '--set-env-vars=^@^SITE_CONFIG_PATH=config/sites.yaml@APP_ENV=staging@RUN_SCHEDULER=false@CORS_ORIGINS=${_CORS_ORIGINS}'
     id: 'deploy'
     waitFor: ['push']

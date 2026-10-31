@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.db.session import get_db
 from heliotelligence.engine.expected_energy_source import (
     LEGACY_EXPECTED_ENERGY_SOURCE,
@@ -33,10 +34,14 @@ from heliotelligence.engine.expected_energy_source import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/expected-energy", tags=["expected_energy"])
+router = APIRouter(
+    prefix="/api/v1/expected-energy",
+    tags=["expected_energy"],
+    dependencies=[Depends(require_site_access)],
+)
 
 
-class Resolution(str, Enum):
+class Resolution(str, Enum):  # noqa: UP042 -- retain the public enum type
     raw = "raw"
     hourly = "hourly"
     daily = "daily"
@@ -45,10 +50,10 @@ class Resolution(str, Enum):
 @router.get("/{site_id}")
 async def get_expected_energy(
     site_id: str,
-    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),
-    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),
-    resolution: Resolution = Query(Resolution.raw, description="Aggregation resolution"),
-    db: AsyncSession = Depends(get_db),
+    start: datetime = Query(..., description="Start datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="End datetime (ISO-8601, UTC)"),  # noqa: B008 -- FastAPI parameter metadata
+    resolution: Resolution = Query(Resolution.raw, description="Aggregation resolution"),  # noqa: B008 -- FastAPI parameter metadata
+    db: AsyncSession = Depends(get_db),  # noqa: B008 -- FastAPI parameter metadata
     *,
     source: str = LEGACY_EXPECTED_ENERGY_SOURCE,
 ) -> list[dict[str, Any]]:
@@ -141,4 +146,4 @@ async def get_expected_energy(
     rows = result.fetchall()
     keys = result.keys()
 
-    return [dict(zip(keys, row)) for row in rows]
+    return [dict(zip(keys, row, strict=False)) for row in rows]

@@ -38,23 +38,26 @@ Response shape
 from __future__ import annotations
 
 import json
-import math
 import logging
+import math
 import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import SiteConfig, load_sites
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/sites", tags=["geometry"])
+router = APIRouter(
+    prefix="/api/v1/sites", tags=["geometry"], dependencies=[Depends(require_site_access)]
+)
 
 # Directory containing surveyed panel geometry JSON files (one per site id)
-_GEOMETRY_DATA_DIR = Path(os.environ.get('GEOMETRY_DATA_DIR', 'config/geometry'))
+_GEOMETRY_DATA_DIR = Path(os.environ.get("GEOMETRY_DATA_DIR", "config/geometry"))
 
 
 def _load_surveyed_geometry(site_id: str) -> dict | None:
@@ -88,25 +91,25 @@ def compute_site_geometry(
     All geometry is derived from config — no DB access.
     """
     # Module dimensions (TOPCon landscape orientation)
-    MOD_W_M = 2.278   # panel width along row (E-W, landscape)
-    MOD_H_M = 1.134   # panel height across row (N-S, tilt direction)
+    MOD_W_M = 2.278  # panel width along row (E-W, landscape)
+    MOD_H_M = 1.134  # panel height across row (N-S, tilt direction)
 
     # From as-built or config
     modules_per_string = site.module.modules_per_string  # 24
-    num_strings = site.module.num_strings                 # 2076
-    row_pitch_m = site.module.row_pitch_m                 # 6.6m actual inter-row spacing
+    num_strings = site.module.num_strings  # 2076
+    row_pitch_m = site.module.row_pitch_m  # 6.6m actual inter-row spacing
 
     # Table geometry: panels arranged in a 3-portrait × 24-landscape grid
-    table_width_m = modules_per_string * MOD_W_M   # E-W: 54.67m
-    table_depth_m = 3 * MOD_H_M                    # N-S panel area: 3.4m  # noqa: F841
+    table_width_m = modules_per_string * MOD_W_M  # E-W: 54.67m
+    table_depth_m = 3 * MOD_H_M  # N-S panel area: 3.4m  # noqa: F841
 
     # Azimuth: PVsyst convention 0=South, -0.6 ≈ South (rows run E-W).
     # For near-zero azimuth: along_row ≈ E-W (lon), across_row ≈ N-S (lat).
     az_rad = math.radians(site.azimuth_deg)
-    along_row_lon = math.cos(az_rad)    # E-W component (dominant)
-    along_row_lat = math.sin(az_rad)    # N-S component (tiny for az≈0)
+    along_row_lon = math.cos(az_rad)  # E-W component (dominant)
+    along_row_lat = math.sin(az_rad)  # N-S component (tiny for az≈0)
     across_row_lon = -math.sin(az_rad)  # perpendicular E-W (tiny)
-    across_row_lat = math.cos(az_rad)   # perpendicular N-S (dominant)
+    across_row_lat = math.cos(az_rad)  # perpendicular N-S (dominant)
 
     groups_cfg = site.layout.inverter_groups if site.layout else []
     total_inverters = sum(g.inverter_count for g in groups_cfg)
@@ -148,15 +151,17 @@ def compute_site_geometry(
             step = max(1, len(panels) // max_panels_per_group)
             panels = panels[::step]
 
-        result_groups.append({
-            "id": group.id,
-            "centre_lat": centre_lat,
-            "centre_lon": centre_lon,
-            "panel_count": len(panels),
-            "zone_ew_m": round(tables_per_ew_row * table_width_m, 1),
-            "zone_ns_m": round(num_ns_rows * row_pitch_m, 1),
-            "panels": panels,
-        })
+        result_groups.append(
+            {
+                "id": group.id,
+                "centre_lat": centre_lat,
+                "centre_lon": centre_lon,
+                "panel_count": len(panels),
+                "zone_ew_m": round(tables_per_ew_row * table_width_m, 1),
+                "zone_ns_m": round(num_ns_rows * row_pitch_m, 1),
+                "panels": panels,
+            }
+        )
 
     return {
         "site_id": str(site.id),
@@ -215,15 +220,17 @@ def _apply_surveyed_geometry(
         if max_panels_per_group and len(panels) > max_panels_per_group:
             step = max(1, len(panels) // max_panels_per_group)
             panels = panels[::step]
-        groups_out.append({
-            "id": g["id"],
-            "centre_lat": g["centre_lat"],
-            "centre_lon": g["centre_lon"],
-            "panel_count": len(panels),
-            "zone_ew_m": g.get("zone_ew_m"),
-            "zone_ns_m": g.get("zone_ns_m"),
-            "panels": panels,
-        })
+        groups_out.append(
+            {
+                "id": g["id"],
+                "centre_lat": g["centre_lat"],
+                "centre_lon": g["centre_lon"],
+                "panel_count": len(panels),
+                "zone_ew_m": g.get("zone_ew_m"),
+                "zone_ns_m": g.get("zone_ns_m"),
+                "panels": panels,
+            }
+        )
 
     num_strings = site.module.num_strings or 0
     modules_per_string = site.module.modules_per_string or 0

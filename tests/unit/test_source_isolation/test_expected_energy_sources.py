@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from tests.unit.test_engine.test_pipeline import _site
 
 from heliotelligence.analysis import anomaly, degradation
+from heliotelligence.api.auth import get_current_user
 from heliotelligence.api.routers import analysis, benchmarking, expected_energy, reports
 from heliotelligence.benchmarking import losses, performance_ratio
 from heliotelligence.engine import pipeline
@@ -315,6 +316,12 @@ async def test_bad_source_fails_before_database(operation: str) -> None:
 
 def test_api_query_validation_and_default(db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
     app = FastAPI()
+    # Source semantics are exercised as an explicitly authorized platform user.
+    app.dependency_overrides[get_current_user] = lambda: {
+        "uid": "source-isolation-test",
+        "email": None,
+        "platform_admin": True,
+    }
     app.include_router(expected_energy.router)
     app.include_router(benchmarking.router)
     app.include_router(reports.router)
@@ -478,6 +485,12 @@ async def test_analysis_guards_with_only_alternative_model(
     monkeypatch.setattr(analysis, "analyse_string_health", string_metric)
     monkeypatch.setattr(analysis, "analyse_inverter_health", inverter_metric)
     app = FastAPI()
+    # Source semantics are exercised as an explicitly authorized platform user.
+    app.dependency_overrides[get_current_user] = lambda: {
+        "uid": "source-isolation-test",
+        "email": None,
+        "platform_admin": True,
+    }
     app.include_router(analysis.router)
     import httpx
 

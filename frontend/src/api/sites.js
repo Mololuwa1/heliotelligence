@@ -65,25 +65,19 @@ export function generateReport(siteId, start, end) {
   );
 }
 
-const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? ''
-
 export function getAdminSites() {
-  return client.get('/api/v1/admin/sites', {
-    headers: { 'X-Admin-Key': ADMIN_KEY },
-  }).then(r => r.data)
+  return client.get('/api/v1/admin/sites').then(r => r.data)
 }
 
 export function createSite(data) {
-  return client.post('/api/v1/admin/sites', data, {
-    headers: { 'X-Admin-Key': ADMIN_KEY },
-  }).then(r => r.data)
+  return client.post('/api/v1/admin/sites', data).then(r => r.data)
 }
 
 export function uploadScada(siteId, file) {
   const form = new FormData()
   form.append('file', file)
   return client.post(`/api/v1/admin/sites/${siteId}/upload`, form, {
-    headers: { 'Content-Type': 'multipart/form-data', 'X-Admin-Key': ADMIN_KEY },
+    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
   }).then(r => r.data)
 }

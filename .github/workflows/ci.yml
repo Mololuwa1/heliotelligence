@@ -113,7 +113,6 @@ jobs:
         env:
           VITE_API_BASE_URL: http://localhost:8000
           VITE_MAPBOX_TOKEN: ci-placeholder
-          VITE_ADMIN_KEY: ci-placeholder
           VITE_FIREBASE_API_KEY: ci-placeholder
           VITE_FIREBASE_AUTH_DOMAIN: ci.example.invalid
           VITE_FIREBASE_PROJECT_ID: ci-project

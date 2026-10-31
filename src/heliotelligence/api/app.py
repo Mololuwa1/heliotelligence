@@ -15,13 +15,12 @@ Shutdown
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from heliotelligence.api.auth import get_current_user
 from heliotelligence.api.routers import admin as admin_router
 from heliotelligence.api.routers import alerts as alerts_router
 from heliotelligence.api.routers import analysis as analysis_router
@@ -47,6 +46,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Application lifespan
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -104,13 +104,13 @@ app.add_middleware(
 )
 
 app.include_router(health_router.router)  # public
-app.include_router(admin_router.router)  # has own auth
-app.include_router(ingest_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(expected_energy_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(benchmarking_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(analysis_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(reports_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(alerts_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(backfill_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(layout_router.router, dependencies=[Depends(get_current_user)])
-app.include_router(geometry_router.router, dependencies=[Depends(get_current_user)])
+app.include_router(admin_router.router)  # authorization lives with each router
+app.include_router(ingest_router.router)
+app.include_router(expected_energy_router.router)
+app.include_router(benchmarking_router.router)
+app.include_router(analysis_router.router)
+app.include_router(reports_router.router)
+app.include_router(alerts_router.router)
+app.include_router(backfill_router.router)
+app.include_router(layout_router.router)
+app.include_router(geometry_router.router)

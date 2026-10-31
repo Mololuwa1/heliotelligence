@@ -24,20 +24,24 @@ from __future__ import annotations
 
 import logging
 import uuid
-
-from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime
+from typing import Any
 
-from heliotelligence.config.settings import settings
-from heliotelligence.config.site import load_sites
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from heliotelligence.api.auth import require_site_admin
 from heliotelligence.collectors.solcast import run_solcast_backfill
+from heliotelligence.config.settings import settings
+from heliotelligence.config.site import SiteConfig, load_sites
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/backfill", tags=["backfill"])
+router = APIRouter(
+    prefix="/api/v1/backfill", tags=["backfill"], dependencies=[Depends(require_site_admin)]
+)
 
 
-def _find_site(site_id: str):
+def _find_site(site_id: str) -> SiteConfig | None:
     """Return the SiteConfig whose uuid5 matches site_id, or None."""
     sites = load_sites(settings.site_config_path)
     for site in sites:
@@ -49,9 +53,9 @@ def _find_site(site_id: str):
 @router.post("/{site_id}")
 async def trigger_backfill(
     site_id: str,
-    start: datetime = Query(..., description="Backfill window start (ISO-8601)"),
-    end: datetime = Query(..., description="Backfill window end (ISO-8601)"),
-) -> dict:
+    start: datetime = Query(..., description="Backfill window start (ISO-8601)"),  # noqa: B008 -- FastAPI parameter metadata
+    end: datetime = Query(..., description="Backfill window end (ISO-8601)"),  # noqa: B008 -- FastAPI parameter metadata
+) -> dict[str, Any]:
     if end <= start:
         raise HTTPException(status_code=422, detail="end must be after start")
 

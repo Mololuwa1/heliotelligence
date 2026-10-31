@@ -92,7 +92,7 @@ Do not tune away structural physics errors with unexplained empirical correction
 
 ## Current validated trace
 
-Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -451,7 +451,7 @@ Before shadow results are exposed outside the trusted development team, test tha
 
 ## Next validation target — production-integration migration safety
 
-Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. Eligible deterministic S14B envelope interpretation is implemented generically. The next backend readiness gate is platform authorization, followed by site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
+Follow the [production-integration roadmap](../development/production-integration-roadmap.md). P0 source isolation is complete at `04f0cf338ab86980c040e5b6fbda6942a3c28681`; retain its no-mixing/overwrite regressions. The generic canonical module thermal gate is implemented, and generic weather-time/irradiance-boundary capability is now implemented. Eligible deterministic S14B envelope interpretation is implemented generically. Platform authorization is implemented and tested; the next backend readiness work is site evidence binding including population-residual and S14B support-policy authority before P1/P2 finalisation. Then validate shadow-output reference plane, timestamp identity, fidelity/provenance, uncertainty and unresolved coverage. Compare aligned meter output and ownership across representative operating regimes before any per-site cutover.
 
 No legacy percentage may remain active for a mechanism/path already owned by the physical model in that same expected series. Unknown legacy allocation requires an evidence decision. Site fallback must be explicit physics, never silent reversion to percentages inside a physical source.
 
@@ -512,3 +512,11 @@ Focused tests use canonical S14B equation fixtures and a real public combined-pa
 Both missing and exceeded support policies preserve inherited residual NaNs and prevent any relation despite resolved combined bounds. Availability diagnostics count only eligible rows. Partial P/Q, empty schema, malformed residuals/bounds, arithmetic safety, all appended fields and all diagnostics are covered. Whole combined-parent replay rejects inherited residual, eligibility, bound, provenance, state, support and diagnostic tampering.
 
 Independent validation succeeds with production parent-composition, quantity, channel, record, frame, diagnostics and public interpretation helpers disabled. Local regression scope is the feature, combined parent, S14B and source-isolation files; full `main` CI is authoritative. No S14A/B/C numerical changes, causal attribution, statistical significance, probability, commercial inference or production/shadow activation are admitted.
+
+## Server-side authorization readiness
+
+Firebase authentication now exposes only uid, email and the exact boolean `platform_admin` custom claim. Global operations require that claim; site reads require exact viewer/admin membership and site mutations require admin membership. Verified platform administrators explicitly bypass membership. Missing or invalid membership fails closed; viewers cannot mutate and site admins are not platform admins. No email/domain, browser-secret, environment or Bracon inference exists.
+
+The [platform authorization policy](../architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
+
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.

@@ -12,15 +12,16 @@ import re
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Annotated, Any, Literal
 
-import yaml
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel
+import yaml  # type: ignore[import-untyped]
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 
-from heliotelligence.api.auth import get_admin_user, get_current_user
+from heliotelligence.api.auth import get_current_user, require_platform_admin
 from heliotelligence.config.settings import settings
-from heliotelligence.config.site import load_sites
+from heliotelligence.config.site import SiteConfig, load_sites
 from heliotelligence.db.session import get_session_factory
 from heliotelligence.ingest.csv_parser import parse_csv
 from heliotelligence.ingest.upsert import upsert_all
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
 
 class InverterGroupIn(BaseModel):
     id: str
@@ -84,11 +86,12 @@ class NewSiteRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _site_uuid(slug: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, slug))
 
 
-def _find_site_by_uuid(site_id: str):
+def _find_site_by_uuid(site_id: str) -> SiteConfig | None:
     sites = load_sites(settings.site_config_path)
     for s in sites:
         if _site_uuid(s.id) == site_id:
@@ -100,8 +103,9 @@ def _find_site_by_uuid(site_id: str):
 # GET /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.get("/sites", dependencies=[Depends(get_admin_user)])
-async def list_sites() -> list[dict]:
+
+@router.get("/sites", dependencies=[Depends(require_platform_admin)])
+async def list_sites() -> list[dict[str, Any]]:
     sites = load_sites(settings.site_config_path)
     return [
         {
@@ -115,7 +119,9 @@ async def list_sites() -> list[dict]:
             "azimuth_deg": s.azimuth_deg,
             "timezone": s.timezone,
             "num_inverter_groups": len(s.layout.inverter_groups) if s.layout else 0,
-            "total_inverters": sum(g.inverter_count for g in s.layout.inverter_groups) if s.layout else 0,
+            "total_inverters": sum(g.inverter_count for g in s.layout.inverter_groups)
+            if s.layout
+            else 0,
         }
         for s in sites
     ]
@@ -125,8 +131,9 @@ async def list_sites() -> list[dict]:
 # POST /api/v1/admin/sites
 # ---------------------------------------------------------------------------
 
-@router.post("/sites", status_code=201, dependencies=[Depends(get_admin_user)])
-async def create_site(req: NewSiteRequest) -> dict:
+
+@router.post("/sites", status_code=201, dependencies=[Depends(require_platform_admin)])
+async def create_site(req: NewSiteRequest) -> dict[str, Any]:
     # Generate slug from name
     slug = re.sub(r"[^a-z0-9]+", "-", req.name.lower()).strip("-")
 
@@ -139,17 +146,19 @@ async def create_site(req: NewSiteRequest) -> dict:
     groups = []
     for g in req.inverter_groups:
         inverters = [f"{g.inverter_id_prefix}{101 + i}" for i in range(g.inverter_count)]
-        groups.append({
-            "id": g.id,
-            "label": g.label,
-            "centre_lat": g.centre_lat,
-            "centre_lon": g.centre_lon,
-            "inverter_count": g.inverter_count,
-            "inverters": inverters,
-        })
+        groups.append(
+            {
+                "id": g.id,
+                "label": g.label,
+                "centre_lat": g.centre_lat,
+                "centre_lon": g.centre_lon,
+                "inverter_count": g.inverter_count,
+                "inverters": inverters,
+            }
+        )
 
     # Build YAML structure
-    site_dict: dict = {
+    site_dict: dict[str, Any] = {
         "id": slug,
         "name": req.name,
         "latitude": req.latitude,
@@ -203,7 +212,7 @@ async def create_site(req: NewSiteRequest) -> dict:
     else:
         data = {}
 
-    sites_list: list = data.get("sites", [])
+    sites_list: list[Any] = data.get("sites", [])
     sites_list.append(site_dict)
     data["sites"] = sites_list
 
@@ -220,11 +229,12 @@ async def create_site(req: NewSiteRequest) -> dict:
 # POST /api/v1/admin/sites/{site_id}/upload
 # ---------------------------------------------------------------------------
 
-@router.post("/sites/{site_id}/upload", dependencies=[Depends(get_admin_user)])
+
+@router.post("/sites/{site_id}/upload", dependencies=[Depends(require_platform_admin)])
 async def upload_scada(
     site_id: str,
-    file: UploadFile = File(...),
-) -> dict:
+    file: Annotated[UploadFile, File()],
+) -> dict[str, Any]:
     site = _find_site_by_uuid(site_id)
     if site is None:
         raise HTTPException(status_code=404, detail=f"Site {site_id} not found")
@@ -250,7 +260,11 @@ async def upload_scada(
 
         log.info(
             "Uploaded SCADA for site %s: %d weather, %d meter, %d inverter, %d string rows",
-            site_id, len(weather), len(meter), len(inverters), len(strings),
+            site_id,
+            len(weather),
+            len(meter),
+            len(inverters),
+            len(strings),
         )
 
         return {
@@ -269,26 +283,45 @@ async def upload_scada(
 # GET /api/v1/admin/me  — who am I?
 # ---------------------------------------------------------------------------
 
+
 @router.get("/me")
-async def get_me(user: dict = Depends(get_current_user)) -> dict:
-    """Return the current authenticated user's uid and email."""
-    return {"uid": user["uid"], "email": user.get("email")}
+async def get_me(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
+    """Return verified identity and the explicit global-administration flag."""
+    return {
+        "uid": user["uid"],
+        "email": user.get("email"),
+        "platform_admin": user.get("platform_admin") is True,
+    }
 
 
 # ---------------------------------------------------------------------------
 # POST /api/v1/admin/sites/{site_id}/access  — grant user access to a site
 # ---------------------------------------------------------------------------
 
+
 class GrantAccessRequest(BaseModel):
-    uid: str
-    role: str = "viewer"  # viewer | admin
+    uid: str = Field(strict=True, min_length=1)
+    role: Literal["viewer", "admin"] = "viewer"
+
+    @field_validator("uid")
+    @classmethod
+    def nonblank_uid(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("uid must not be blank")
+        return value
 
 
-@router.post("/sites/{site_id}/access", dependencies=[Depends(get_admin_user)])
-async def grant_site_access(site_id: str, req: GrantAccessRequest) -> dict:
+@router.post("/sites/{site_id}/access", dependencies=[Depends(require_platform_admin)])
+async def grant_site_access(site_id: str, req: GrantAccessRequest) -> dict[str, Any]:
     """Grant a Firebase user access to a site."""
     factory = get_session_factory()
     async with factory() as session:
+        exists = await session.execute(
+            text("SELECT 1 FROM sites WHERE CAST(site_id AS TEXT) = :site_id"),
+            {"site_id": site_id},
+        )
+        if exists.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail=f"Site {site_id} not found")
         await session.execute(
             text(
                 """
