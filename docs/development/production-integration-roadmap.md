@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b`, PR #126 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52`, PR #127 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -108,9 +108,9 @@ expected-model discrete interval uncertainty propagation — IMPLEMENTED GENERIC
 ↓
 combined measurement + expected-model interval uncertainty — IMPLEMENTED GENERICALLY
 ↓
-uncertainty-aware S14/P4 interpretation — NEXT
+uncertainty-aware deterministic S14B envelope interpretation — IMPLEMENTED GENERICALLY
 ↓
-platform authorization
+platform authorization — NEXT BACKEND READINESS GATE
 ↓
 site evidence / P1-P2 finalisation
 ↓
@@ -162,7 +162,7 @@ This is a deliberately bounded post-MPPT current derate, not member-resolved I-V
 
 Finite piecewise-linear/trapezoidal reconstruction is not automatically eligible benchmark evidence. S14B v2 requires explicit per-meter maximum-gap seconds with policy scope, evidence kind, source, confidence, method and applicability. Exact equality passes; missing policy and excessive gap produce distinct ineligible states. No universal threshold, interval fraction, nominal cadence or constant-power exception is inferred. Policy failure retains reconstruction/energy diagnostics but publishes no accepted residual.
 
-The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; measurement-chain bounds are now available separately; uncertainty-aware interpretation remains open. No production benchmark switch or shadow execution is activated.
+The generic gate and deterministic analytic daylight-edge regressions are implemented. Site onboarding must justify the intended model cadence, actual completeness, measurement interval, fast-ramp/operating-regime sensitivity, accuracy objective and temporal applicability. Synthetic test errors are not real-site claims. Bracon has no admitted support policy. S14C consumes eligibility and exact admitted support; measurement-chain bounds are now available separately; the separate deterministic envelope relation is now implemented generically. No production benchmark switch or shadow execution is activated.
 
 ## Migration ledger
 
@@ -253,8 +253,8 @@ Before staging shadow data is exposed outside the trusted development team:
 1. **Measurement-chain numerical uncertainty (pointwise and admitted interval-average bounds): implemented generically, dormant.** Explicit complete-chain symmetric maximum P/Q bounds annotate canonical revenue-meter measurements. Numerical relative and absolute terms are supplied by evidence, not derived from categorical confidence or meter/CT/PT class strings. There is no internal component recombination.
 2. **Pointwise expected/model quantitative uncertainty: implemented generically, dormant.** A separate explicit complete-chain envelope annotates canonical S13C P/Q; it is not derived from component budgets or measurement bounds.
 3. **Expected-model discrete interval uncertainty propagation: implemented generically, dormant.** Tight deterministic propagation of published pointwise magnitudes through the exact S14B trapezoidal functional; not a support-density or continuous-truth bound.
-4. **Combined measurement + expected-model interval uncertainty: implemented generically, dormant.** Deterministic addition of independently admitted parent bounds; no independence or probability assumption. Interpretation remains next.
-5. **Uncertainty-aware S14/P4 interpretation: next.** Existing residual semantics remain unchanged; measurement uncertainty alone cannot establish significance, model error, performance loss or commercial impact.
+4. **Combined measurement + expected-model interval uncertainty: implemented generically, dormant.** Deterministic addition of independently admitted parent bounds; no independence or probability assumption. Deterministic interpretation is implemented separately.
+5. **Eligible deterministic S14B envelope interpretation: implemented generically, dormant.** Existing residuals are compared exactly to the complete combined bound only after benchmark eligibility. No probability, statistical significance, causality, physical loss, fault or commercial conclusion is claimed.
 
 This capability is separate from S14B support-density eligibility. Each site must admit numerical complete-chain evidence, channel applicability, temporal semantics and validity covering the complete represented interval for averages or the snapshot timestamp. Relative terms must explicitly refer to the magnitude of the same measured P/Q in primary units; specifications on another basis require an explicit compatible bound conversion with retained provenance, never engine inference. Bracon has no admitted numerical bound. P1/P2 and production/shadow activation are not implemented by this increment.
 
@@ -262,7 +262,7 @@ This capability is separate from S14B support-density eligibility. Each site mus
 
 The generic pointwise expected-model annotation is implemented, dormant and separate from measurement uncertainty. Site evidence must supply a validated complete-chain numerical P/Q maximum-bound envelope, applicable model/version/study, exact meter boundary, operating domain, timestamp validity and same-channel expected-power reference basis. Neither categorical confidence, legacy loss percentages nor observed S14 residuals manufacture that authority. Bracon has no admitted model bound.
 
-Discrete interval propagation is now implemented over the exact admitted S14B support set, using the published pointwise magnitudes and actual trapezoidal elapsed-time weights. It retains S14B unchanged plus an exact support/provenance snapshot. It is not a point bound multiplied by an invented interval, and it adds no numerical support-gap or continuous-truth error model. Resolved propagation does not imply benchmark eligibility. Combined measurement/model interval magnitudes are now implemented separately; significance interpretation remains next. No production/shadow output or activation is introduced.
+Discrete interval propagation is now implemented over the exact admitted S14B support set, using the published pointwise magnitudes and actual trapezoidal elapsed-time weights. It retains S14B unchanged plus an exact support/provenance snapshot. It is not a point bound multiplied by an invented interval, and it adds no numerical support-gap or continuous-truth error model. Resolved propagation does not imply benchmark eligibility. Combined measurement/model interval magnitudes are now implemented separately; deterministic envelope interpretation is implemented separately; statistical or causal conclusions are not claimed. No production/shadow output or activation is introduced.
 
 No new numerical authority is introduced for interval propagation. Missing pointwise evidence remains a channel-specific coverage gap after reconstruction; reconstruction failures are counted first. Policy eligibility is orthogonal and never becomes an extra bound term. Site admission still needs the complete-model envelope and existing S14B policy evidence independently; Bracon has neither an inferred bound nor an inferred support threshold.
 
@@ -274,4 +274,10 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes implemented generically by this increment; uncertainty-aware S14/P4 interpretation next. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+
+### Eligible deterministic interpretation boundary
+
+The generic interpretation capability is implemented after the complete combined-bound layer. It exact-replays that parent and requires canonical S14B benchmark eligibility before any relation is published. Missing/exceeded support policy remains a hard interpretation gate even if combined uncertainty resolves. No residual is reconstructed and no S14B/S14C behavior changes.
+
+Relations describe only exact interior, endpoint equality, positive exterior or negative exterior of the admitted deterministic envelope; excess magnitude is mathematical, not a loss. Inside is not correctness and outside is not a fault or causal/commercial finding. No probability or statistical significance is claimed. Platform authorization is next; site evidence / P1-P2 remain later and P3 remains inactive.
