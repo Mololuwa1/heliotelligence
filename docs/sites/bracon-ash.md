@@ -262,20 +262,26 @@ Generic complete-chain measurement bounds are implemented but **Bracon numerical
 - P/Q applicability, snapshot versus interval-average applicability, and source/provenance.
 - Relative-bound reference basis: magnitude of the same measured P/Q in primary engineering units. Other specifications (true value, full scale/rating, capacity or instrument current) require an explicit compatible bound conversion and its provenance before admission.
 
-Site admission must supply the already-combined complete-chain numerical bound; the generic module does not add or RSS component specifications. Measurement-only bounds do not establish expected/model uncertainty or S14/P4 significance. Combined interpretation and production/shadow activation remain pending.
+Site admission must supply the already-combined complete-chain numerical bound; the generic module does not add or RSS component specifications. Measurement-only bounds do not establish expected/model uncertainty or S14/P4 significance. Generic deterministic interpretation does not admit Bracon or activate production/shadow execution.
 
 ## Expected-model uncertainty evidence
 
 Pointwise complete-model uncertainty is implemented generically but **Bracon numerical expected/model uncertainty remains unadmitted**. Admission needs an explicit validated complete-chain bound or engineering uncertainty budget at the canonical S13C revenue-meter P/Q boundary, with model/version/study provenance, applicable operating domain and dates, P/Q channel coverage and exact meter mapping. Relative terms must reference the magnitude of the same expected P/Q in primary engineering units; other references require an externally documented compatible conversion.
 
-No nameplate/site capacity, component specification, legacy loss percentage, categorical confidence or S14 residual is numerical model-bound authority. Measurement uncertainty is separate. Combined envelopes, uncertainty-aware interpretation and production/shadow activation remain pending; no Bracon percentage or interval rule is inferred.
+No nameplate/site capacity, component specification, legacy loss percentage, categorical confidence or S14 residual is numerical model-bound authority. Measurement uncertainty is separate. Generic combined envelopes and deterministic relations do not admit Bracon or activate production/shadow execution; no Bracon percentage or interval rule is inferred.
 
 ## Expected-model interval propagation applicability
 
 The generic discrete S14B propagation capability does not admit Bracon numerically. A valid complete-model pointwise envelope must already resolve at every exact selected S14B support timestamp for each channel. No new interval percentage, cadence rule or uncertainty authority is inferred. Existing complete-model evidence, model/version/study provenance, channel/domain coverage, dates and meter binding remain required; missing evidence stays visible.
 
-Support-density policy remains separate: mathematical propagation can resolve while a benchmark is ineligible, and the bound does not quantify sparse-support error or continuous physical truth. Combined measurement/model interval magnitudes are implemented separately; interpretation remains next. No measurement uncertainty, S14B/S14C calculation, source selection, production or shadow activation changes.
+Support-density policy remains separate: mathematical propagation can resolve while a benchmark is ineligible, and the bound does not quantify sparse-support error or continuous physical truth. Combined measurement/model interval magnitudes are implemented separately; deterministic interpretation is implemented separately. No measurement uncertainty, S14B/S14C calculation, source selection, production or shadow activation changes.
 
 ## Combined interval uncertainty admission
 
 The generic combined interval contract adds validated measurement and expected-model bound magnitudes only. Bracon has no admitted numerical measurement or model bound; no percentage, legacy loss or equipment class is inferred. It still needs independently evidenced complete-chain P/Q bounds, temporal validity, exact meter/interval applicability and its separate S14B support policy. Mathematical combination does not admit the site or a benchmark. No production/shadow activation occurs.
+
+## Deterministic envelope interpretation admission
+
+Generic eligible S14B envelope interpretation does not admit Bracon. The site still needs explicit numerical measurement/model bounds, calibration/applicability evidence, meter/interval identity and its independent S14B support policy. No equipment class, legacy percentage or observed residual manufactures that evidence.
+
+Missing/exceeded policy blocks interpretation even if combined bounds resolve mathematically. A later admitted within-envelope result would not establish model correctness; an outside result would not establish physical loss, fault, causality or commercial impact. No probability/statistical significance, production cutover or shadow activation is inferred.

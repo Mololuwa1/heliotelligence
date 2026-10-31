@@ -22,7 +22,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b` (PR #126 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -61,7 +61,7 @@ The repository contains reusable irradiance, shading, IAM, spectral and module-e
 - **Module thermal integration:** a generic canonical module-temperature authority/result now exists but is dormant; site evidence and upstream thermal-POA/time admission remain required. The legacy measured-module path has a cell/module delta inconsistency, and configured PVsyst-style `u_c/u_v` values are fed directly to a Faiman `u0/u1` call.
 - **Module population site evidence:** S8-1 remains homogeneous string scaling. The separate bounded residual authority now covers an explicitly quantified intra-string population residual at lower fidelity; member-resolved variability remains unimplemented and site admission remains required.
 - **Interval benchmark site policy:** S14B v2 now requires explicit meter-specific maximum-gap authority for benchmark eligibility. No global or Bracon threshold exists; site admission remains pending.
-- **Quantitative measurement uncertainty:** a separate dormant contract adds explicit complete-chain P/Q bounds around canonical S13D. S13D source/confidence is preserved; pointwise expected-model bounds now exist separately; discrete S14B interval propagation now exists separately; combined interval magnitudes now exist separately; significance interpretation remains open.
+- **Quantitative measurement uncertainty:** a separate dormant contract adds explicit complete-chain P/Q bounds around canonical S13D. S13D source/confidence is preserved; pointwise expected-model bounds now exist separately; discrete S14B interval propagation now exists separately; combined interval magnitudes now exist separately; deterministic envelope relations now exist separately; no statistical significance is claimed.
 
 These are production-readiness gaps, not reasons to weaken the validated S8–S14 contracts. P0 source isolation is complete at the PR #118 checkpoint. P3 shadow execution and P4 accuracy claims must still address the remaining integration/evidence gates explicitly.
 
@@ -647,7 +647,7 @@ Authority time scope explicitly admits snapshots, interval averages, or both. Op
 
 Original measurement `parameter_source`/`confidence` are preserved; authority provenance is separately published as `uncertainty_parameter_source`, `uncertainty_confidence` and other `uncertainty_` provenance fields. Diagnostics use nested partitions: measurement presence across all rows; authority presence only for resolved measurements; temporal applicability only with measurement + authority; time-scope applicability only after temporal validity. P/Q resolved/unresolved counts each span all rows. Earlier parent failures therefore do not become missing-policy gaps.
 
-The independent validator separately reconstructs admission, temporal applicability, arithmetic, provenance, frame/dtypes and diagnostic partitions. It does not call production record/frame/diagnostic builders. S14B expected-support density remains a separate evidence question. Combined interval magnitudes are implemented separately; S14/P4 significance interpretation is not implemented. No production or shadow model is activated.
+The independent validator separately reconstructs admission, temporal applicability, arithmetic, provenance, frame/dtypes and diagnostic partitions. It does not call production record/frame/diagnostic builders. S14B expected-support density remains a separate evidence question. Combined interval magnitudes are implemented separately; Deterministic envelope interpretation is implemented separately; no statistical significance is claimed. No production or shadow model is activated.
 
 ## Pointwise complete expected-model uncertainty
 
@@ -666,7 +666,7 @@ Evidence kinds are `validated_complete_model_chain_bound`, `engineering_uncertai
 
 The annotation distinguishes missing expected state, unresolved upstream solution, missing bound authority, temporal mismatch, unavailable individual channels and nonfinite arithmetic. Per-channel flags/states preserve partial resolution. Diagnostics first partition expected-state presence/readiness, then authority presence for ready rows, then temporal applicability for admitted ready rows; P/Q resolved/unresolved counts each span all rows. An independent validator reconstructs authority admission, temporal comparisons, arithmetic, exact schema/dtypes and diagnostics without production record/channel/frame/diagnostic builders.
 
-Only pointwise power uncertainty is published, together with the coefficients, components, lower/upper bounds, original S13C contract/model, validity and complete authority provenance. The separate interval annotation now consumes these published values over exact S14B support timestamps. The pointwise module itself does not publish expected energy uncertainty or infer interval coverage: S14B uses piecewise-linear reconstruction and trapezoidal integration across multiple points, so a point bound times duration is not valid interval propagation. Measurement uncertainty remains separately owned with no dependency in either direction. Discrete interval propagation is implemented separately; combined interval magnitudes are implemented separately and uncertainty-aware S14/P4 interpretation is next. S14 numerics, source isolation and production/shadow activation remain unchanged.
+Only pointwise power uncertainty is published, together with the coefficients, components, lower/upper bounds, original S13C contract/model, validity and complete authority provenance. The separate interval annotation now consumes these published values over exact S14B support timestamps. The pointwise module itself does not publish expected energy uncertainty or infer interval coverage: S14B uses piecewise-linear reconstruction and trapezoidal integration across multiple points, so a point bound times duration is not valid interval propagation. Measurement uncertainty remains separately owned with no dependency in either direction. Discrete interval propagation is implemented separately; combined interval magnitudes are implemented separately and deterministic S14B envelope interpretation is implemented generically. S14 numerics, source isolation and production/shadow activation remain unchanged.
 
 ## Expected-model interval uncertainty through S14B
 
@@ -693,7 +693,7 @@ The exact coverage limitation is `uncertainty_of_s14b_discrete_reconstructed_exp
 
 Only `expected_interval_reconstruction_resolved` and complete pointwise support gate the mathematical result. Support policy and benchmark eligibility remain orthogonal: missing or exceeded policy may leave them false while interval model propagation resolves. No bound magnitude overrides S14B policy, and policy is not an uncertainty term. Diagnostics partition coverage only after resolved reconstruction, track P/Q resolution separately and mirror policy/benchmark eligibility independently. The validator independently reconstructs support, elapsed times, weights, bounds, ranges, schema, snapshots and diagnostics without production helpers.
 
-Combined measurement + expected-model interval magnitudes are now implemented separately and validate both independently owned parents at the same meter/interval boundary. S14/P4 significance interpretation is later. S14B numerics, S14C accounting, measurement uncertainty, source isolation and production/shadow behaviour remain unchanged; Bracon has no admitted numerical model envelope.
+Combined measurement + expected-model interval magnitudes are now implemented separately and validate both independently owned parents at the same meter/interval boundary. The separate deterministic envelope relation is now implemented; no statistical significance is claimed. S14B numerics, S14C accounting, measurement uncertainty, source isolation and production/shadow behaviour remain unchanged; Bracon has no admitted numerical model envelope.
 
 ## Combined revenue-meter interval uncertainty
 
@@ -703,7 +703,7 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes implemented generically by this increment; uncertainty-aware S14/P4 interpretation next. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 The combined v1 identifiers are:
 
@@ -712,3 +712,21 @@ The combined v1 identifiers are:
 - Scope: `revenue_meter_interval_combined_measurement_expected_model_uncertainty_before_residual_interpretation`.
 
 The only new numerical outputs are P/Q `*_interval_average_power_combined_uncertainty_bound_*` and `*_energy_combined_uncertainty_bound_*`. Each channel distinguishes measurement unavailable, model unavailable, both unavailable, nonfinite sum and resolved. The exact measurement snapshot retains the underlying authority/provenance and failure reason; inherited model state retains its own coverage/reconstruction reason. Diagnostics partition those parent gaps separately from arithmetic failures, with support/benchmark eligibility orthogonal.
+
+## Eligible deterministic interval uncertainty-envelope interpretation
+
+The new dormant module imports only the public combined interval parent. It reconstructs that parent with original inputs and `revenue_meter_measurement_uncertainty_by_meter_id`, `revenue_meter_expected_model_uncertainty_by_meter_id` and `revenue_meter_interval_support_policy_by_meter_id`, then exact-replays all parent states, measurement provenance and diagnostics. Its output preserves the complete combined state frame without adding another snapshot.
+
+Identifiers:
+
+- Contract: `admitted_combined_interval_uncertainty_and_eligible_s14b_residual_to_revenue_meter_interval_uncertainty_interpretation_state_v1`.
+- Model: `deterministic_zero_centered_combined_uncertainty_envelope_residual_comparison_v1`.
+- Scope: `eligible_s14b_interval_residual_uncertainty_envelope_interpretation_before_causal_or_commercial_attribution`.
+
+The first gate is canonical `benchmark_eligible`. A false flag yields `unresolved_benchmark_ineligible` before reading residuals or bounds. Only eligible rows assess per-channel combined availability; unavailable channels remain explicitly unresolved. The four canonical S14B power/energy residuals and four published combined magnitudes are consumed directly. No measured-minus-expected calculation, uncertainty construction or trapezoidal propagation exists here.
+
+For finite `R` and finite `B >= 0`, the residual's zero-centred envelope is `[-B,+B]`. Exact strict interior gives `within_combined_uncertainty_envelope`; equality to either endpoint gives `on_combined_uncertainty_envelope_boundary`; values beyond the upper/lower endpoint give `outside_positive_combined_uncertainty_envelope` / `outside_negative_combined_uncertainty_envelope`. No hidden tolerance exists. Endpoints and `max(abs(R)-B,0)` are published only for a resolved quantity. Zero/zero is boundary. Power and energy are interpreted independently; both must resolve for a channel, and P/Q remain independent.
+
+Diagnostics partition eligibility first, availability only among eligible rows, and resolved/nonfinite outcomes among available channels. Channel unresolved totals span all rows. Quantity relation counts track only finite interpreted quantities, independently of channel completeness. Independent validation rebuilds gates, relations, excess, schema/dtypes and counts without production interpretation helpers.
+
+Inside does not establish model correctness. Outside means only that the absolute canonical residual exceeds the admitted combined deterministic maximum bound. It establishes no physical loss, fault, causality, commercial impact, probability or statistical significance. Support eligibility stays mandatory and S14C accounting is untouched. Generic implementation does not admit Bracon, validate production P4 accuracy, authorize a cutover or activate production/shadow output.

@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b` (PR #126 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -83,29 +83,29 @@ Nameplate power tolerance alone is neither mismatch loss nor a member current/vo
 
 Generic dormant S14B v2 now requires explicit per-meter maximum-gap policy for a finite reconstructed interval to become benchmark eligible. Exact boundaries, selected support timestamps, piecewise-linear reconstruction and trapezoidal integration are unchanged. Reconstruction resolved ≠ benchmark eligible: missing policy or excess gap retains reconstructed averages/energy and support diagnostics, but all benchmark residuals remain NaN. S14C consumes that eligibility gate without reinterpreting support density.
 
-There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission, uncertainty-aware S14/P4 interpretation, platform authorization and P1/P2 finalisation remain open; no production or shadow activation occurs.
+There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission, platform authorization and P1/P2 finalisation remain open; no production or shadow activation occurs.
 
 ## Revenue-meter measurement uncertainty
 
 A dormant generic contract now evaluates explicit complete-measurement-chain symmetric maximum error bounds for P and Q independently. It uses only supplied numerical relative/absolute terms; categorical confidence and meter/CT/PT accuracy descriptions do not imply numerical bounds. Relative terms require explicit attestation to the magnitude of the same measured P/Q in primary units; other reference bases need an evidence-backed conversion before admission. Declared validity covers complete intervals for interval-average measurements, with exact boundary arithmetic, or the observation timestamp for snapshots. It performs no internal component recombination or accuracy-class lookup.
 
-This is measurement uncertainty only, separate from S14B support-density eligibility. Combined interval magnitudes are now implemented separately; uncertainty-aware S14/P4 interpretation remains open. Bracon Ash has no admitted numerical measurement uncertainty. Production and shadow execution remain unchanged.
+This is measurement uncertainty only, separate from S14B support-density eligibility. Combined interval magnitudes are now implemented separately; deterministic S14B envelope interpretation is now implemented generically. Bracon Ash has no admitted numerical measurement uncertainty. Production and shadow execution remain unchanged.
 
 ## Pointwise expected-model uncertainty
 
 A separate dormant contract now annotates canonical S13C revenue-meter P/Q with explicit already-combined complete-model symmetric maximum bounds. P and Q resolve independently using only admitted `abs(expected channel power) × relative fraction + absolute bound`. The relative term must attest to that same expected channel magnitude in primary engineering units; categorical confidence, component ratings and legacy percentages do not define a numerical bound. Inclusive validity is pointwise at the exact S13C timestamp.
 
-Measurement bounds remain independently owned. A separate dormant module now propagates the published pointwise envelopes through S14B's exact discrete trapezoidal functional; it does not multiply one point bound by an invented duration or quantify support-density/continuous-path error. Combined interval magnitudes are implemented separately; uncertainty-aware S14/P4 interpretation remains later work. No Bracon bound, production or shadow activation is admitted.
+Measurement bounds remain independently owned. A separate dormant module now propagates the published pointwise envelopes through S14B's exact discrete trapezoidal functional; it does not multiply one point bound by an invented duration or quantify support-density/continuous-path error. Combined interval magnitudes are implemented separately; deterministic S14B envelope interpretation is now implemented generically. No Bracon bound, production or shadow activation is admitted.
 
 ## Discrete expected-model interval uncertainty
 
 `revenue_meter_expected_model_interval_uncertainty.py` replays canonical S14B and pointwise expected-model uncertainty, then propagates only the published bound magnitudes over S14B's exact support timestamps. For each channel, `B_E = sum((b_i/2 + b_next/2) × elapsed_hours)` and `B_avg = B_E / interval_hours`. All S14B values, policies, eligibility flags and residuals remain unchanged; an exact pointwise support/provenance snapshot is retained.
 
-Resolved interval model uncertainty **does not imply benchmark eligibility**. Missing or exceeded support policy can coexist with mathematically resolved propagation. This bound covers the discrete reconstructed functional, not sparse-support error or continuous physical truth. Measurement uncertainty remains separate; combined interval uncertainty magnitudes now exist separately and uncertainty-aware S14/P4 interpretation remains next. Bracon has no admitted model bound, and production/shadow execution remains dormant.
+Resolved interval model uncertainty **does not imply benchmark eligibility**. Missing or exceeded support policy can coexist with mathematically resolved propagation. This bound covers the discrete reconstructed functional, not sparse-support error or continuous physical truth. Measurement uncertainty remains separate; combined interval uncertainty magnitudes now exist separately and deterministic S14B envelope interpretation is now implemented generically. Bracon has no admitted model bound, and production/shadow execution remains dormant.
 
 ## Next major phase — production integration
 
-Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, uncertainty-aware S14/P4 interpretation and platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, platform authorization before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 
@@ -154,4 +154,10 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes implemented generically by this increment; uncertainty-aware S14/P4 interpretation next. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+
+## Eligible interval uncertainty-envelope interpretation
+
+The dormant `revenue_meter_interval_uncertainty_interpretation.py` exact-replays the combined parent and interprets only already-published, benchmark-eligible S14B residuals. Each P/Q power and energy residual is compared independently to `[-B, +B]`: strictly within, exactly on either boundary, outside positive or outside negative. There is no epsilon or statistical interpretation. Zero bound with zero residual is on the boundary.
+
+The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is the next backend readiness gate; site evidence / P1-P2 remain later, and P3 is not activated.
