@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #125 merge 2d81b7ed43a4f4dca410e62b3441cfdbd32bb182
+PR #126 merge b738473d0f1f29666fa6961fa0c36cb2403bc97b
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -18,13 +18,14 @@ weather/irradiance/module-thermal production integration still has open gates
 Production:
 legacy expected-energy path remains active
 Uncertainty:
-measurement and pointwise model bounds complete; discrete S14B model-interval propagation generic, dormant
+measurement and pointwise model bounds complete; discrete S14B model-interval propagation complete;
+combined interval magnitudes generic, dormant
 Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
-Next: combined measurement/model interval uncertainty, authorization and site/P1-P2 evidence; no shadow activation
+Next: uncertainty-aware S14/P4 interpretation, authorization and site/P1-P2 evidence; no shadow activation
 ```
 
-Current canonical code checkpoint: `2d81b7ed43a4f4dca410e62b3441cfdbd32bb182` (PR #125 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `b738473d0f1f29666fa6961fa0c36cb2403bc97b` (PR #126 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -50,7 +51,7 @@ Do not describe the full weather-to-meter chain as production-validated yet.
 - **Module thermal integration remains dormant:** the generic canonical authority/state contract now exists, but `physics/thermal.py` remains the active legacy runtime. Its measured-module cell offset currently yields 0.03 °C at 1000 W/m² despite the code comment describing about 3 °C, and configured `u_c/u_v` values are passed directly into a Faiman `u0/u1` interface.
 - **Population-residual site admission remains open:** S8-1 remains homogeneous series scaling and shared-MPPT mismatch remains physical S8 ownership. A separate generic bounded intra-string residual authority now exists, with explicit negligible or post-MPPT equivalent-current-derate modes. It is lower fidelity, not member-resolved I-V physics. Missing authority leaves active population-complete output unresolved; resolved-zero upstream states remain exact zero without authority; legacy aggregate mismatch cannot be retired without allocation evidence.
 - **S14B site support-policy admission remains open:** generic v2 eligibility now requires explicit per-meter maximum-gap authority after finite reconstruction. No default gap/cadence or Bracon threshold is inferred. Synthetic daylight-edge tests justify the distinction, not a universal policy value.
-- **Measurement uncertainty is quantitative generically:** a separate dormant authority annotates canonical S13D with explicit complete-chain numerical bounds. Categorical confidence is provenance only. Combined bounds and uncertainty-aware S14/P4 interpretation remain open.
+- **Measurement uncertainty is quantitative generically:** a separate dormant authority annotates canonical S13D with explicit complete-chain numerical bounds. Categorical confidence is provenance only. Combined interval magnitudes now exist separately; uncertainty-aware S14/P4 interpretation remains open.
 - **Platform access control is not shadow-ready:** the frontend sends `VITE_ADMIN_KEY`, which is browser-bundled, and ordinary site-scoped protected routes reviewed so far authenticate users but do not enforce `user_site_access` membership.
 - **S9-4A fixed-Q sign semantics are not locally declared:** downstream convention is positive Q injection / negative Q absorption; source evidence using another convention must be transformed before S9-4A construction.
 
@@ -72,7 +73,7 @@ S14B v2 preserves exact boundaries, exact selected S13C support, piecewise-linea
 
 Policy presence/provenance is visible on supplied rows even when an earlier failure prevents assessment. Diagnostics count missing/present policy only after finite reconstruction; pass/fail partition the reconstructed rows with policy. Instantaneous and upstream-failed rows are not missing-policy gaps. The independent validator rebuilds support, integration, policy admission, fields and diagnostics without production builders or the policy-resolution helper. S14C consumes S14B eligibility and exact support timestamps; its accounting contract/numerics are unchanged.
 
-The generic support-policy gate is complete (PR #122); site policy evidence, combined measurement/model interval uncertainty, platform authorization and P1/P2 remain open. No production/shadow switch is activated. Bracon has no admitted support threshold. Synthetic quadratic-edge errors describe only the checked-in proxy.
+The generic support-policy gate is complete (PR #122); site policy evidence, uncertainty-aware S14/P4 interpretation, platform authorization and P1/P2 remain open. No production/shadow switch is activated. Bracon has no admitted support threshold. Synthetic quadratic-edge errors describe only the checked-in proxy.
 
 ## Revenue-meter numerical measurement bounds
 
@@ -82,7 +83,7 @@ Only numerical coefficients affect `abs(measured) × relative + absolute` using 
 
 Validity is inclusive: snapshot timestamp, or complete interval coverage for interval averages. A supplied lower limit compares against an exactly representable `end - duration`; unsafe arithmetic leaves temporal applicability unresolved. A missing lower limit does not require inventing one. Aware zones compare physical instants without rewriting evidence; naive/aware mismatch stays unresolved.
 
-Measurement bounds are generic capability, not Bracon admission or total benchmark uncertainty. Pointwise expected-model bounds now exist separately; discrete expected-model interval propagation now exists separately; combined interval bands → uncertainty-aware S14/P4 interpretation remain open. Do not change S14 residuals, infer significance, calculate revenue or activate a shadow source from measurement bounds alone.
+Measurement bounds are generic capability, not Bracon admission or total benchmark uncertainty. Pointwise expected-model bounds now exist separately; discrete expected-model interval propagation now exists separately; combined interval magnitudes now exist separately; uncertainty-aware S14/P4 interpretation remains open. Do not change S14 residuals, infer significance, calculate revenue or activate a shadow source from measurement bounds alone.
 
 ## Pointwise expected-model uncertainty
 
@@ -90,7 +91,7 @@ Measurement bounds are generic capability, not Bracon admission or total benchma
 
 Required relative basis is `absolute_same_channel_expected_power_in_primary_engineering_units`; no rating, capacity, current, irradiance, other channel/plane or unknown-true-value specification is directly admissible. External conversion must produce a compatible complete-chain envelope with provenance; the engine infers nothing. Explicit zero and fractions above one remain valid. Snapshot validity is inclusive, preserving timezone provenance; incompatible naive/aware limits do not resolve.
 
-Missing uncertainty evidence preserves valid S13C baseline power. Upstream-unresolved rows are not missing-authority diagnostic gaps. Missing or altered supplied parent rows fail exact replay; this annotation does not fabricate timestamps. Its independent validator reconstructs admission, bounds, schema and nested diagnostics without production helpers. The pointwise module publishes no interval-energy uncertainty itself. A separate layer now propagates over the exact S14B support set; measurement/model interval combination is next, followed by S14/P4 interpretation. Bracon remains unadmitted; production is unchanged.
+Missing uncertainty evidence preserves valid S13C baseline power. Upstream-unresolved rows are not missing-authority diagnostic gaps. Missing or altered supplied parent rows fail exact replay; this annotation does not fabricate timestamps. Its independent validator reconstructs admission, bounds, schema and nested diagnostics without production helpers. The pointwise module publishes no interval-energy uncertainty itself. A separate layer now propagates over the exact S14B support set; measurement/model interval combination is implemented separately, with S14/P4 interpretation next. Bracon remains unadmitted; production is unchanged.
 
 ## Expected-model discrete interval propagation
 
@@ -100,7 +101,7 @@ Only `expected_interval_reconstruction_resolved` gates propagation. Every exact 
 
 `B_E = fsum((b_i/2 + b_next/2) × exact_elapsed_seconds/3600)` is the tight deterministic worst-case bound for the discrete trapezoidal functional. It assumes no probability, independence or covariance and adds no support-density/continuous-trajectory error term. `B_avg = B_E / admitted_interval_hours`; lower/upper ranges use the signed canonical S14B central values without clipping. Exact pointwise support states retain all parent provenance. The independent validator does not use production composition/support/propagation/frame/diagnostic helpers.
 
-Measurement uncertainty is not consumed. Combined measurement + expected-model interval uncertainty is next; residual significance, S14/P4 interpretation, commercial calculations, Bracon admission and production/shadow activation remain later or unadmitted.
+Measurement uncertainty is not consumed. Combined measurement + expected-model interval magnitudes now exist separately; residual significance, S14/P4 interpretation, commercial calculations, Bracon admission and production/shadow activation remain later or unadmitted.
 
 ## Canonical module thermal authority/state
 
@@ -112,7 +113,7 @@ The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit 
 
 Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is implemented generically in this increment. Remaining sequence: combined measurement/model interval uncertainty → platform authorization → site evidence (including population residual and support policy) / P1-P2 finalisation → P3. P1 and shadow activation are not implemented here.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are implemented by this increment. Remaining sequence: uncertainty-aware S14/P4 interpretation → platform authorization → site evidence (including population residual and support policy) / P1-P2 finalisation → P3. P1 and shadow activation are not implemented here.
 
 ## Weather-time and irradiance handoff recovery notes
 
@@ -635,3 +636,13 @@ Production `cloudbuild.yaml` currently deploys Cloud Run with `--min-instances=0
 Do not mix scheduler migration with the physics roadmap unless there is a clear runtime dependency.
 
 Never put secrets, credentials, or secret values in repository documentation.
+
+## Combined revenue-meter interval uncertainty
+
+`physics/revenue_meter_combined_interval_uncertainty.py` is a dormant annotation of independently validated measurement uncertainty and expected-model interval uncertainty. It introduces no numerical authority. Both parents are canonically reconstructed from original inputs/mappings and exact-replayed. The interval parent defines the ordered timestamp/meter universe; shared interval, reference-plane, sign and power-basis semantics must agree. Its complete frame is preserved, with an exact measurement-uncertainty snapshot.
+
+For each P/Q channel and each published interval-average power/energy quantity, `B_combined = math.fsum((B_measurement, B_expected_model))`. This is the deterministic tight triangle-inequality bound for `δ_measurement - δ_model`, with no probability, independence, covariance or RSS assumption. The layer consumes published magnitudes; it does not recalculate either parent or repeat trapezoidal propagation. Missing channels and nonfinite arithmetic stay unresolved independently.
+
+Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
+
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes implemented generically by this increment; uncertainty-aware S14/P4 interpretation next. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
