@@ -8,7 +8,8 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi import routing as fastapi_routing
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -47,13 +48,26 @@ POLICIES = {
 }
 
 
-def routes() -> dict[tuple[str, str], APIRoute]:
-    return {
-        (method, route.path): route
-        for route in app_module.app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods
-    }
+@pytest.fixture
+def application() -> FastAPI:
+    return app_module.create_app()
+
+
+def routes(application: FastAPI) -> dict[tuple[str, str], Any]:
+    # Recent FastAPI includes routers lazily. Its public iterator exposes the
+    # effective path/dependant for this application inclusion, not the shared
+    # original router. Older supported releases expose APIRoutes directly.
+    contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    candidates = contexts(application.routes) if contexts is not None else application.routes
+    actual = {}
+    for route in candidates:
+        if not isinstance(getattr(route, "original_route", route), APIRoute):
+            continue
+        for method in route.methods:
+            key = (method, route.path)
+            assert key not in actual, f"Duplicate application route: {key}"
+            actual[key] = route
+    return actual
 
 
 def dependencies(node: Any) -> set[Any]:
@@ -62,22 +76,21 @@ def dependencies(node: Any) -> set[Any]:
 
 @pytest.fixture
 def client(
-    db: support.Database, claims: Any, monkeypatch: pytest.MonkeyPatch
+    application: FastAPI, db: support.Database, claims: Any, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[TestClient]:
     async def connection() -> AsyncIterator[Any]:
         yield db
 
-    app = app_module.app
-    original = app.dependency_overrides.copy()
-    app.dependency_overrides[get_db] = connection
+    application.dependency_overrides[get_db] = connection
     monkeypatch.setattr(admin, "get_session_factory", lambda: db.session)
     monkeypatch.setattr(health, "get_db_version", AsyncMock(return_value="unit-test-db"))
     # No lifespan: it syncs configured sites and owns background scheduler jobs.
-    transport = TestClient(app)
-    yield transport
-    transport.close()
-    app.dependency_overrides.clear()
-    app.dependency_overrides.update(original)
+    transport = TestClient(application)
+    try:
+        yield transport
+    finally:
+        transport.close()
+        application.dependency_overrides.clear()
 
 
 def request(
@@ -105,8 +118,8 @@ def request(
     )
 
 
-def test_complete_route_policy() -> None:
-    actual = routes()
+def assert_complete_route_policy(application: FastAPI) -> None:
+    actual = routes(application)
     assert set(actual) == set(POLICIES), "New routes require an explicit reviewed policy"
     expected = {
         "identity": auth.get_current_user,
@@ -126,9 +139,14 @@ def test_complete_route_policy() -> None:
             assert auth.require_platform_admin not in calls
 
 
+def test_complete_route_policy(application: FastAPI) -> None:
+    assert_complete_route_policy(application)
+
+
 @pytest.mark.parametrize("key,policy", list(POLICIES.items()))
 @pytest.mark.parametrize("role", ["none", "viewer", "admin", "platform"])
 def test_http_route_role_matrix(
+    application: FastAPI,
     client: TestClient,
     db: support.Database,
     claims: Any,
@@ -143,7 +161,7 @@ def test_http_route_role_matrix(
     endpoint = AsyncMock(
         side_effect=HTTPException(status_code=418, detail="authorized business boundary")
     )
-    monkeypatch.setattr(routes()[key].dependant, "call", endpoint)
+    monkeypatch.setattr(routes(application)[key].dependant, "call", endpoint)
     response = request(client, key)
     allowed = (
         policy in ("identity", "public")
@@ -174,6 +192,7 @@ def test_all_protected_resources_require_authentication(
     "key", [key for key, policy in POLICIES.items() if policy in ("read", "site_admin")]
 )
 def test_cross_site_denial_precedes_business_queries(
+    application: FastAPI,
     client: TestClient,
     db: support.Database,
     claims: Any,
@@ -182,7 +201,7 @@ def test_cross_site_denial_precedes_business_queries(
 ) -> None:
     db.grant("admin", SITE_A)
     endpoint = AsyncMock(side_effect=AssertionError("protected business logic accessed"))
-    monkeypatch.setattr(routes()[key].dependant, "call", endpoint)
+    monkeypatch.setattr(routes(application)[key].dependant, "call", endpoint)
     response = request(client, key, site=SITE_B)
     assert response.status_code == 403
     endpoint.assert_not_awaited()
@@ -205,13 +224,13 @@ def test_client_site_query_cannot_override_path_site(
 
 
 def test_retired_key_cannot_elevate_site_admin(
-    client: TestClient, db: support.Database, monkeypatch: pytest.MonkeyPatch
+    application: FastAPI, client: TestClient, db: support.Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db.grant("admin")
     monkeypatch.setenv("ADMIN_API_KEY", "retired-test-key")
     endpoint = AsyncMock(side_effect=AssertionError("platform operation accessed"))
     key = ("GET", "/api/v1/admin/sites")
-    monkeypatch.setattr(routes()[key].dependant, "call", endpoint)
+    monkeypatch.setattr(routes(application)[key].dependant, "call", endpoint)
     response = request(client, key, extra_headers={"X-Admin-Key": "retired-test-key"})
     assert response.status_code == 403
     endpoint.assert_not_awaited()
@@ -388,3 +407,102 @@ def test_no_browser_admin_secret_or_backend_key_authority() -> None:
     for path in (root / "src/heliotelligence/api").rglob("*.py"):
         assert "ADMIN_API_KEY" not in path.read_text(), path
         assert "X-Admin-Key" not in path.read_text(), path
+
+
+def test_factory_instances_are_isolated() -> None:
+    production_overrides = app_module.app.dependency_overrides.copy()
+    first, second = app_module.create_app(), app_module.create_app()
+    assert first is not second and first.router is not second.router
+    assert first.routes is not second.routes
+    assert first.dependency_overrides is not second.dependency_overrides
+    assert first.dependency_overrides is not app_module.app.dependency_overrides
+    first.dependency_overrides[auth.get_current_user] = lambda: {"uid": "test"}
+    assert not second.dependency_overrides
+    assert app_module.app.dependency_overrides == production_overrides
+    key = ("GET", "/api/v1/expected-energy/{site_id}")
+    a, b, production = routes(first)[key], routes(second)[key], routes(app_module.app)[key]
+    assert a.dependant is not b.dependant and a.dependant is not production.dependant
+    original = b.dependant.call
+    a.dependant.call = AsyncMock()
+    assert b.dependant.call is original
+    assert production.dependant.call is original
+
+
+def test_factory_and_production_have_identical_canonical_policies() -> None:
+    for application in (app_module.create_app(), app_module.create_app(), app_module.app):
+        assert_complete_route_policy(application)
+        openapi = application.openapi()
+        documented = {
+            (method.upper(), path)
+            for path, methods in openapi["paths"].items()
+            for method in methods
+        }
+        assert documented == set(routes(application)) == set(POLICIES)
+
+
+def test_factory_retains_metadata_and_cors() -> None:
+    for application in (app_module.create_app(), app_module.app):
+        assert application.title == "Heliotelligence"
+        assert (
+            application.description
+            == "Solar farm digital twin and performance benchmarking platform"
+        )
+        assert application.version == "0.1.0"
+        assert len(application.user_middleware) == 1
+        middleware = application.user_middleware[0]
+        assert middleware.cls is app_module.CORSMiddleware
+        assert middleware.kwargs == {
+            "allow_origins": app_module.settings.cors_origin_list,
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
+
+
+def test_mutated_predecessor_instance_cannot_pollute_next_policy_case() -> None:
+    predecessor = app_module.create_app()
+    predecessor.router.routes.clear()
+    predecessor.dependency_overrides[auth.get_current_user] = lambda: {"uid": "test"}
+    following = app_module.create_app()
+    assert not following.dependency_overrides
+    assert_complete_route_policy(following)
+    assert_complete_route_policy(app_module.app)
+
+
+def test_policy_detects_new_unreviewed_application_route(application: FastAPI) -> None:
+    async def unreviewed() -> dict[str, str]:
+        return {"test": "unreviewed"}
+
+    application.add_api_route("/api/v1/unreviewed", unreviewed, methods=["GET"])
+    with pytest.raises(AssertionError, match="New routes require an explicit reviewed policy"):
+        assert_complete_route_policy(application)
+    assert ("GET", "/api/v1/unreviewed") not in routes(app_module.create_app())
+
+
+def test_endpoint_replacement_affects_only_its_application() -> None:
+    first, second = app_module.create_app(), app_module.create_app()
+    for application in (first, second):
+        application.dependency_overrides[auth.get_current_user] = lambda: {
+            "uid": "isolated-user",
+            "email": None,
+            "platform_admin": False,
+        }
+    key = ("GET", "/api/v1/admin/me")
+    routes(first)[key].dependant.call = AsyncMock(
+        side_effect=HTTPException(status_code=418, detail="only first app")
+    )
+    a, b = TestClient(first), TestClient(second)
+    try:
+        assert a.get(key[1]).status_code == 418
+        response = b.get(key[1])
+        assert response.status_code == 200
+        assert response.json() == {
+            "uid": "isolated-user",
+            "email": None,
+            "platform_admin": False,
+        }
+    finally:
+        a.close()
+        b.close()
+        first.dependency_overrides.clear()
+        second.dependency_overrides.clear()
