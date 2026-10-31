@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `1e5317b2a7305be54529ba8d1388b27492b8ae52` (PR #127 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -52,11 +52,11 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - retain the legacy cell/module delta and PVsyst/Faiman mismatch in compatibility runtime until controlled migration; the new native-authority contract avoids both defects;
 - the generic bounded intra-string population-residual authority now complements physical shared-MPPT mismatch; admit site evidence and legacy allocation before retirement; member-resolved manufacturing/reverse/bypass physics remains future work;
 - generic S14B v2 maximum-gap eligibility authority and synthetic daylight-edge regressions are now implemented; admit an evidence-backed per-meter site policy without inferring a universal threshold;
-- admit site evidence for the generic measurement and pointwise expected-model bounds; retain separate discrete interval propagation and generic eligible deterministic envelope interpretation; close platform authorization next;
+- admit site evidence for the generic measurement and pointwise expected-model bounds; retain separate discrete interval propagation and generic eligible deterministic envelope interpretation; retain authorization enforcement and finalise site evidence / P1-P2 next;
 - close browser-admin-secret and per-site authorization gaps before shadow data is exposed outside the trusted development team;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Next: platform authorization → site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Next: site evidence / P1-P2 finalisation → P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
 
 ## Bounded population mismatch capability
 
@@ -86,10 +86,18 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation implemented by this increment; platform authorization next, followed by site evidence / P1-P2 finalisation. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Deterministic envelope interpretation readiness
 
 Eligible S14B residual-envelope interpretation is now implemented generically and dormant, following the completed measurement, pointwise-model, interval-propagation and combined-bound layers. It classifies the exact canonical residual against the deterministic zero-centred envelope only after S14B eligibility; inside is not model correctness and outside is not physical loss, fault, causality or statistical significance.
 
-Platform authorization is the next backend readiness gate, followed by site evidence / P1-P2 finalisation. S14C remains unchanged, Bracon has no invented numerical admission, and P3/production/shadow execution is not activated.
+Platform authorization is implemented and tested; site evidence / P1-P2 finalisation is next. S14C remains unchanged, Bracon has no invented numerical admission, and P3/production/shadow execution is not activated.
+
+## Server-side authorization readiness
+
+Firebase authentication now exposes only uid, email and the exact boolean `platform_admin` custom claim. Global operations require that claim; site reads require exact viewer/admin membership and site mutations require admin membership. Verified platform administrators explicitly bypass membership. Missing or invalid membership fails closed; viewers cannot mutate and site admins are not platform admins. No email/domain, browser-secret, environment or Bracon inference exists.
+
+The [platform authorization policy](../architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
+
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from heliotelligence.api.auth import require_platform_admin
 from heliotelligence.collectors.scheduler import get_job_status
 
-router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
+router = APIRouter(
+    prefix="/api/v1/ingest", tags=["ingest"], dependencies=[Depends(require_platform_admin)]
+)
 
 
 @router.get("/status")

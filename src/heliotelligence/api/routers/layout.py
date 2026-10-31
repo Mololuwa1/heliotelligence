@@ -43,19 +43,21 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
+from heliotelligence.api.auth import require_site_access
 from heliotelligence.config.settings import settings
 from heliotelligence.config.site import SiteConfig, load_sites
 from heliotelligence.db.session import get_session_factory
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/sites", tags=["layout"])
+router = APIRouter(
+    prefix="/api/v1/sites", tags=["layout"], dependencies=[Depends(require_site_access)]
+)
 
 
 def _find_site(site_id: str) -> SiteConfig | None:
@@ -76,13 +78,16 @@ def _group_status(mean_avail: float | None) -> str:
     return "offline"
 
 
-_DEMO_AT_TIME = datetime(2025, 8, 20, 14, 0, 0, tzinfo=timezone.utc)
+_DEMO_AT_TIME = datetime(2025, 8, 20, 14, 0, 0, tzinfo=UTC)
+
 
 @router.get("/{site_id}/layout")
 async def get_site_layout(
     site_id: str,
-    at_time: datetime | None = Query(default=None, description="Pin status to this UTC timestamp"),
-    demo_mode: bool = Query(default=False, description="Pin to 2025-08-20T14:00:00Z daytime snapshot"),
+    at_time: datetime | None = Query(default=None, description="Pin status to this UTC timestamp"),  # noqa: B008 -- FastAPI parameter metadata
+    demo_mode: bool = Query(
+        default=False, description="Pin to 2025-08-20T14:00:00Z daytime snapshot"
+    ),
 ) -> dict:
     site = _find_site(site_id)
     if site is None:
@@ -125,12 +130,10 @@ async def get_site_layout(
         rows = result.fetchall()
 
     # Build lookup: inverter_id → latest inv_p_ac_kw (None if column is NULL)
-    power_map: dict[str, float | None] = {
-        row.inverter_id: row.inv_p_ac_kw for row in rows
-    }
+    power_map: dict[str, float | None] = {row.inverter_id: row.inv_p_ac_kw for row in rows}
 
     # Compute site centre as mean of group centres
-    groups_cfg = (site.layout.inverter_groups if site.layout else [])
+    groups_cfg = site.layout.inverter_groups if site.layout else []
     if groups_cfg:
         centre_lat = sum(g.centre_lat for g in groups_cfg) / len(groups_cfg)
         centre_lon = sum(g.centre_lon for g in groups_cfg) / len(groups_cfg)
@@ -157,18 +160,20 @@ async def get_site_layout(
             availability_pct = None
             mean_avail = None
 
-        inverter_groups.append({
-            "id": group.id,
-            "label": group.label,
-            "centre_lat": group.centre_lat,
-            "centre_lon": group.centre_lon,
-            "inverter_count": group.inverter_count,
-            "active_inverters": active,
-            "fault_inverters": fault,
-            "availability_pct": availability_pct,
-            "status": _group_status(mean_avail),
-            "inverters": group.inverters,
-        })
+        inverter_groups.append(
+            {
+                "id": group.id,
+                "label": group.label,
+                "centre_lat": group.centre_lat,
+                "centre_lon": group.centre_lon,
+                "inverter_count": group.inverter_count,
+                "active_inverters": active,
+                "fault_inverters": fault,
+                "availability_pct": availability_pct,
+                "status": _group_status(mean_avail),
+                "inverters": group.inverters,
+            }
+        )
 
     return {
         "site_id": site_id,

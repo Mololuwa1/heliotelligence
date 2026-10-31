@@ -71,7 +71,7 @@ CI currently validates:
 
 S8 through S14 generic component/control/network/meter physics is validated but not automatically production-active.
 
-Current canonical code checkpoint: `faf51065d3d49ed0f223be244b27752713f111d0` (PR #116 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Production still uses the legacy expected-energy path. Activation requires explicit site evidence, reference-plane alignment, operational safety and no double counting. Staging should be the first environment for future source-separated physical shadow execution, expected-energy validation and migration comparisons. Shadow execution is planned, not already deployed; P0 source isolation must precede it, and the upstream thermal/irradiance/time-semantics, S14B density, uncertainty and access-control gates in the [production-integration roadmap](development/production-integration-roadmap.md) must be closed before the shadow model is treated as an end-to-end validation source.
 
@@ -81,17 +81,9 @@ Deployment settings, `grid_limit_kwac`, `wiring_loss_ac_pct` and equipment label
 
 Staging isolation does not make application authorization sufficient by itself.
 
-Current repository facts that must be resolved before shadow data is exposed beyond the trusted development team:
+The authorization implementation now requires verified Firebase identity on every protected route, exact `platform_admin=true` for global operations and exact database viewer/admin membership for site scope. Platform admin bypass is intentional; site admins are not platform admins. The browser administrator key/header has been retired without fallback, including CI examples and Cloud Build secret bindings. No external secret resources are deleted by this source change.
 
-- normal protected API routers require Firebase authentication, but the reviewed site-scoped routes do not currently enforce `get_user_sites()` / `user_site_access` membership for the requested `site_id`;
-- admin frontend calls send `VITE_ADMIN_KEY` as `X-Admin-Key`; Vite `VITE_*` values are bundled into browser JavaScript and therefore cannot be treated as a secret authorization boundary.
-
-Required staging gate:
-
-1. admin actions use server-side user/role authorization rather than a browser-bundled shared secret;
-2. all site-scoped protected routes enforce server-side site membership/role checks;
-3. negative cross-site access tests cover expected energy, benchmarking, reports and other site data;
-4. the staging authorization model is verified before non-team users receive access to shadow outputs.
+Before exposing data in a deployment, provision the intended platform-admin claim with trusted credentials, refresh the ID token, establish explicit site memberships and verify negative cross-site/mutation behavior. See the [full policy, route matrix and bootstrap procedure](architecture/platform-authorization.md). The same model applies to staging/production and every site; deployment environment grants no access. No deployment or shadow activation is performed by this increment.
 
 ## Configuration rules
 
