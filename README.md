@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d` (PR #129 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -77,13 +77,13 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 
 Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while active population-complete output remains unresolved. Resolved-zero upstream states remain exact zero without authority because the residual mechanism is inactive. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
 
-Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. No production, expected-energy source or P1/P2/P3 activation occurs.
+Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. This population capability activates no production or expected-energy source; P2 remains pending and P3 inactive.
 
 ## Interval benchmark support eligibility
 
 Generic dormant S14B v2 now requires explicit per-meter maximum-gap policy for a finite reconstructed interval to become benchmark eligible. Exact boundaries, selected support timestamps, piecewise-linear reconstruction and trapezoidal integration are unchanged. Reconstruction resolved ≠ benchmark eligible: missing policy or excess gap retains reconstructed averages/energy and support diagnostics, but all benchmark residuals remain NaN. S14C consumes that eligibility gate without reinterpreting support density.
 
-There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission and P1/P2 finalisation remain open; authorization implementation is complete; no production or shadow activation occurs.
+There is no project-wide or Bracon threshold. Test-only analytic sunrise/sunset proxies demonstrate support sensitivity; they are not real-site accuracy claims. Bracon policy admission and P2 finalisation remain open; authorization implementation is complete; no production or shadow activation occurs.
 
 ## Revenue-meter measurement uncertainty
 
@@ -105,7 +105,7 @@ Resolved interval model uncertainty **does not imply benchmark eligibility**. Mi
 
 ## Next major phase — production integration
 
-Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, the implemented authorization boundary before P1/P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
+Weather-time authority and canonical irradiance boundary are complete generically and dormant. The remaining readiness sequence addresses site weather/optical/thermal evidence binding, population-residual and S14B policy site evidence, the implemented authorization boundary before P2 finalisation and P3 shadow execution. No shadow source is activated. See the canonical roadmap for ordering and site admission gates.
 
 The [production-integration roadmap](docs/development/production-integration-roadmap.md) is canonical for activation work. No additional S-stage is required for production integration.
 
@@ -154,13 +154,13 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; P2 site evidence finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Eligible interval uncertainty-envelope interpretation
 
 The dormant `revenue_meter_interval_uncertainty_interpretation.py` exact-replays the combined parent and interprets only already-published, benchmark-eligible S14B residuals. Each P/Q power and energy residual is compared independently to `[-B, +B]`: strictly within, exactly on either boundary, outside positive or outside negative. There is no epsilon or statistical interpretation. Zero bound with zero residual is on the boundary.
 
-The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is implemented and tested; site evidence / P1-P2 finalisation is next, and P3 is not activated.
+The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is implemented and tested; P2 site evidence finalisation is next, and P3 is not activated.
 
 ## Server-side authorization readiness
 
@@ -168,4 +168,8 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](docs/architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 remains pending and no P3 shadow execution or deployment occurs.
+
+## P1 physical shadow-output boundary
+
+The immutable [P1 output contract](docs/architecture/physical-shadow-output-contract.md) now separates run/model identity, physical boundary, independent P/Q resolution and declared fidelity. Pure persistence round-trips retain exact snapshot timestamps and provenance; unresolved channels remain absent with reason codes. A future expected-energy projection requires resolved power at its explicitly intended reference plane. No physical source is named, writer or execution activated, or Bracon evidence admitted. P2 remains pending and P3 remains inactive.
