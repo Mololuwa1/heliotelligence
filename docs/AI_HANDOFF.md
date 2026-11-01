@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #128 merge a750524c347a2be0f841bedcd24a627bfbe37941
+PR #129 merge f7fbfd177e234becff78b7748576d583bc494e9d
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -22,10 +22,11 @@ measurement and pointwise model bounds complete; discrete S14B model-interval pr
 combined interval magnitudes complete; eligible deterministic envelope interpretation generic, dormant
 Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
-Next: site evidence / P1-P2 finalisation; no shadow activation
+P1: immutable output contract implemented; no writer or physical source selected
+Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `a750524c347a2be0f841bedcd24a627bfbe37941` (PR #128 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d` (PR #129 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -40,6 +41,12 @@ Local development uses focused changed-feature tests and the immediate affected 
 The [PR selector](../scripts/ci/select_pr_unit_tests.py) reads the base/head git diff and parses the checked-out source/test import graph without importing application code. It follows test helpers, relative imports, package initializers, implicit conftest fixtures/plugins and literal dynamic imports; adds mirrored tests and conservative computed-import consumers; and uses full mode for unresolved import/parse analysis, broad configuration/dependency/data changes, deleted modules or source changes with no identifiable tests. Selection is sorted/deduplicated and printed before execution. Workflow/CI-tooling changes include the selector tests.
 
 Read the canonical [production-integration roadmap](development/production-integration-roadmap.md) before activation work. P0 source isolation is complete at PR #118 merge `04f0cf338ab86980c040e5b6fbda6942a3c28681`. Model-sensitive operations select one exact source, defaulting to legacy `physics_sdm`; legacy waterfall/report bundles reject unsupported sources. Telemetry-only health guards check existence without selecting or combining model values. Physical shadow execution remains planned, not active.
+
+### P1 physical shadow-output boundary
+
+The dormant [P1 contract](architecture/physical-shadow-output-contract.md) is implemented in `engine/physical_shadow_output_contract.py`, outside physics. It separates model source/version from explicit reference plane/boundary, uses exact run/site UUIDs and aware nanosecond snapshot identity, preserves independent P/Q resolution and carries fidelity/fallback/reason/provenance tuples. Overall state and apparent power are derived. Pure JSON-safe persistence round-trips are validated independently; no database I/O, execution, writer or hard-coded physical source is introduced.
+
+P1 is complete at the contract level. P2 evidence is pending and P3 remains inactive. Later `expected_energy` projection requires a resolved production channel at the explicitly intended reference plane; upstream resolution cannot masquerade as meter power and unresolved output cannot become zero. Legacy `physics_sdm`, authorization and Bracon admission are unchanged.
 
 ### Known pre-shadow blockers
 
@@ -63,7 +70,7 @@ P0 is complete. Generic module thermal plus weather-time/irradiance-boundary imp
 
 For resolved active authority rows, V_after=V_common, I_after=I_common(1−f), P_after=V_after I_after. Population loss is P_common−P_after; total mismatch closes both as shared+population and P_independent−P_after. Missing population evidence retains valid S8 values but active adjusted V/I/P stay NaN. Unresolved upstream cannot be repaired. Resolved-zero upstream stays exactly zero with or without authority, without fabricating a fraction; its selected path is not lower fidelity. Independent validation reconstructs equations, provenance, states and diagnostics without production builders. Upstream admission verifies the published aggregated S8 contract and internal consistency, including exact cause vocabulary/order and topology-ordered unresolved IDs; it does not reconstruct unavailable member-to-cause assignments.
 
-No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1/P2/P3 remain unimplemented.
+No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1 output contract is now implemented separately; P2 remains pending and P3 inactive.
 
 ## S14B support-policy recovery notes
 
@@ -73,7 +80,7 @@ S14B v2 preserves exact boundaries, exact selected S13C support, piecewise-linea
 
 Policy presence/provenance is visible on supplied rows even when an earlier failure prevents assessment. Diagnostics count missing/present policy only after finite reconstruction; pass/fail partition the reconstructed rows with policy. Instantaneous and upstream-failed rows are not missing-policy gaps. The independent validator rebuilds support, integration, policy admission, fields and diagnostics without production builders or the policy-resolution helper. S14C consumes S14B eligibility and exact support timestamps; its accounting contract/numerics are unchanged.
 
-The generic support-policy gate is complete (PR #122); site policy evidence and P1/P2 remain open; authorization implementation is complete. No production/shadow switch is activated. Bracon has no admitted support threshold. Synthetic quadratic-edge errors describe only the checked-in proxy.
+The generic support-policy gate is complete (PR #122); site policy evidence and P2 remain open; authorization implementation is complete. No production/shadow switch is activated. Bracon has no admitted support threshold. Synthetic quadratic-edge errors describe only the checked-in proxy.
 
 ## Revenue-meter numerical measurement bounds
 
@@ -113,7 +120,7 @@ The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit 
 
 Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Remaining sequence: site evidence (including population residual and support policy) / P1-P2 finalisation → P3. P1 and shadow activation are not implemented here.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Remaining sequence: P1 output contract complete → P2 site evidence (including population residual and support policy) → P3. Shadow activation is not implemented.
 
 ## Weather-time and irradiance handoff recovery notes
 
@@ -645,7 +652,7 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence / P1-P2 finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; P2 site evidence finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Deterministic interval envelope interpretation
 
@@ -653,7 +660,7 @@ Engineering sequence: measurement uncertainty complete; pointwise expected-model
 
 Gate order: S14B `benchmark_eligible` first; P/Q combined availability second; finite canonical residual and finite nonnegative bound third. Ineligible rows publish no relation or envelope endpoints and are not uncertainty-coverage gaps. Each channel needs both independently interpreted power and energy quantities. Exact equality means on-boundary; no tolerance or `isclose`. Missing authority and nonfinite arithmetic remain distinguishable through parent/channel states.
 
-Measurement, pointwise-model, interval-propagation and combined bounds are complete generically. Eligible deterministic S14B envelope interpretation is complete generically (PR #128). Platform authorization is implemented and tested; site evidence / P1-P2 finalisation is next, and P3 remains inactive. Inside does not prove correctness; outside is neither a physical loss nor a fault/causal/commercial finding. No probability or statistical significance is claimed. Bracon numerical admission, source selection, production and shadow behavior are unchanged.
+Measurement, pointwise-model, interval-propagation and combined bounds are complete generically. Eligible deterministic S14B envelope interpretation is complete generically (PR #128). Platform authorization is implemented and tested; P2 site evidence finalisation is next, and P3 remains inactive. Inside does not prove correctness; outside is neither a physical loss nor a fault/causal/commercial finding. No probability or statistical significance is claimed. Bracon numerical admission, source selection, production and shadow behavior are unchanged.
 
 ## Server-side authorization readiness
 
@@ -661,4 +668,4 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence / P1-P2 finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1/P2/P3 are not complete and no shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 remains pending and no P3 shadow execution or deployment occurs.
