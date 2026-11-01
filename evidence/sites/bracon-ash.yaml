@@ -1,0 +1,2017 @@
+# P2A declared repository inventory. No canonical site authority is admitted.
+identity:
+  site_config_id: site-001
+  site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+  site_name: Bracon Ash
+  manifest_version: bracon-ash-repository-baseline-v1
+items:
+- requirement_id: irradiance.bifacial_applicability
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  - src/heliotelligence/data/module_library.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Configured bifacial flag/factor and module label are present; rear geometry/model applicability
+    and receiver-specific canonical binding are not admitted.
+  facts:
+  - fact_id: bifacial_flag
+    source_reference: config/sites.yaml
+    value: 'true'
+  - fact_id: bifaciality_factor
+    source_reference: config/sites.yaml
+    value: '0.80'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.front_measurement_plane
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_irradiance_front_measurement_plane_evidence
+  notes: No sufficient supplied evidence for irradiance.front_measurement_plane is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.front_source_quantity
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - src/heliotelligence/ingest/normaliser.py
+  - config/sites.yaml
+  source_kind: source_documentation
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Normalizer maps SMP10-POA-1 to poa_wm2. A channel label/path alone does not establish calibrated
+    measurement quantity, representative receiver coverage, front/rear ownership or an admitted irradiance
+    boundary.
+  facts:
+  - fact_id: configured_channel_mapping
+    source_reference: src/heliotelligence/ingest/normaliser.py
+    value: SMP10-POA-1 -> poa_wm2
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.rear_model_basis
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_irradiance_rear_model_basis_evidence
+  notes: No sufficient supplied evidence for irradiance.rear_model_basis is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.shading_geometry
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/geometry/site-001.json
+  - config/sites.yaml
+  source_kind: mixed_repository_evidence
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Spatial reconstruction and configured tilt/azimuth/GCR are available for review. They do not
+    admit receiver/row shading topology or optical authority.
+  facts:
+  - fact_id: tilt_deg
+    source_reference: config/sites.yaml
+    value: '15.0'
+  - fact_id: azimuth_deg_pvsyst
+    source_reference: config/sites.yaml
+    value: '-0.6'
+  - fact_id: gcr
+    source_reference: config/sites.yaml
+    value: '0.654'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.spectral_admission
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_irradiance_spectral_admission_evidence
+  notes: No sufficient supplied evidence for irradiance.spectral_admission is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: irradiance.thermal_poa_basis
+  domain: irradiance_optics
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_irradiance_thermal_poa_basis_evidence
+  notes: No sufficient supplied evidence for irradiance.thermal_poa_basis is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: module.electrical_parameters
+  domain: module_population
+  stage_refs:
+  - UPSTREAM
+  - S8
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - src/heliotelligence/data/module_library.yaml
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: model_class
+    identifiers:
+    - JKM570N-72HL4-BDV
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Local library declares a datasheet_fit with low fit_quality and nominal STC values. This is supplied
+    repository parameter evidence, not a validated complete site module-population/electrical binding.
+    date_added is not a validity period.
+  facts:
+  - fact_id: local_library_source
+    source_reference: src/heliotelligence/data/module_library.yaml
+    value: datasheet_fit
+  - fact_id: local_library_fit_quality
+    source_reference: src/heliotelligence/data/module_library.yaml
+    value: low
+  - fact_id: local_library_pnom_wp
+    source_reference: src/heliotelligence/data/module_library.yaml
+    value: '570.0'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s10.active_power_request
+  domain: controller
+  stage_refs:
+  - S10
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s10_active_power_request_evidence
+  notes: No sufficient supplied evidence for s10.active_power_request is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s10.controller_allocation
+  domain: controller
+  stage_refs:
+  - S10
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s10_controller_allocation_evidence
+  notes: No sufficient supplied evidence for s10.controller_allocation is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s10.reactive_power_request
+  domain: controller
+  stage_refs:
+  - S9
+  - S10
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s10_reactive_power_request_evidence
+  notes: No sufficient supplied evidence for s10.reactive_power_request is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s10.request_timestamp_semantics
+  domain: controller
+  stage_refs:
+  - S10
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s10_request_timestamp_semantics_evidence
+  notes: No sufficient supplied evidence for s10.request_timestamp_semantics is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s11.collection_exits
+  domain: lv_collection
+  stage_refs:
+  - S11
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s11_collection_exits_evidence
+  notes: No sufficient supplied evidence for s11.collection_exits is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s11.exit_voltage
+  domain: lv_collection
+  stage_refs:
+  - S11
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s11_exit_voltage_evidence
+  notes: No sufficient supplied evidence for s11.exit_voltage is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s11.inverter_terminal_nodes
+  domain: lv_collection
+  stage_refs:
+  - S11
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s11_inverter_terminal_nodes_evidence
+  notes: No sufficient supplied evidence for s11.inverter_terminal_nodes is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s11.lv_topology
+  domain: lv_collection
+  stage_refs:
+  - S11
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_lv_ac_collection_topology_and_series_impedance_authority_v1
+  gap_reason_codes:
+  - missing_s11_lv_topology_evidence
+  notes: No sufficient supplied evidence for s11.lv_topology is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s11.segment_impedance
+  domain: lv_collection
+  stage_refs:
+  - S11
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s11_segment_impedance_evidence
+  notes: No sufficient supplied evidence for s11.segment_impedance is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.construction_component_evidence
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_construction_component_evidence_evidence
+  notes: No sufficient supplied evidence for s12.construction_component_evidence is identified in the
+    current repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.factory_loss_evidence
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_factory_loss_evidence_evidence
+  notes: No sufficient supplied evidence for s12.factory_loss_evidence is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.harmonic_evidence
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_harmonic_evidence_evidence
+  notes: No sufficient supplied evidence for s12.harmonic_evidence is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.lower_fidelity_baseline
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_lower_fidelity_baseline_evidence
+  notes: No sufficient supplied evidence for s12.lower_fidelity_baseline is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.ratio_tapping_impedance
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_ratio_tapping_impedance_evidence
+  notes: No sufficient supplied evidence for s12.ratio_tapping_impedance is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.thermal_evidence
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_thermal_evidence_evidence
+  notes: No sufficient supplied evidence for s12.thermal_evidence is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.transformer_equipment
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_transformer_static_ratings_and_s11_boundary_topology_authority_v1
+  gap_reason_codes:
+  - missing_s12_transformer_equipment_evidence
+  notes: No sufficient supplied evidence for s12.transformer_equipment is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s12.transformer_terminal_binding
+  domain: transformer
+  stage_refs:
+  - S12
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s12_transformer_terminal_binding_evidence
+  notes: No sufficient supplied evidence for s12.transformer_terminal_binding is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.grid_boundary
+  domain: mv_hv_network
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_grid_boundary_evidence
+  notes: No sufficient supplied evidence for s13.grid_boundary is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.grid_boundary_voltage
+  domain: mv_hv_network
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_grid_boundary_voltage_evidence
+  notes: No sufficient supplied evidence for s13.grid_boundary_voltage is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.mv_hv_topology
+  domain: mv_hv_network
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_mv_hv_network_topology_nominal_pi_and_meter_boundary_authority_v1
+  gap_reason_codes:
+  - missing_s13_mv_hv_topology_evidence
+  notes: No sufficient supplied evidence for s13.mv_hv_topology is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.revenue_meter_binding
+  domain: revenue_meter
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_revenue_meter_binding_evidence
+  notes: No sufficient supplied evidence for s13.revenue_meter_binding is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.revenue_meter_measurement_semantics
+  domain: revenue_meter
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_revenue_meter_measurement_semantics_evidence
+  notes: No sufficient supplied evidence for s13.revenue_meter_measurement_semantics is identified in
+    the current repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.revenue_meter_scaling
+  domain: revenue_meter
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_revenue_meter_scaling_evidence
+  notes: No sufficient supplied evidence for s13.revenue_meter_scaling is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.revenue_meter_sign_conventions
+  domain: revenue_meter
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_revenue_meter_sign_conventions_evidence
+  notes: No sufficient supplied evidence for s13.revenue_meter_sign_conventions is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.segment_parameters
+  domain: mv_hv_network
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_segment_parameters_evidence
+  notes: No sufficient supplied evidence for s13.segment_parameters is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s13.transformer_network_binding
+  domain: mv_hv_network
+  stage_refs:
+  - S13
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s13_transformer_network_binding_evidence
+  notes: No sufficient supplied evidence for s13.transformer_network_binding is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s14.benchmark_interval_semantics
+  domain: benchmark_policy
+  stage_refs:
+  - S13
+  - S14
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s14_benchmark_interval_semantics_evidence
+  notes: No sufficient supplied evidence for s14.benchmark_interval_semantics is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s14.interval_support_policy
+  domain: benchmark_policy
+  stage_refs:
+  - S14
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_revenue_meter_interval_expected_support_maximum_gap_policy_v1
+  gap_reason_codes:
+  - missing_s14_interval_support_policy_evidence
+  notes: No sufficient supplied evidence for s14.interval_support_policy is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.direct_branch_resistance
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - string_terminal_to_mppt_input_dc_branch_path_v1
+  gap_reason_codes:
+  - missing_s8_direct_branch_resistance_evidence
+  notes: No sufficient supplied evidence for s8.direct_branch_resistance is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.inverter_inventory_binding
+  domain: dc_topology
+  stage_refs:
+  - S8
+  - S9
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: asset_set
+    identifiers:
+    - MQA11
+    - MQA21
+    - MQA22
+    - MQA23
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: 66 inverter labels in four layout groups (16/16/17/17) are metadata. There is no Bracon electrical_topology
+    block. Group membership cannot establish electrical inverter, MPPT or string binding.
+  facts:
+  - fact_id: configured_inverter_count
+    source_reference: config/sites.yaml
+    value: '66'
+  - fact_id: layout_group_counts
+    source_reference: config/sites.yaml
+    value: MQA11:16; MQA21:16; MQA22:17; MQA23:17
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.inverter_mppt_mapping
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s8_inverter_mppt_mapping_evidence
+  notes: No sufficient supplied evidence for s8.inverter_mppt_mapping is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.population_residual
+  domain: module_population
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_intra_string_population_mismatch_residual_authority_v1
+  gap_reason_codes:
+  - missing_s8_population_residual_evidence
+  notes: No sufficient supplied evidence for s8.population_residual is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.shared_dc_collection_topology
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s8_shared_dc_collection_topology_evidence
+  notes: No sufficient supplied evidence for s8.shared_dc_collection_topology is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.string_module_count
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: 24 modules/string is configured, but physical string IDs, member assignments and per-string count
+    evidence are unadmitted. Population conflict remains separately blocked.
+  facts:
+  - fact_id: configured_modules_per_string
+    source_reference: config/sites.yaml
+    value: '24'
+  - fact_id: configured_string_count
+    source_reference: config/sites.yaml
+    value: '2076'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s8.string_mppt_mapping
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s8_string_mppt_mapping_evidence
+  notes: No sufficient supplied evidence for s8.string_mppt_mapping is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.conversion_model
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: pvwatts and eta_nom=0.9842 configure legacy runtime behavior. No canonical site inverter conversion
+    authority is admitted from that scalar.
+  facts:
+  - fact_id: legacy_conversion_model
+    source_reference: config/sites.yaml
+    value: pvwatts
+  - fact_id: legacy_eta_nom
+    source_reference: config/sites.yaml
+    value: '0.9842'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.fixed_q_convention
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s9_fixed_q_convention_evidence
+  notes: No sufficient supplied evidence for s9.fixed_q_convention is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.inverter_model_mapping
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: model_class
+    identifiers:
+    - Sungrow SG350HX-15A
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Sungrow SG350HX-15A is a model label, not exact physical equipment/CEC conversion/static capability
+    authority. 320 kWac does not establish Smax.
+  facts:
+  - fact_id: inverter_model_label
+    source_reference: config/sites.yaml
+    value: Sungrow SG350HX-15A
+  - fact_id: pnom_kwac
+    source_reference: config/sites.yaml
+    value: '320.0'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.inverter_temperature_state
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s9_inverter_temperature_state_evidence
+  notes: No sufficient supplied evidence for s9.inverter_temperature_state is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.static_pq_capability
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - topology_inverter_ac_capability_authority_v1
+  gap_reason_codes:
+  - missing_s9_static_pq_capability_evidence
+  notes: No sufficient supplied evidence for s9.static_pq_capability is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: s9.thermal_capability
+  domain: inverter
+  stage_refs:
+  - S9
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_s9_thermal_capability_evidence
+  notes: No sufficient supplied evidence for s9.thermal_capability is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.geometry.electrical_mapping
+  domain: dc_topology
+  stage_refs:
+  - S8
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_site_geometry_electrical_mapping_evidence
+  notes: No sufficient supplied evidence for site.geometry.electrical_mapping is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.geometry.module_positions
+  domain: spatial_geometry
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/geometry/site-001.json
+  source_kind: surveyed_geometry
+  reference_planes: []
+  physical_scope:
+    scope_type: asset_set
+    identifiers:
+    - MQA11
+    - MQA21
+    - MQA22
+    - MQA23
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Module-cloud reconstructed spatial group geometry only. Metadata is preserved without electrical-connectivity
+    or measurement-plane admission; temporal applicability is unknown.
+  facts:
+  - fact_id: geometry_source
+    source_reference: config/geometry/site-001.json
+    value: module-cloud reconstruction @174.47
+  - fact_id: georef_residual_m
+    source_reference: config/geometry/site-001.json
+    value: '0.436'
+  - fact_id: total_modules_extracted
+    source_reference: config/geometry/site-001.json
+    value: '50736'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.identity.physical
+  domain: site_identity
+  stage_refs:
+  - P1
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Application identity, location and capacity are configured. No reviewed physical-site authority
+    package is bound. Capacity does not reconcile module population.
+  facts:
+  - fact_id: site_config_id
+    source_reference: config/sites.yaml
+    value: site-001
+  - fact_id: site_name
+    source_reference: config/sites.yaml
+    value: Bracon Ash
+  - fact_id: capacity_kwp
+    source_reference: config/sites.yaml
+    value: '28524.0'
+  - fact_id: configured_location_lat_lon
+    source_reference: config/sites.yaml
+    value: 52.56, 1.21
+  - fact_id: configured_timezone
+    source_reference: config/sites.yaml
+    value: Europe/London
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.legacy_compatibility_assumptions
+  domain: site_identity
+  stage_refs:
+  - P1
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: 'Legacy/application assumptions only: none admits population residual, branch resistance, LV
+    R/X, Smax, dispatch or canonical native thermal parameters. No legacy value is converted into authority.'
+  facts:
+  - fact_id: mismatch_loss_pct
+    source_reference: config/sites.yaml
+    value: '1.15'
+  - fact_id: wiring_loss_dc_pct
+    source_reference: config/sites.yaml
+    value: '0.48'
+  - fact_id: wiring_loss_ac_pct
+    source_reference: config/sites.yaml
+    value: '1.70'
+  - fact_id: grid_limit_kwac
+    source_reference: config/sites.yaml
+    value: '20000.0'
+  - fact_id: pnom_kwac
+    source_reference: config/sites.yaml
+    value: '320.0'
+  - fact_id: eta_nom
+    source_reference: config/sites.yaml
+    value: '0.9842'
+  - fact_id: u_c
+    source_reference: config/sites.yaml
+    value: '29.0'
+  - fact_id: u_v
+    source_reference: config/sites.yaml
+    value: '0.0'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.module.model_label
+  domain: module_population
+  stage_refs:
+  - UPSTREAM
+  - S8
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  - src/heliotelligence/data/module_library.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: model_class
+    identifiers:
+    - JKM570N-72HL4-BDV
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: JKM570N-72HL4-BDV is a configured/local-library label, not a serial-number inventory or canonical
+    site electrical authority.
+  facts:
+  - fact_id: module_model_label
+    source_reference: config/sites.yaml
+    value: JKM570N-72HL4-BDV
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: site.population.module_count
+  domain: module_population
+  stage_refs:
+  - UPSTREAM
+  - S8
+  evidence_state: conflicting
+  admission_state: blocked
+  source_references:
+  - config/sites.yaml
+  - config/geometry/site-001.json
+  source_kind: mixed_repository_evidence
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - conflicting_module_population_counts
+  notes: 'Unresolved conflict: configured strings 2076 x 24 = 49824 modules; configured tables 659 x 72
+    = 47448; geometry metadata reports 50736 extracted. None is selected. Capacity remains separate configuration
+    evidence.'
+  facts:
+  - fact_id: configured_strings
+    source_reference: config/sites.yaml
+    value: '2076'
+  - fact_id: configured_modules_per_string
+    source_reference: config/sites.yaml
+    value: '24'
+  - fact_id: configured_string_module_count
+    source_reference: config/sites.yaml
+    value: '49824'
+  - fact_id: configured_tables
+    source_reference: config/sites.yaml
+    value: '659'
+  - fact_id: configured_modules_per_table
+    source_reference: config/sites.yaml
+    value: '72'
+  - fact_id: configured_table_module_count
+    source_reference: config/sites.yaml
+    value: '47448'
+  - fact_id: geometry_extracted_module_count
+    source_reference: config/geometry/site-001.json
+    value: '50736'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.environmental_inputs
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - src/heliotelligence/ingest/normaliser.py
+  - config/sites.yaml
+  source_kind: source_documentation
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Ambient/wind channel mappings and source locations are present. Actual quantity/height/time/coverage
+    for a selected canonical thermal model is unadmitted.
+  facts:
+  - fact_id: wind_mapping
+    source_reference: src/heliotelligence/ingest/normaliser.py
+    value: WS_AVG -> wind_speed_ms
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.model_parameters
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_native_module_thermal_model_and_module_back_to_cell_conversion_authority_v1
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: u_c=29.0 and u_v=0.0 are legacy compatibility values. No canonical native Faiman/PVsyst family/calibration
+    authority is admitted.
+  facts:
+  - fact_id: legacy_u_c
+    source_reference: config/sites.yaml
+    value: '29.0'
+  - fact_id: legacy_u_v
+    source_reference: config/sites.yaml
+    value: '0.0'
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.sensor_placement_calibration
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_thermal_sensor_placement_calibration_evidence
+  notes: No sufficient supplied evidence for thermal.sensor_placement_calibration is identified in the
+    current repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.sensor_quantity
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - src/heliotelligence/ingest/csv_parser.py
+  - src/heliotelligence/ingest/normaliser.py
+  source_kind: source_documentation
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Parser/normalizer contains module/ambient temperature averaging conventions (temp_mod_avg_c,
+    temp_amb_c). No supplied placement/calibration evidence establishes sensor quantity or conversion
+    to cell temperature for physical authority.
+  facts:
+  - fact_id: reported_temperature_channels
+    source_reference: src/heliotelligence/ingest/csv_parser.py
+    value: temp_mod_avg_c, temp_amb_c
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.zone_binding
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_thermal_zone_binding_evidence
+  notes: No sufficient supplied evidence for thermal.zone_binding is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: thermal.zones
+  domain: module_thermal
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_thermal_zones_evidence
+  notes: No sufficient supplied evidence for thermal.zones is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: uncertainty.expected_model
+  domain: uncertainty
+  stage_refs:
+  - S13
+  - S14
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_complete_expected_model_chain_quantitative_uncertainty_authority_v1
+  gap_reason_codes:
+  - missing_uncertainty_expected_model_evidence
+  notes: No sufficient supplied evidence for uncertainty.expected_model is identified in the current repository/onboarding
+    package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: uncertainty.measurement_chain
+  domain: uncertainty
+  stage_refs:
+  - S13
+  - S14
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_revenue_meter_complete_measurement_chain_quantitative_uncertainty_authority_v1
+  gap_reason_codes:
+  - missing_uncertainty_measurement_chain_evidence
+  notes: No sufficient supplied evidence for uncertainty.measurement_chain is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: weather.cadence_interval_semantics
+  domain: weather_time
+  stage_refs:
+  - UPSTREAM
+  evidence_state: missing
+  admission_state: blocked
+  source_references: []
+  source_kind: external_evidence_not_supplied
+  reference_planes: []
+  physical_scope:
+    scope_type: unknown
+    identifiers: []
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - missing_weather_cadence_interval_semantics_evidence
+  notes: No sufficient supplied evidence for weather.cadence_interval_semantics is identified in the current
+    repository/onboarding package. This does not assert that external evidence cannot exist.
+  facts: []
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: weather.source_identifiers
+  domain: weather_time
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - config/sites.yaml
+  source_kind: repository_configuration
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids: []
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Configured source identifiers/locations, including a placeholder-shaped Solcast resource ID,
+    are not proof of a live feed, cadence or source temporal admission.
+  facts:
+  - fact_id: solcast_resource_id
+    source_reference: config/sites.yaml
+    value: abcd-1234-efgh-5678
+  - fact_id: scada_csv_dir
+    source_reference: config/sites.yaml
+    value: data/scada/site-001/
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+- requirement_id: weather.temporal_semantics
+  domain: weather_time
+  stage_refs:
+  - UPSTREAM
+  evidence_state: present
+  admission_state: not_admitted
+  source_references:
+  - src/heliotelligence/collectors/solcast.py
+  - src/heliotelligence/ingest/csv_parser.py
+  source_kind: source_documentation
+  reference_planes: []
+  physical_scope:
+    scope_type: site
+    identifiers:
+    - site-001
+  temporal_scope:
+    semantics: unknown
+    start_timestamp: null
+    end_timestamp: null
+  supported_fidelity: does_not_resolve_physical_path
+  admitted_authority_contract_ids: []
+  target_authority_contract_ids:
+  - explicit_weather_observation_interval_and_solar_geometry_evaluation_time_authority_v1
+  gap_reason_codes:
+  - canonical_authority_binding_not_admitted
+  notes: Code stores Solcast period_end and documents SCADA local period-start conversion to UTC period-end.
+    These labels do not by themselves admit interval-average duration, representative instant, historical
+    source applicability or DST evidence.
+  facts:
+  - fact_id: solcast_stored_label
+    source_reference: src/heliotelligence/collectors/solcast.py
+    value: period_end
+  - fact_id: scada_documented_input_label
+    source_reference: src/heliotelligence/ingest/csv_parser.py
+    value: local period-START
+  - fact_id: scada_stored_label
+    source_reference: src/heliotelligence/ingest/csv_parser.py
+    value: UTC period-END
+  authority_binding_reference: null
+  applicability_reason: null
+  confidence: unknown
+contract: canonical_site_physical_evidence_manifest_v1
+scope: site_specific_physical_evidence_inventory_and_authority_readiness_before_shadow_execution

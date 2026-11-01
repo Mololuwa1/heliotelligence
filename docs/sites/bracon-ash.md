@@ -2,6 +2,95 @@
 
 Bracon Ash is one current reference/onboarded site used during Heliotelligence development. Its values do not define the architecture and must not be copied to another site unless that site's evidence and configuration establish them.
 
+## P2A controlled evidence baseline
+
+The canonical machine-readable inventory is [evidence/sites/bracon-ash.yaml](../../evidence/sites/bracon-ash.yaml), governed by the [P2A manifest contract](../architecture/site-evidence-manifest.md). The table below is generated from it and checked by a drift regression; it is not a second authority matrix.
+
+P1 is complete. P2A establishes the inventory/baseline; P2 admission remains in progress and P3 is not active. Configuration is not authority; geometry is not electrical topology; telemetry presence is not measurement semantics; generic capability is not site admission. “Missing” means absent or insufficient in the current repository/onboarding package, not that external evidence cannot exist.
+
+Current inventory: **66 requirements; 17 present/not admitted, 48 missing/blocked, one conflicting/blocked; zero admitted**. All nine baseline/full-fidelity path sections remain blocked. Temporal applicability remains unknown. Present material includes configuration, layout group labels, reconstructed spatial geometry, local module-library fit/model labels, legacy assumptions and configured/source-code weather/SCADA conventions. No capability, topology, controller, meter, support-gap or numerical uncertainty authority is inferred.
+
+The unresolved module-population conflict is retained without selecting a value:
+
+- Configured string population: 2,076 × 24 = **49,824 modules**.
+- Configured table population: 659 × 72 = **47,448 modules**.
+- Surveyed geometry metadata: **50,736 extracted modules**.
+
+Capacity 28,524 kWp remains configuration evidence. The surveyed file declares `_source = module-cloud reconstruction @174.47` and `_georef_residual_m = 0.436`; spatial groups MQA11/MQA21/MQA22/MQA23 establish no electrical connectivity. The geometry API may combine surveyed coordinates with SiteConfig-derived counts, so evidence references point to their underlying files separately. No config or geometry value was changed to reconcile the conflict.
+
+Full P2 requires reviewed evidence and explicit canonical bindings for the intended path/fidelity. P2A creates no P1 output/run/source, physics authority, public evidence API, writer or shadow execution.
+
+<!-- BEGIN P2A MANIFEST COVERAGE -->
+| Requirement | Evidence | Admission |
+| --- | --- | --- |
+| `irradiance.bifacial_applicability` | present | not_admitted |
+| `irradiance.front_measurement_plane` | missing | blocked |
+| `irradiance.front_source_quantity` | present | not_admitted |
+| `irradiance.rear_model_basis` | missing | blocked |
+| `irradiance.shading_geometry` | present | not_admitted |
+| `irradiance.spectral_admission` | missing | blocked |
+| `irradiance.thermal_poa_basis` | missing | blocked |
+| `module.electrical_parameters` | present | not_admitted |
+| `s10.active_power_request` | missing | blocked |
+| `s10.controller_allocation` | missing | blocked |
+| `s10.reactive_power_request` | missing | blocked |
+| `s10.request_timestamp_semantics` | missing | blocked |
+| `s11.collection_exits` | missing | blocked |
+| `s11.exit_voltage` | missing | blocked |
+| `s11.inverter_terminal_nodes` | missing | blocked |
+| `s11.lv_topology` | missing | blocked |
+| `s11.segment_impedance` | missing | blocked |
+| `s12.construction_component_evidence` | missing | blocked |
+| `s12.factory_loss_evidence` | missing | blocked |
+| `s12.harmonic_evidence` | missing | blocked |
+| `s12.lower_fidelity_baseline` | missing | blocked |
+| `s12.ratio_tapping_impedance` | missing | blocked |
+| `s12.thermal_evidence` | missing | blocked |
+| `s12.transformer_equipment` | missing | blocked |
+| `s12.transformer_terminal_binding` | missing | blocked |
+| `s13.grid_boundary` | missing | blocked |
+| `s13.grid_boundary_voltage` | missing | blocked |
+| `s13.mv_hv_topology` | missing | blocked |
+| `s13.revenue_meter_binding` | missing | blocked |
+| `s13.revenue_meter_measurement_semantics` | missing | blocked |
+| `s13.revenue_meter_scaling` | missing | blocked |
+| `s13.revenue_meter_sign_conventions` | missing | blocked |
+| `s13.segment_parameters` | missing | blocked |
+| `s13.transformer_network_binding` | missing | blocked |
+| `s14.benchmark_interval_semantics` | missing | blocked |
+| `s14.interval_support_policy` | missing | blocked |
+| `s8.direct_branch_resistance` | missing | blocked |
+| `s8.inverter_inventory_binding` | present | not_admitted |
+| `s8.inverter_mppt_mapping` | missing | blocked |
+| `s8.population_residual` | missing | blocked |
+| `s8.shared_dc_collection_topology` | missing | blocked |
+| `s8.string_module_count` | present | not_admitted |
+| `s8.string_mppt_mapping` | missing | blocked |
+| `s9.conversion_model` | present | not_admitted |
+| `s9.fixed_q_convention` | missing | blocked |
+| `s9.inverter_model_mapping` | present | not_admitted |
+| `s9.inverter_temperature_state` | missing | blocked |
+| `s9.static_pq_capability` | missing | blocked |
+| `s9.thermal_capability` | missing | blocked |
+| `site.geometry.electrical_mapping` | missing | blocked |
+| `site.geometry.module_positions` | present | not_admitted |
+| `site.identity.physical` | present | not_admitted |
+| `site.legacy_compatibility_assumptions` | present | not_admitted |
+| `site.module.model_label` | present | not_admitted |
+| `site.population.module_count` | conflicting | blocked |
+| `thermal.environmental_inputs` | present | not_admitted |
+| `thermal.model_parameters` | present | not_admitted |
+| `thermal.sensor_placement_calibration` | missing | blocked |
+| `thermal.sensor_quantity` | present | not_admitted |
+| `thermal.zone_binding` | missing | blocked |
+| `thermal.zones` | missing | blocked |
+| `uncertainty.expected_model` | missing | blocked |
+| `uncertainty.measurement_chain` | missing | blocked |
+| `weather.cadence_interval_semantics` | missing | blocked |
+| `weather.source_identifiers` | present | not_admitted |
+| `weather.temporal_semantics` | present | not_admitted |
+<!-- END P2A MANIFEST COVERAGE -->
+
 ## Known configuration
 
 - Capacity: 28,524 kWp
