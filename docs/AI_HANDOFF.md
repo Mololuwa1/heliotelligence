@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #129 merge f7fbfd177e234becff78b7748576d583bc494e9d
+PR #130 merge 1237d05172d774f3a28ecfa0037363e205a01c3f
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -22,11 +22,12 @@ measurement and pointwise model bounds complete; discrete S14B model-interval pr
 combined interval magnitudes complete; eligible deterministic envelope interpretation generic, dormant
 Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
-P1: immutable output contract implemented; no writer or physical source selected
+P1: immutable output contract COMPLETE; no writer or physical source selected
+P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
 Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d` (PR #129 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f` (PR #130 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -46,7 +47,15 @@ Read the canonical [production-integration roadmap](development/production-integ
 
 The dormant [P1 contract](architecture/physical-shadow-output-contract.md) is implemented in `engine/physical_shadow_output_contract.py`, outside physics. It separates model source/version from explicit reference plane/boundary, uses exact run/site UUIDs and aware nanosecond snapshot identity, preserves independent P/Q resolution and carries fidelity/fallback/reason/provenance tuples. Overall state and apparent power are derived. Pure JSON-safe persistence round-trips are validated independently; no database I/O, execution, writer or hard-coded physical source is introduced.
 
-P1 is complete at the contract level. P2 evidence is pending and P3 remains inactive. Later `expected_energy` projection requires a resolved production channel at the explicitly intended reference plane; upstream resolution cannot masquerade as meter power and unresolved output cannot become zero. Legacy `physics_sdm`, authorization and Bracon admission are unchanged.
+P1 is complete at the contract level. P2 evidence admission remains in progress and P3 remains inactive. Later `expected_energy` projection requires a resolved production channel at the explicitly intended reference plane; upstream resolution cannot masquerade as meter power and unresolved output cannot become zero. Legacy `physics_sdm`, authorization and Bracon admission are unchanged.
+
+### P2A site evidence recovery
+
+The [site evidence contract](architecture/site-evidence-manifest.md) and `engine/site_evidence_manifest.py` define the reviewed 66-requirement catalogue, immutable inventory, strict pure YAML loader, serialization and independent coverage validation. `evidence/sites/bracon-ash.yaml` is the canonical baseline; the [Bracon matrix](sites/bracon-ash.md#p2a-controlled-evidence-baseline) is generated and drift-tested from it. No runtime reads it automatically.
+
+Bracon has zero admitted requirements: 17 present/not admitted, 48 missing/blocked and one conflicting/blocked. Module counts 49,824 / 47,448 / 50,736 stay unresolved; capacity and geometry do not select one. All nine path sections remain blocked. Configuration is not authority; geometry is not electrical topology; telemetry labels are not measurement semantics; generic capability is not site admission. Missing means no sufficient supplied package evidence, not proof of external nonexistence. Unknown temporal validity stays unknown.
+
+P1 is complete. P2A inventory/baseline is complete; full P2 admission stays in progress. P3 is inactive. Create no P1 record/run/source, authority, writer or public evidence endpoint here. The eventual Digital Twin derives its definition from admitted evidence/topology, then combines timestamped physical states; the 3D layer is only spatial evidence.
 
 ### Known pre-shadow blockers
 
@@ -70,7 +79,7 @@ P0 is complete. Generic module thermal plus weather-time/irradiance-boundary imp
 
 For resolved active authority rows, V_after=V_common, I_after=I_common(1−f), P_after=V_after I_after. Population loss is P_common−P_after; total mismatch closes both as shared+population and P_independent−P_after. Missing population evidence retains valid S8 values but active adjusted V/I/P stay NaN. Unresolved upstream cannot be repaired. Resolved-zero upstream stays exactly zero with or without authority, without fabricating a fraction; its selected path is not lower fidelity. Independent validation reconstructs equations, provenance, states and diagnostics without production builders. Upstream admission verifies the published aggregated S8 contract and internal consistency, including exact cause vocabulary/order and topology-ordered unresolved IDs; it does not reconstruct unavailable member-to-cause assignments.
 
-No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1 output contract is now implemented separately; P2 remains pending and P3 inactive.
+No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1 output contract is now implemented separately; P2 admission remains in progress and P3 inactive.
 
 ## S14B support-policy recovery notes
 
@@ -668,4 +677,4 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 remains pending and no P3 shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 admission remains in progress and no P3 shadow execution or deployment occurs.

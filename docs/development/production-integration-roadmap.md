@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d`, PR #129 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f`, PR #130 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -58,21 +58,36 @@ PR #118 made reads, writes, catch-up, aggregation and downstream reports explici
 
 Completed checkpoint: `04f0cf338ab86980c040e5b6fbda6942a3c28681`. Source-isolation regressions and the consumer inventory establish separate model identities. P0 did not implement P1 or activate a shadow model.
 
-### P1 — physical shadow-output contract — implemented
+### P1 — physical shadow-output contract — complete
 
 The immutable [P1 contract](../architecture/physical-shadow-output-contract.md) defines caller-supplied run/site UUIDs, exact model source/version/revision, aware nanosecond snapshot identity, explicit physical plane/boundary, independent P/Q channels, units/signs, fidelity/fallback, provenance and reason codes. Overall state and apparent power are derived. An unresolved channel is `None` with reasons, never a fabricated zero.
 
 Pure serialization/deserialization preserves original timezone identity and nanoseconds, validates the exact schema and rejects contradictory derived state. Immutable batches reject duplicate output identities and derive coverage diagnostics; independent validators and round-trip/tamper tests cover admission. No database schema, writer, API or execution path is introduced and no physical source name is chosen.
 
-Future `expected_energy` projection requires the production channel to resolve at the explicitly intended reference plane/boundary. Upstream output is not revenue-meter output; unresolved power cannot become `p_ac_kw=0`. The legacy table's columns keep their existing meanings. No hidden `physics_sdm` fallback or compatibility loss layer exists in P1. P2 remains pending; P3 is not activated.
+Future `expected_energy` projection requires the production channel to resolve at the explicitly intended reference plane/boundary. Upstream output is not revenue-meter output; unresolved power cannot become `p_ac_kw=0`. The legacy table's columns keep their existing meanings. No hidden `physics_sdm` fallback or compatibility loss layer exists in P1. P2 admission remains in progress; P3 is not activated.
 
-### P2 — site evidence onboarding
+### P2 — site evidence onboarding — in progress
 
 Bind authoritative receiver/string mapping, MPPT/string/inverter topology, DC cable coverage, inverter conversion/capability, controller P/Q requests and thermal evidence, LV topology/R/X and exit voltage, transformer equipment/factory/construction/harmonic/thermal evidence, MV/HV connectivity/parameters, grid/meter boundaries and meter measurements.
 
 Track each evidence item’s source, physical plane, temporal applicability and supported fidelity. Missing advanced evidence may allow explicit lower fidelity only where an independently valid baseline exists. Do not infer evidence from labels, capacities, geometry, weather, measured output or aggregate limits.
 
 Exit decision: a per-site coverage matrix proves which timestamps and paths can resolve; document remaining gaps. Generic implementation alone is not admission.
+
+### P2A — site evidence manifest / Bracon baseline — complete
+
+The [manifest contract](../architecture/site-evidence-manifest.md) inventories 66 reviewed requirements separately from compatibility configuration and canonical authority construction. Frozen evidence records separate evidence state, authority admission, physical/temporal scope, fidelity, targets, gaps and source facts. A pure strict YAML loader and JSON persistence round-trip reconstruct diagnostics and baseline/full-fidelity coverage; independent validation and the generated site-documentation matrix prevent status drift.
+
+The initial [Bracon inventory](../../evidence/sites/bracon-ash.yaml) has 17 present/not-admitted, 48 missing/blocked and one conflicting/blocked requirement, with zero admitted. Module populations 49,824 / 47,448 / 50,736 remain conflicting; no value is selected or rewritten. Spatial group geometry is not string/MPPT/LV/transformer/MV-HV authority. All nine major path sections remain blocked. Missing means not supplied/sufficient in the current package, not absent externally.
+
+```text
+P1 physical shadow-output contract — COMPLETE
+P2A site evidence manifest / Bracon baseline — COMPLETE
+P2 site evidence admission — IN PROGRESS
+P3 shadow execution — NOT ACTIVE
+```
+
+P2A introduces no physics authority, P1 output/run/model source, runtime adapter, writer, API or activation. Full P2 still requires reviewed site authority bindings and coverage proving the intended physical path/fidelity; static evidence readiness never guarantees timestamped resolution. The eventual Twin Definition comes from admitted manifest evidence/topology, with existing 3D geometry only one evidence layer.
 
 ### Pre-shadow readiness gates
 
@@ -112,14 +127,16 @@ uncertainty-aware deterministic S14B envelope interpretation — IMPLEMENTED GEN
 ↓
 platform authorization — COMPLETE
 ↓
-P1 physical shadow-output contract — IMPLEMENTED (no writer/execution)
+P1 physical shadow-output contract — COMPLETE (no writer/execution)
 ↓
-P2 site evidence finalisation — NEXT BACKEND READINESS WORK
+P2A site evidence manifest / Bracon baseline — COMPLETE
+↓
+P2 site evidence admission — IN PROGRESS (P2A baseline complete)
 ↓
 P3 shadow execution
 ```
 
-P1 physical shadow-output contract is complete in this increment. P2 site evidence remains pending; P3 shadow execution is not activated. Existing S9-4A sign-semantics evidence requirements are not weakened.
+P1 physical shadow-output contract is complete at PR #130. P2 site evidence admission remains in progress; P3 shadow execution is not activated. Existing S9-4A sign-semantics evidence requirements are not weakened.
 
 ### P3 — shadow execution
 
@@ -157,7 +174,7 @@ Measured front incident POA is evidence alongside modelled front, not a replacem
 
 Nameplate power tolerance alone does not define intra-string loss or member current/voltage distribution. No random manufacturing population or conversion from `ModuleConfig.mismatch_loss_pct` is allowed. The new residual requires an independently quantified study with source, method, confidence, physical coverage and applicability, explicitly excluding shared MPPT mismatch, wiring, optical/thermal effects, soiling, LID and conversion. Missing authority leaves active population-complete output unresolved while preserving valid S8 baseline. Resolved-zero upstream is exact zero independently of authority; no fraction is fabricated and no lower-fidelity residual path is exercised. Authority counts still reflect supplied MPPT authorities only.
 
-This is a deliberately bounded post-MPPT current derate, not member-resolved I-V physics. Advanced common-current series composition, reverse bias and bypass remain future extensions. This residual capability activates no DC-collection integration, expected-energy source or P3 execution. P1 is a separately implemented output contract; P2 evidence remains pending. Bracon's 1.15% remains unallocated legacy data; no mismatch percentage is retired by this capability.
+This is a deliberately bounded post-MPPT current derate, not member-resolved I-V physics. Advanced common-current series composition, reverse bias and bypass remain future extensions. This residual capability activates no DC-collection integration, expected-energy source or P3 execution. P1 is a separately implemented output contract; P2 evidence admission remains in progress. Bracon's 1.15% remains unallocated legacy data; no mismatch percentage is retired by this capability.
 
 
 ## S14B support eligibility and site decision
@@ -243,7 +260,7 @@ Authentication remains Firebase ID-token verification. Authorization implementat
 
 The browser-key mechanism is retired with no compatibility fallback. All 19 current application routes have a reviewed policy; negative cross-site, indirect alert ownership and grant-validation tests protect it. No real memberships are changed implicitly and no migration is required. See the [authorization policy and trusted Firebase bootstrap](../architecture/platform-authorization.md). Operational claim provisioning/verification is separate from code readiness and must precede exposure to non-team users.
 
-The next backend readiness work is P2 site evidence finalisation. P1 output contract is complete; P2 remains pending and no P3 shadow source or deployment is activated.
+The next backend readiness work is P2 site evidence finalisation. P1 output contract is complete; P2 admission remains in progress and no P3 shadow source or deployment is activated.
 
 ### Numerical uncertainty sequence
 
@@ -253,7 +270,7 @@ The next backend readiness work is P2 site evidence finalisation. P1 output cont
 4. **Combined measurement + expected-model interval uncertainty: implemented generically, dormant.** Deterministic addition of independently admitted parent bounds; no independence or probability assumption. Deterministic interpretation is implemented separately.
 5. **Eligible deterministic S14B envelope interpretation: implemented generically, dormant.** Existing residuals are compared exactly to the complete combined bound only after benchmark eligibility. No probability, statistical significance, causality, physical loss, fault or commercial conclusion is claimed.
 
-This capability is separate from S14B support-density eligibility. Each site must admit numerical complete-chain evidence, channel applicability, temporal semantics and validity covering the complete represented interval for averages or the snapshot timestamp. Relative terms must explicitly refer to the magnitude of the same measured P/Q in primary units; specifications on another basis require an explicit compatible bound conversion with retained provenance, never engine inference. Bracon has no admitted numerical bound. P1 is a separate output contract; P2 evidence and production/shadow activation remain pending.
+This capability is separate from S14B support-density eligibility. Each site must admit numerical complete-chain evidence, channel applicability, temporal semantics and validity covering the complete represented interval for averages or the snapshot timestamp. Relative terms must explicitly refer to the magnitude of the same measured P/Q in primary units; specifications on another basis require an explicit compatible bound conversion with retained provenance, never engine inference. Bracon has no admitted numerical bound. P1 is a separate output contract; P2 evidence admission remains in progress; production/shadow activation remains pending.
 
 ### Expected-model envelope admission
 

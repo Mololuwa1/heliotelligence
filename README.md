@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d` (PR #129 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f` (PR #130 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -77,7 +77,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 
 Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while active population-complete output remains unresolved. Resolved-zero upstream states remain exact zero without authority because the residual mechanism is inactive. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
 
-Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. This population capability activates no production or expected-energy source; P2 remains pending and P3 inactive.
+Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. This population capability activates no production or expected-energy source; P2 admission remains in progress and P3 inactive.
 
 ## Interval benchmark support eligibility
 
@@ -168,8 +168,12 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](docs/architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 remains pending and no P3 shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 admission remains in progress and no P3 shadow execution or deployment occurs.
 
 ## P1 physical shadow-output boundary
 
-The immutable [P1 output contract](docs/architecture/physical-shadow-output-contract.md) now separates run/model identity, physical boundary, independent P/Q resolution and declared fidelity. Pure persistence round-trips retain exact snapshot timestamps and provenance; unresolved channels remain absent with reason codes. A future expected-energy projection requires resolved power at its explicitly intended reference plane. No physical source is named, writer or execution activated, or Bracon evidence admitted. P2 remains pending and P3 remains inactive.
+The immutable [P1 output contract](docs/architecture/physical-shadow-output-contract.md) now separates run/model identity, physical boundary, independent P/Q resolution and declared fidelity. Pure persistence round-trips retain exact snapshot timestamps and provenance; unresolved channels remain absent with reason codes. A future expected-energy projection requires resolved power at its explicitly intended reference plane. No physical source is named, writer or execution activated, or Bracon evidence admitted. P2 admission remains in progress and P3 remains inactive.
+
+## P2A site evidence baseline
+
+The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now distinguishes configuration, supplied evidence, canonical authority admission and physical coverage. The controlled [Bracon inventory](evidence/sites/bracon-ash.yaml) has 66 requirements and zero admitted; conflicting module counts remain unresolved, and geometry establishes no electrical topology. P1 is complete; P2A inventory/baseline is complete; full P2 admission is in progress and P3 remains inactive. No source, writer, physical authority or public evidence API is activated.
