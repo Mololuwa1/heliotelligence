@@ -12,6 +12,12 @@ Heliotelligence targets a component-resolved photovoltaic digital twin. The arch
 - **Narrow contracts:** independently validate each physical layer before production integration.
 - **Graceful degradation:** high-fidelity models may fall back only through explicit, provenance-bearing logic.
 
+## Original design references and implementation deltas
+
+The [physics implementation-delta ledger](physics-implementation-delta.md) is the controlled mapping from the external original Stage 1–6 engineering references to current code. Stage 1–6 remains a useful conceptual teaching model; upstream authority contracts and S8–S14 define canonical software ownership and reference planes. Original design detail must be reconciled with owner, evidence, plane, fidelity and double-counting boundaries before implementation. Preserve code that is already more rigorous; align repository documentation instead of regressing its equations.
+
+The ledger separates retained capability, documentation alignment, future advanced fidelity and pending site evidence using four exact dispositions. Its principal future deltas are member/sub-string/bypass S8 physics and construction-derived cable parameter authority feeding existing S8/S11/S13 solvers. Neither is implemented by this governance increment, nor automatically required for every independently valid lower-fidelity site path. S12 loss ownership remains intact. Post-merge status is contingent on green main CI #335: P0, authorization, P1 and P2A complete; P2 admission in progress; P3 inactive. The ledger itself is not site evidence.
+
 ## System modelling hierarchy
 
 The future platform hierarchy is:
@@ -22,7 +28,7 @@ Organisation/client and portfolio management sit above site-level physics. Reusa
 
 ## Canonical electrical chain and upstream production boundary
 
-Current canonical code checkpoint: `f7fbfd177e234becff78b7748576d583bc494e9d` (PR #129 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 ```text
 UPSTREAM WEATHER / IRRADIANCE / MODULE THERMAL
@@ -737,8 +743,8 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 remains pending and no P3 shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2A baseline is complete; P2 admission remains in progress and no P3 shadow execution or deployment occurs.
 
 ## P1 execution/output boundary
 
-The [physical shadow-output contract](physical-shadow-output-contract.md) lives in `engine/`, independently of physical mechanisms. It carries immutable run/model identity, exact aware snapshot, explicit plane/boundary, independent P/Q resolution, fidelity/fallback and provenance. It does not call S13C or execute a physical adapter. Pure serialization and independent validation preserve unresolved states and exact timestamp identity before any persistence implementation. Future `expected_energy` projection is gated by resolved required output at the intended plane; upstream resolution cannot imply meter-plane resolution. P1 is implemented; P2 remains pending and P3 is not activated.
+The [physical shadow-output contract](physical-shadow-output-contract.md) lives in `engine/`, independently of physical mechanisms. It carries immutable run/model identity, exact aware snapshot, explicit plane/boundary, independent P/Q resolution, fidelity/fallback and provenance. It does not call S13C or execute a physical adapter. Pure serialization and independent validation preserve unresolved states and exact timestamp identity before any persistence implementation. Future `expected_energy` projection is gated by resolved required output at the intended plane; upstream resolution cannot imply meter-plane resolution. P1 is implemented; P2A baseline is complete; P2 admission remains in progress and P3 is not activated.

@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #130 merge 1237d05172d774f3a28ecfa0037363e205a01c3f
+PR #131 merge 879bb186b459b7be344b3ad01337863213b0a086
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -27,7 +27,7 @@ P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
 Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f` (PR #130 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -56,6 +56,14 @@ The [site evidence contract](architecture/site-evidence-manifest.md) and `engine
 Bracon has zero admitted requirements: 17 present/not admitted, 48 missing/blocked and one conflicting/blocked. Module counts 49,824 / 47,448 / 50,736 stay unresolved; capacity and geometry do not select one. All nine path sections remain blocked. Configuration is not authority; geometry is not electrical topology; telemetry labels are not measurement semantics; generic capability is not site admission. Missing means no sufficient supplied package evidence, not proof of external nonexistence. Unknown temporal validity stays unknown.
 
 P1 is complete. P2A inventory/baseline is complete; full P2 admission stays in progress. P3 is inactive. Create no P1 record/run/source, authority, writer or public evidence endpoint here. The eventual Digital Twin derives its definition from admitted evidence/topology, then combines timestamped physical states; the 3D layer is only spatial evidence.
+
+### Physics implementation-delta recovery
+
+The canonical [implementation-delta ledger](architecture/physics-implementation-delta.md) reconciles supplied original Stage 1–6 design intent with current software ownership. The original seven DOCX titles are external engineering references, not repository paths; they remain valuable and are not edited or replaced here. Reconcile original engineering document detail with mechanism ownership before implementation: identify the canonical owner, evidence, reference plane, fidelity and interaction/non-overlap rule first.
+
+Every ledger decision uses exactly one of `KEEP_CANONICAL`, `DOCUMENTATION_ALIGNMENT`, `ADVANCED_FIDELITY_PENDING` or `SITE_EVIDENCE_PENDING`. Priority A is the future advanced S8 member/sub-string/bypass route; Priority B is future cable/conductor parameter derivation feeding existing S8/S11/S13 solvers. Preserve the homogeneous string baseline, existing MPPT/branch/network solvers and S12 transformer ownership. Do not add a second gamma, spectral factor or loss subtraction to match an older stage equation. P2 evidence determines defensible site fidelity; these advanced items are not automatic blockers for every valid lower-fidelity P3 path.
+
+Status is contingent on successful post-merge main CI #335 on the exact PR #131 merge: P0, platform authorization, P1 and P2A complete; P2 site authority admission in progress; P3 inactive. The ledger is not Twin evidence and closes no Bracon admission gap.
 
 ### Known pre-shadow blockers
 
@@ -148,7 +156,7 @@ When beginning from a new conversation or development session:
 1. Query GitHub for the current `main` and fetch it.
 2. Read this file.
 3. Read `docs/architecture/physics-architecture.md`.
-4. Read `docs/development/physics-roadmap.md`.
+4. Read `docs/development/physics-roadmap.md` and `docs/architecture/physics-implementation-delta.md` before translating an original design equation into code.
 5. Read `docs/decisions/ADR-001-physics-first-electrical-migration.md`.
 6. Read `docs/validation/physics-validation-strategy.md`.
 7. Inspect open pull requests and recent merge commits.

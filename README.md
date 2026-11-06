@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f` (PR #130 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -139,6 +139,7 @@ GitHub CI is the authoritative full-backend validation. Do not repeatedly run th
 
 - [AI handoff](docs/AI_HANDOFF.md): recovery context, known blockers and non-negotiable rules.
 - [Physics architecture](docs/architecture/physics-architecture.md): reference planes, stage responsibilities, fidelity and upstream migration boundaries.
+- [Physics implementation-delta ledger](docs/architecture/physics-implementation-delta.md): original Stage 1–6 intent, canonical ownership, pending advanced fidelity and site evidence; no runtime change.
 - [Physics roadmap](docs/development/physics-roadmap.md): completed capabilities and future physics scope.
 - [Production-integration roadmap](docs/development/production-integration-roadmap.md): canonical activation phases, pre-shadow gates and ownership ledger.
 - [ADR-001](docs/decisions/ADR-001-physics-first-electrical-migration.md): physics-first migration decision.

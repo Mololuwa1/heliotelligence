@@ -138,6 +138,14 @@ P3 shadow execution
 
 P1 physical shadow-output contract is complete at PR #130. P2 site evidence admission remains in progress; P3 shadow execution is not activated. Existing S9-4A sign-semantics evidence requirements are not weakened.
 
+### Advanced design deltas and admissible site fidelity
+
+The [implementation-delta ledger](../architecture/physics-implementation-delta.md) retains rigorous canonical ownership while identifying future advanced S8 member/sub-string/bypass physics and cable/conductor parameter authority. These are not automatically blockers for every P3 shadow run. P2 must first establish the available evidence, explicit intended reference planes/fidelity and coverage limits. An independently valid lower-fidelity path may be admitted only where its canonical contract permits it and all other pre-shadow gates close; it cannot stand in for an unsupported shared feeder, bypass regime or missing electrical boundary.
+
+Do not automatically build every advanced mechanism before P2. Bracon cannot populate a bypass route without physical module/sub-string routing and diode evidence, or a detailed cable authority without schedules/conductor evidence. Future cable derivation must feed existing S8/S11/S13 solvers; transformer loss remains S12-owned. Advanced-fidelity rows remain pending; missing site data remains a separate evidence/admission gap, not a missing generic-code claim.
+
+Governance status is contingent on green main CI #335 at the exact PR #131 merge: P0 source isolation, platform authorization, P1 and P2A complete; P2 site authority admission in progress; P3 inactive. This documentation increment creates no model source, authority, writer, execution path or cutover permission.
+
 ### P3 — shadow execution
 
 Run legacy and physical models side by side as separate expected-energy sources, first in staging. Preserve default production behaviour. Observe execution cost, failures, timestamp coverage, uncertainty metadata and provenance without replacing the legacy model.
