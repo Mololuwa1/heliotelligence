@@ -8,7 +8,7 @@ The canonical machine-readable inventory is [evidence/sites/bracon-ash.yaml](../
 
 P1 is complete. P2A establishes the inventory/baseline; P2 admission remains in progress and P3 is not active. Configuration is not authority; geometry is not electrical topology; telemetry presence is not measurement semantics; generic capability is not site admission. “Missing” means absent or insufficient in the current repository/onboarding package, not that external evidence cannot exist.
 
-Current inventory: **66 requirements; 17 present/not admitted, 48 missing/blocked, one conflicting/blocked; zero admitted**. All nine baseline/full-fidelity path sections remain blocked. Temporal applicability remains unknown. Present material includes configuration, layout group labels, reconstructed spatial geometry, local module-library fit/model labels, legacy assumptions and configured/source-code weather/SCADA conventions. No capability, topology, controller, meter, support-gap or numerical uncertainty authority is inferred.
+Original P2A inventory: **66 requirements; 17 present/not admitted, 48 missing/blocked, one conflicting/blocked; zero admitted**. All nine baseline/full-fidelity path sections were blocked and temporal applicability was unknown. Present material includes configuration, layout group labels, reconstructed spatial geometry, local module-library fit/model labels, legacy assumptions and configured/source-code weather/SCADA conventions. No capability, topology, controller, meter, support-gap or numerical uncertainty authority is inferred.
 
 The unresolved module-population conflict is retained without selecting a value:
 
@@ -19,6 +19,16 @@ The unresolved module-population conflict is retained without selecting a value:
 Capacity 28,524 kWp remains configuration evidence. The surveyed file declares `_source = module-cloud reconstruction @174.47` and `_georef_residual_m = 0.436`; spatial groups MQA11/MQA21/MQA22/MQA23 establish no electrical connectivity. The geometry API may combine surveyed coordinates with SiteConfig-derived counts, so evidence references point to their underlying files separately. No config or geometry value was changed to reconcile the conflict.
 
 Full P2 requires reviewed evidence and explicit canonical bindings for the intended path/fidelity. P2A creates no P1 output/run/source, physics authority, public evidence API, writer or shadow execution.
+
+### Current P2B physical-site identity admission
+
+The separately reviewed [identity authority](../architecture/site-physical-identity-authority.md), declared in [the authority file](../../evidence/authorities/bracon-ash/site-identity.yaml), now admits exactly `site.identity.physical`. Configuration supplied source evidence but did not self-admit. The binding covers only `site-001`, its canonical UUID/name, `Europe/London`, and configured latitude/longitude `52.56 / 1.21`; confidence remains `unknown`. It excludes capacity, population, inventory, legal/survey boundary, geometry completeness and electrical connectivity.
+
+Current manifest version: `bracon-ash-site-identity-admitted-v2`. Evidence counts remain **17 present / 48 missing / 1 conflicting / 0 N/A**. Admission is **1 admitted / 16 not admitted / 49 blocked / 0 N/A**; active support is **1 full / 0 lower / 65 non-resolving / 0 N/A**. Identity alone has static temporal scope; all other evidence applicability remains unchanged.
+
+All nine baseline and full-fidelity sections are now `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. All other 65 requirements are unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. P2 admission remains in progress and P3 is inactive.
+
+The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
 <!-- BEGIN P2A MANIFEST COVERAGE -->
 | Requirement | Evidence | Admission |
@@ -74,7 +84,7 @@ Full P2 requires reviewed evidence and explicit canonical bindings for the inten
 | `s9.thermal_capability` | missing | blocked |
 | `site.geometry.electrical_mapping` | missing | blocked |
 | `site.geometry.module_positions` | present | not_admitted |
-| `site.identity.physical` | present | not_admitted |
+| `site.identity.physical` | present | admitted |
 | `site.legacy_compatibility_assumptions` | present | not_admitted |
 | `site.module.model_label` | present | not_admitted |
 | `site.population.module_count` | conflicting | blocked |

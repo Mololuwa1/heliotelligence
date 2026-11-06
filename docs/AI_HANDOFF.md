@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #131 merge 879bb186b459b7be344b3ad01337863213b0a086
+PR #132 merge 49d4d11bccebf024aec3c487292b06a7dc6578d5
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -24,10 +24,11 @@ Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
 P1: immutable output contract COMPLETE; no writer or physical source selected
 P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
+P2B: only physical-site identity admitted; all nine paths retain blockers
 Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `49d4d11bccebf024aec3c487292b06a7dc6578d5` (PR #132 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -53,9 +54,15 @@ P1 is complete at the contract level. P2 evidence admission remains in progress 
 
 The [site evidence contract](architecture/site-evidence-manifest.md) and `engine/site_evidence_manifest.py` define the reviewed 66-requirement catalogue, immutable inventory, strict pure YAML loader, serialization and independent coverage validation. `evidence/sites/bracon-ash.yaml` is the canonical baseline; the [Bracon matrix](sites/bracon-ash.md#p2a-controlled-evidence-baseline) is generated and drift-tested from it. No runtime reads it automatically.
 
-Bracon has zero admitted requirements: 17 present/not admitted, 48 missing/blocked and one conflicting/blocked. Module counts 49,824 / 47,448 / 50,736 stay unresolved; capacity and geometry do not select one. All nine path sections remain blocked. Configuration is not authority; geometry is not electrical topology; telemetry labels are not measurement semantics; generic capability is not site admission. Missing means no sufficient supplied package evidence, not proof of external nonexistence. Unknown temporal validity stays unknown.
+The original P2A baseline had zero admitted requirements: 17 present/not admitted, 48 missing/blocked and one conflicting/blocked. Module counts 49,824 / 47,448 / 50,736 stay unresolved; capacity and geometry do not select one. At that baseline all nine path sections were blocked. Configuration is not authority; geometry is not electrical topology; telemetry labels are not measurement semantics; generic capability is not site admission. Missing means no sufficient supplied package evidence, not proof of external nonexistence. Unknown temporal validity stays unknown unless separately reviewed evidence declares its applicability.
 
 P1 is complete. P2A inventory/baseline is complete; full P2 admission stays in progress. P3 is inactive. Create no P1 record/run/source, authority, writer or public evidence endpoint here. The eventual Digital Twin derives its definition from admitted evidence/topology, then combines timestamped physical states; the 3D layer is only spatial evidence.
+
+### P2B reviewed site identity
+
+`engine/site_physical_identity_authority.py` loads the separately reviewed [Bracon identity file](../evidence/authorities/bracon-ash/site-identity.yaml), not an auto-generated SiteConfig authority. See the [identity contract](architecture/site-physical-identity-authority.md). The frozen declaration covers only site ID/UUID/name, configured latitude/longitude and exact timezone; no capacity, population, inventory, geometry completeness or electrical topology belongs to it. Source is `config/sites.yaml`, confidence `unknown`. An independent validator and pure exact manifest/authority/SiteConfig binding check guard admission; no runtime consumes it automatically.
+
+Current manifest `bracon-ash-site-identity-admitted-v2` admits only `site.identity.physical`. Evidence remains 17/48/1/0; admission is 1/16/49/0 and active fidelity 1/0/65/0. All nine baseline/full-fidelity labels become partially admitted solely through identity, with required blockers retained and no fully admitted section. The other 65 items are unchanged; all three population representations stay conflicting and `electrical_topology` is still `None`. P2 remains in progress and P3 inactive. Neither implementation-delta Priority A nor B is advanced by identity evidence.
 
 ### Physics implementation-delta recovery
 

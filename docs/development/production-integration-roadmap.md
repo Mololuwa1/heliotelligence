@@ -78,7 +78,7 @@ Exit decision: a per-site coverage matrix proves which timestamps and paths can 
 
 The [manifest contract](../architecture/site-evidence-manifest.md) inventories 66 reviewed requirements separately from compatibility configuration and canonical authority construction. Frozen evidence records separate evidence state, authority admission, physical/temporal scope, fidelity, targets, gaps and source facts. A pure strict YAML loader and JSON persistence round-trip reconstruct diagnostics and baseline/full-fidelity coverage; independent validation and the generated site-documentation matrix prevent status drift.
 
-The initial [Bracon inventory](../../evidence/sites/bracon-ash.yaml) has 17 present/not-admitted, 48 missing/blocked and one conflicting/blocked requirement, with zero admitted. Module populations 49,824 / 47,448 / 50,736 remain conflicting; no value is selected or rewritten. Spatial group geometry is not string/MPPT/LV/transformer/MV-HV authority. All nine major path sections remain blocked. Missing means not supplied/sufficient in the current package, not absent externally.
+The original P2A [Bracon baseline](../../evidence/sites/bracon-ash.yaml) had 17 present/not-admitted, 48 missing/blocked and one conflicting/blocked requirement, with zero admitted. Module populations 49,824 / 47,448 / 50,736 remain conflicting; no value is selected or rewritten. Spatial group geometry is not string/MPPT/LV/transformer/MV-HV authority. At that baseline all nine major path sections were blocked. Missing means not supplied/sufficient in the current package, not absent externally.
 
 ```text
 P1 physical shadow-output contract — COMPLETE
@@ -88,6 +88,14 @@ P3 shadow execution — NOT ACTIVE
 ```
 
 P2A introduces no physics authority, P1 output/run/model source, runtime adapter, writer, API or activation. Full P2 still requires reviewed site authority bindings and coverage proving the intended physical path/fidelity; static evidence readiness never guarantees timestamped resolution. The eventual Twin Definition comes from admitted manifest evidence/topology, with existing 3D geometry only one evidence layer.
+
+### P2B — reviewed physical site identity — implemented
+
+The [identity authority](../architecture/site-physical-identity-authority.md) and [reviewed Bracon declaration](../../evidence/authorities/bracon-ash/site-identity.yaml) explicitly bind only configuration ID, canonical UUID, exact name/timezone and configured geographic anchor. Configuration is source evidence, not self-admission; the reviewed declaration is the separate binding decision. Capacity, module population, equipment inventory, surveyed boundary/geometry completeness and electrical connectivity are excluded. No external evidence is invented.
+
+The original P2A baseline had zero admitted items. The current P2B manifest admits exactly `site.identity.physical`: evidence remains 17/48/1/0; admission becomes 1/16/49/0 and active support 1/0/65/0. All nine baseline/full-fidelity sections become partially admitted solely through the shared identity prerequisite; every section retains required blockers and none has a complete admitted path. All other 65 items and the 49,824 / 47,448 / 50,736 population conflict remain unchanged. `electrical_topology` remains `None`.
+
+Full P2 admission remains in progress. Priority A substring/bypass and Priority B conductor-parameter derivation remain pending; identity supplies no evidence for them. P3, model-source selection and execution remain inactive. This increment changes no physics, runtime, API, authorization, database or site configuration.
 
 ### Pre-shadow readiness gates
 
