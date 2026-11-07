@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `576ded72f8a3a27e14ef5041898b1115a7735cd0` (PR #137 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `076c310ce6087048e266bc42cc3bff95b76084d3` (PR #138 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -230,3 +230,13 @@ full blockers remain 9 and all paths retain blockers. Three consolidated bundles
 cover population/DC topology, inverter equipment/capability and controller/PPC.
 P2E/P2F evidence updates their existing packages; P2G is AC network + transformer
 + revenue-meter authority next. P2 remains in progress and P3 inactive.
+
+## P2G downstream evidence readiness
+
+The [P2G review](docs/architecture/site-ac-network-meter-admission.md) is complete
+as a **zero-admission evidence package**, not downstream physical readiness.
+The manifest is unchanged: 6 admitted / 11 not admitted / 49 blocked. S11/S12/S13
+remain missing/blocked; migration meter rows provide no meter engineering authority.
+Four evidence bundles cover LV collection, transformer, MV/HV/grid and revenue
+meter. P2H benchmark/uncertainty/P2 closure is next. P2 remains in progress and
+P3 inactive; no runtime or production source changes.
