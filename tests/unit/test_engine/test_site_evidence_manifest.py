@@ -78,7 +78,10 @@ def test_contract_and_identity(manifest: m.SiteEvidenceManifest) -> None:
     assert manifest.identity.site_config_id == "site-001"
     assert manifest.identity.site_uuid == "5ab83b40-553c-5ddd-976f-71f6cb5d490f"
     assert manifest.identity.site_uuid == str(uuid5(NAMESPACE_DNS, "site-001"))
-    assert manifest.identity.manifest_version == "bracon-ash-site-identity-admitted-v2"
+    assert (
+        manifest.identity.manifest_version
+        == "bracon-ash-module-electrical-lower-fidelity-admitted-v3"
+    )
     m.validate_manifest_against_site_config(manifest, load_sites(ROOT / "config/sites.yaml")[0])
 
 
@@ -116,7 +119,7 @@ def test_site_cross_check_does_not_admit(manifest: m.SiteEvidenceManifest) -> No
     before = m.serialize_site_evidence_manifest(manifest)
     m.validate_manifest_against_site_config(manifest, site)
     assert m.serialize_site_evidence_manifest(manifest) == before
-    assert manifest.diagnostics.admitted_count == 1
+    assert manifest.diagnostics.admitted_count == 3
 
 
 def test_catalogue_complete_and_deterministic(manifest: m.SiteEvidenceManifest) -> None:
@@ -228,7 +231,7 @@ def test_target_authority_is_not_admitted_authority(manifest: m.SiteEvidenceMani
     )
     result = update(manifest, changed)
     assert result.diagnostics.full_fidelity_support_count == 1
-    assert result.diagnostics.admitted_count == 1
+    assert result.diagnostics.admitted_count == 3
     assert result.path_coverage == manifest.path_coverage
 
 
@@ -371,7 +374,7 @@ def test_diagnostics_close_without_maturity_score(manifest: m.SiteEvidenceManife
         48,
         1,
     )
-    assert (d.admitted_count, d.not_admitted_count, d.blocked_count) == (1, 16, 49)
+    assert (d.admitted_count, d.not_admitted_count, d.blocked_count) == (3, 14, 49)
     assert (
         d.present_count + d.missing_count + d.conflicting_count + d.not_applicable_count
         == d.total_requirement_count
@@ -395,7 +398,7 @@ def test_diagnostics_close_without_maturity_score(manifest: m.SiteEvidenceManife
     )
     assert not any("score" in f.name or "percent" in f.name for f in fields(d))
     result = update(manifest, admitted(item(manifest), lower=True))
-    assert result.diagnostics.lower_fidelity_support_count == 1
+    assert result.diagnostics.lower_fidelity_support_count == 3
     assert result.diagnostics.full_fidelity_support_count == 1
     assert (
         replace(result.items[0], confidence="high").supported_fidelity
@@ -541,7 +544,7 @@ def test_legacy_config_never_becomes_authority(
     changed = config.model_copy(update={group: nested})
     m.validate_manifest_against_site_config(manifest, changed)
     assert m.serialize_site_evidence_manifest(manifest) == before
-    assert manifest.diagnostics.admitted_count == 1
+    assert manifest.diagnostics.admitted_count == 3
 
 
 def test_generic_capability_and_targets_do_not_admit_site(manifest: m.SiteEvidenceManifest) -> None:
@@ -556,12 +559,13 @@ def test_generic_capability_and_targets_do_not_admit_site(manifest: m.SiteEviden
         "revenue_meter_measurement_uncertainty.py",
     ]
     assert all((ROOT / "src/heliotelligence/physics" / name).is_file() for name in controlled)
-    assert manifest.diagnostics.admitted_count == 1
+    assert manifest.diagnostics.admitted_count == 3
     assert any(i.target_authority_contract_ids for i in manifest.items)
     assert all(
         not i.admitted_authority_contract_ids
         for i in manifest.items
-        if i.requirement_id != "site.identity.physical"
+        if i.requirement_id
+        not in {"site.identity.physical", "site.module.model_label", "module.electrical_parameters"}
     )
     assert all(
         i.temporal_scope.semantics
@@ -830,9 +834,11 @@ def test_wire_preserves_sources_scopes_and_tuple_order(manifest: m.SiteEvidenceM
     assert item(restored).admission_state == "blocked"
 
 
-def test_p2b_identity_is_the_only_admission(manifest: m.SiteEvidenceManifest) -> None:
+def test_p2c_three_narrow_admissions(manifest: m.SiteEvidenceManifest) -> None:
     assert [i.requirement_id for i in manifest.items if i.admission_state == "admitted"] == [
-        "site.identity.physical"
+        "module.electrical_parameters",
+        "site.identity.physical",
+        "site.module.model_label",
     ]
     identity = item(manifest, "site.identity.physical")
     assert identity.evidence_state == "present"
@@ -857,13 +863,13 @@ def test_p2b_identity_is_the_only_admission(manifest: m.SiteEvidenceManifest) ->
         d.not_admitted_count,
         d.blocked_count,
         d.admission_not_applicable_count,
-    ) == (1, 16, 49, 0)
+    ) == (3, 14, 49, 0)
     assert (
         d.full_fidelity_support_count,
         d.lower_fidelity_support_count,
         d.non_resolving_count,
         d.fidelity_not_applicable_count,
-    ) == (1, 0, 65, 0)
+    ) == (1, 2, 63, 0)
     assert all(
         p.state == p.full_fidelity_state == "partially_admitted" for p in manifest.path_coverage
     )
@@ -877,46 +883,68 @@ def test_p2b_identity_is_the_only_admission(manifest: m.SiteEvidenceManifest) ->
     assert load_sites(ROOT / "config/sites.yaml")[0].electrical_topology is None
 
 
-def test_all_other_items_exactly_preserve_reviewed_p2a_baseline(
-    manifest: m.SiteEvidenceManifest,
-) -> None:
-    # Canonical JSON fingerprint of the 65 other items from reviewed base
-    # 49d4d11bccebf024aec3c487292b06a7dc6578d5. No runtime Git or second manifest.
-    expected = "1743d06f504b0387444281df2440aee86cf2e4fe694655ceaaf0b59e911dc657"
-    other_items = [
+def test_other_63_items_preserve_reviewed_p2b_baseline(manifest: m.SiteEvidenceManifest) -> None:
+    # Canonical source-item fingerprint at reviewed base
+    # 6d00d2be1b76f620ceba08d523bb244090a07caf; no runtime Git or duplicate manifest.
+    expected = "2cdcdf9bb5031199820ac8892d0b73922342cc1b95f62f6aedbe7ea6db7454c9"
+    others = [
         i
         for i in m.serialize_site_evidence_manifest(manifest)["items"]
-        if i["requirement_id"] != "site.identity.physical"
+        if i["requirement_id"]
+        not in {"site.identity.physical", "site.module.model_label", "module.electrical_parameters"}
     ]
-    encoded = json.dumps(
-        other_items, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
-    assert len(other_items) == 65
+    assert len(others) == 63
+    encoded = json.dumps(others, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     assert hashlib.sha256(encoded).hexdigest() == expected
-    prior_present = {
-        "irradiance.bifacial_applicability",
-        "irradiance.front_source_quantity",
-        "irradiance.shading_geometry",
-        "module.electrical_parameters",
-        "s8.inverter_inventory_binding",
-        "s8.string_module_count",
-        "s9.conversion_model",
-        "s9.inverter_model_mapping",
-        "site.geometry.module_positions",
-        "site.legacy_compatibility_assumptions",
-        "site.module.model_label",
-        "thermal.environmental_inputs",
-        "thermal.model_parameters",
-        "thermal.sensor_quantity",
-        "weather.source_identifiers",
-        "weather.temporal_semantics",
-    }
-    for entry in other_items:
-        assert entry["admission_state"] == (
-            "not_admitted" if entry["requirement_id"] in prior_present else "blocked"
+
+
+def p2b_module_item(original: m.SiteEvidenceItem) -> m.SiteEvidenceItem:
+    return replace(
+        original,
+        admission_state="not_admitted",
+        supported_fidelity=m.NON_RESOLVING,
+        admitted_authority_contract_ids=(),
+        authority_binding_reference=None,
+        gap_reason_codes=("canonical_authority_binding_not_admitted",),
+    )
+
+
+def test_only_module_baseline_blocker_changes(manifest: m.SiteEvidenceManifest) -> None:
+    prior = replace(
+        manifest,
+        items=tuple(
+            p2b_module_item(i)
+            if i.requirement_id in {"site.module.model_label", "module.electrical_parameters"}
+            else i
+            for i in manifest.items
+        ),
+    )
+    assert prior.diagnostics.admitted_count == 1
+    for before, after in zip(prior.path_coverage, manifest.path_coverage, strict=True):
+        assert before.state == after.state == "partially_admitted"
+        assert before.full_fidelity_state == after.full_fidelity_state == "partially_admitted"
+        if after.section == "module_electrical_input":
+            assert len(before.blocking_requirement_ids) == 10
+            assert len(after.blocking_requirement_ids) == 9
+            assert after.blocking_requirement_ids == tuple(
+                key
+                for key in before.blocking_requirement_ids
+                if key != "module.electrical_parameters"
+            )
+            assert len(after.full_fidelity_blocking_requirement_ids) == 10
+            assert (
+                before.full_fidelity_blocking_requirement_ids
+                == after.full_fidelity_blocking_requirement_ids
+            )
+        else:
+            assert before == after
+    for key in ("site.module.model_label", "module.electrical_parameters"):
+        current = item(manifest, key)
+        assert current.supported_fidelity == m.LOWER_SUPPORT
+        assert current.temporal_scope.semantics == "unknown"
+        assert current.admitted_authority_contract_ids == (
+            "explicit_reviewed_configured_module_electrical_basis_authority_v1",
         )
-        assert entry["supported_fidelity"] == m.NON_RESOLVING
-        assert not entry["admitted_authority_contract_ids"]
 
 
 def test_original_p2a_zero_admission_baseline_can_be_reconstructed(
@@ -938,7 +966,17 @@ def test_original_p2a_zero_admission_baseline_can_be_reconstructed(
         ),
     )
     historical = replace(
-        update(manifest, previous),
+        replace(
+            manifest,
+            items=tuple(
+                previous
+                if i.requirement_id == "site.identity.physical"
+                else p2b_module_item(i)
+                if i.requirement_id in {"site.module.model_label", "module.electrical_parameters"}
+                else i
+                for i in manifest.items
+            ),
+        ),
         identity=replace(manifest.identity, manifest_version="bracon-ash-repository-baseline-v1"),
     )
     assert (
@@ -951,3 +989,18 @@ def test_original_p2a_zero_admission_baseline_can_be_reconstructed(
     assert previous.facts == current.facts
     assert previous.source_references == current.source_references
     assert previous.physical_scope == current.physical_scope
+
+
+def test_identity_item_is_unchanged_from_p2b(manifest: m.SiteEvidenceManifest) -> None:
+    identity = next(
+        i
+        for i in m.serialize_site_evidence_manifest(manifest)["items"]
+        if i["requirement_id"] == "site.identity.physical"
+    )
+    encoded = json.dumps(
+        identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    assert (
+        hashlib.sha256(encoded).hexdigest()
+        == "ff89696ef7780e13546e65d88833d4c3288fa1c2e92fe066641684466ed6b47d"
+    )

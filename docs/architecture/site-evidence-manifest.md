@@ -158,19 +158,29 @@ retained only as supplied spatial evidence. The geometry API combines coordinate
 and some configuration-derived counts; it is not one homogeneous authority.
 See the generated matrix in the [Bracon site record](../sites/bracon-ash.md).
 
-The original counts above describe P2A history. The current P2B manifest separately
+The original counts above describe P2A history. The P2B manifest separately
 admits exactly `site.identity.physical` through the
 [reviewed identity authority](site-physical-identity-authority.md). Configuration
 supplies source evidence; the separate checked-in authority and exact three-way
 binding provide the reviewed admission. Identity excludes capacity, inventory,
 geometry completeness and electrical connectivity.
 
-Current evidence counts remain 17/48/1/0. Admission is 1 admitted, 16 not admitted,
+At P2B, evidence counts remained 17/48/1/0. Admission was 1 admitted, 16 not admitted,
 49 blocked and zero N/A. Active fidelity support is 1 full, 0 lower, 65 non-resolving
 and zero N/A. All nine baseline/full-fidelity sections become partially admitted
 because identity is a common mandatory prerequisite; every section still has
 required blockers and none has a complete admitted path. This is not downstream
 physics readiness. The other 65 items and the population conflict are unchanged.
+
+P2C now adds the [reviewed configured module electrical basis](site-module-electrical-authority.md).
+Only `site.module.model_label` and `module.electrical_parameters` are newly admitted,
+both as explicit lower-fidelity support, with unknown installed-equipment temporal
+applicability. Evidence remains 17/48/1/0; admission is 3/14/49/0 and active support
+1 full / 2 lower / 63 non-resolving / 0 N/A. Only module-electrical baseline blockers
+reduce from 10 to 9; full-fidelity blockers remain 10. All other section coverage,
+the identity binding and 63 unadmitted items remain unchanged. No section is fully
+admitted. Configured low-fit STC evidence is not manufacturer/as-built certification;
+full-fidelity equipment, population, optics, thermal and topology remain separate.
 
 The eventual Digital Twin sequence is:
 

@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `1237d05172d774f3a28ecfa0037363e205a01c3f`, PR #130 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf`, PR #134 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -93,9 +93,28 @@ P2A introduces no physics authority, P1 output/run/model source, runtime adapter
 
 The [identity authority](../architecture/site-physical-identity-authority.md) and [reviewed Bracon declaration](../../evidence/authorities/bracon-ash/site-identity.yaml) explicitly bind only configuration ID, canonical UUID, exact name/timezone and configured geographic anchor. Configuration is source evidence, not self-admission; the reviewed declaration is the separate binding decision. Capacity, module population, equipment inventory, surveyed boundary/geometry completeness and electrical connectivity are excluded. No external evidence is invented.
 
-The original P2A baseline had zero admitted items. The current P2B manifest admits exactly `site.identity.physical`: evidence remains 17/48/1/0; admission becomes 1/16/49/0 and active support 1/0/65/0. All nine baseline/full-fidelity sections become partially admitted solely through the shared identity prerequisite; every section retains required blockers and none has a complete admitted path. All other 65 items and the 49,824 / 47,448 / 50,736 population conflict remain unchanged. `electrical_topology` remains `None`.
+The original P2A baseline had zero admitted items. The P2B manifest admitted exactly `site.identity.physical`: evidence remains 17/48/1/0; admission becomes 1/16/49/0 and active support 1/0/65/0. All nine baseline/full-fidelity sections become partially admitted solely through the shared identity prerequisite; every section retains required blockers and none has a complete admitted path. All other 65 items and the 49,824 / 47,448 / 50,736 population conflict remain unchanged. `electrical_topology` remains `None`.
 
 Full P2 admission remains in progress. Priority A substring/bypass and Priority B conductor-parameter derivation remain pending; identity supplies no evidence for them. P3, model-source selection and execution remain inactive. This increment changes no physics, runtime, API, authorization, database or site configuration.
+
+### P2C — reviewed configured module electrical basis — implemented
+
+The [module electrical authority](../architecture/site-module-electrical-authority.md)
+binds only Bracon's configured model/technology and existing raw STC local-library
+basis: Tier 3 / local_library / datasheet_fit / low. It admits two requirements at
+explicit lower fidelity, never verified installed equipment or full fidelity.
+The real canonical lookup is regression-checked; its precedence and numerical
+route remain unchanged. No fitted coefficients or thermal/optical/population
+parameters are admitted by this authority.
+
+Current version: `bracon-ash-module-electrical-lower-fidelity-admitted-v3`.
+Evidence remains 17/48/1/0; admission is 3/14/49/0; support is 1/2/63/0.
+Module-electrical baseline blockers reduce 10 → 9; full-fidelity blockers remain
+10 and other section coverage is unchanged. All sections retain blockers.
+Population 49,824 / 47,448 / 50,736 remains conflicting, temporal equipment
+validity unknown and electrical topology absent. P2 remains in progress; P3 inactive.
+No runtime, source or writer is activated.
+
 
 ### Pre-shadow readiness gates
 
@@ -139,7 +158,7 @@ P1 physical shadow-output contract — COMPLETE (no writer/execution)
 ↓
 P2A site evidence manifest / Bracon baseline — COMPLETE
 ↓
-P2 site evidence admission — IN PROGRESS (P2A baseline complete)
+P2 site evidence admission — IN PROGRESS (P2A/P2B complete; P2C lower-fidelity module basis admitted)
 ↓
 P3 shadow execution
 ```
@@ -177,6 +196,7 @@ Exit decision: authorised site-specific cutover with reproducible comparison and
 Retire each percentage only after its physical replacement owns the same mechanism/reference path. Do not remove all legacy losses globally in one action. Preserve legacy series needed for comparison and historical interpretation.
 
 Exit decision: mechanism-specific ownership and retirement evidence, with uncovered mechanisms retained explicitly.
+
 
 ## Weather-time and date-consistent canonical irradiance boundary
 

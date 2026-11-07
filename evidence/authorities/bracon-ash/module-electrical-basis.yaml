@@ -1,0 +1,31 @@
+# Reviewed configured lower-fidelity basis, not manufacturer/as-built certification.
+site_config_id: site-001
+site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+site_name: Bracon Ash
+module_model_label: JKM570N-72HL4-BDV
+technology: mono_si
+parameter_source: datasheet_fit
+fit_quality: low
+expected_lookup_tier: 3
+expected_lookup_source: local_library
+pnom_wp: 570.0
+v_mp_v: 41.64
+i_mp_a: 13.69
+v_oc_v: 50.6
+i_sc_a: 14.36
+alpha_sc_pct_per_c: 0.045
+beta_voc_pct_per_c: -0.25
+gamma_pmp_pct_per_c: -0.29
+cells_in_series: 144
+authority_version: bracon-ash-configured-module-electrical-basis-v1
+evidence_source_references:
+- config/sites.yaml
+- src/heliotelligence/data/module_library.yaml
+authority_reference: evidence/authorities/bracon-ash/module-electrical-basis.yaml
+confidence: unknown
+contract: explicit_reviewed_configured_module_electrical_basis_authority_v1
+model: tier3_low_fit_datasheet_module_electrical_basis_v1
+scope: configured_site_module_model_and_electrical_parameter_basis_before_population_and_topology_binding
+coverage_scope: single_site_configured_model_class_low_fit_stc_parameter_basis_only
+supported_fidelity: supports_explicit_lower_fidelity_path
+temporal_semantics: unknown

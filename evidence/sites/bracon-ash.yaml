@@ -1,9 +1,9 @@
-# P2B reviewed site identity admitted; all other requirements retain the P2A baseline.
+# P2C: reviewed configured module basis admitted only at explicit lower fidelity.
 identity:
   site_config_id: site-001
   site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
   site_name: Bracon Ash
-  manifest_version: bracon-ash-site-identity-admitted-v2
+  manifest_version: bracon-ash-module-electrical-lower-fidelity-admitted-v3
 items:
 - requirement_id: irradiance.bifacial_applicability
   domain: irradiance_optics
@@ -229,7 +229,7 @@ items:
   - UPSTREAM
   - S8
   evidence_state: present
-  admission_state: not_admitted
+  admission_state: admitted
   source_references:
   - src/heliotelligence/data/module_library.yaml
   - config/sites.yaml
@@ -243,14 +243,17 @@ items:
     semantics: unknown
     start_timestamp: null
     end_timestamp: null
-  supported_fidelity: does_not_resolve_physical_path
-  admitted_authority_contract_ids: []
+  supported_fidelity: supports_explicit_lower_fidelity_path
+  admitted_authority_contract_ids:
+  - explicit_reviewed_configured_module_electrical_basis_authority_v1
   target_authority_contract_ids: []
-  gap_reason_codes:
-  - canonical_authority_binding_not_admitted
-  notes: Local library declares a datasheet_fit with low fit_quality and nominal STC values. This is supplied
-    repository parameter evidence, not a validated complete site module-population/electrical binding.
-    date_added is not a validity period.
+  gap_reason_codes: []
+  notes: >-
+    Reviewed configured lower-fidelity model and raw electrical basis, not verified as-built
+    population/equipment authority. Tier-3 local-library basis with fit_quality: low;
+    manufacturer, CEC and full-fidelity evidence remain open. The repository i_sc
+    correction note is not independently supplied manufacturer evidence. Installed-equipment
+    temporal applicability remains unknown. date_added is not a validity period.
   facts:
   - fact_id: local_library_source
     source_reference: src/heliotelligence/data/module_library.yaml
@@ -261,7 +264,7 @@ items:
   - fact_id: local_library_pnom_wp
     source_reference: src/heliotelligence/data/module_library.yaml
     value: '570.0'
-  authority_binding_reference: null
+  authority_binding_reference: evidence/authorities/bracon-ash/module-electrical-basis.yaml
   applicability_reason: null
   confidence: unknown
 - requirement_id: s10.active_power_request
@@ -1589,7 +1592,7 @@ items:
   - UPSTREAM
   - S8
   evidence_state: present
-  admission_state: not_admitted
+  admission_state: admitted
   source_references:
   - config/sites.yaml
   - src/heliotelligence/data/module_library.yaml
@@ -1603,18 +1606,22 @@ items:
     semantics: unknown
     start_timestamp: null
     end_timestamp: null
-  supported_fidelity: does_not_resolve_physical_path
-  admitted_authority_contract_ids: []
+  supported_fidelity: supports_explicit_lower_fidelity_path
+  admitted_authority_contract_ids:
+  - explicit_reviewed_configured_module_electrical_basis_authority_v1
   target_authority_contract_ids: []
-  gap_reason_codes:
-  - canonical_authority_binding_not_admitted
-  notes: JKM570N-72HL4-BDV is a configured/local-library label, not a serial-number inventory or canonical
-    site electrical authority.
+  gap_reason_codes: []
+  notes: >-
+    Reviewed configured lower-fidelity model and raw electrical basis, not verified as-built
+    population/equipment authority. Tier-3 local-library basis with fit_quality: low;
+    manufacturer, CEC and full-fidelity evidence remain open. The repository i_sc
+    correction note is not independently supplied manufacturer evidence. Installed-equipment
+    temporal applicability remains unknown. date_added is not a validity period.
   facts:
   - fact_id: module_model_label
     source_reference: config/sites.yaml
     value: JKM570N-72HL4-BDV
-  authority_binding_reference: null
+  authority_binding_reference: evidence/authorities/bracon-ash/module-electrical-basis.yaml
   applicability_reason: null
   confidence: unknown
 - requirement_id: site.population.module_count
