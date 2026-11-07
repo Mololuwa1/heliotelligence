@@ -1,0 +1,19 @@
+# Configured model-class applicability only; no electrical response coefficient.
+site_config_id: site-001
+site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+site_name: Bracon Ash
+module_model_label: JKM570N-72HL4-BDV
+technology: mono_si
+bifacial_enabled: true
+authority_version: bracon-ash-configured-bifacial-applicability-v1
+evidence_source_references:
+- config/sites.yaml
+- src/heliotelligence/data/module_library.yaml
+authority_reference: evidence/authorities/bracon-ash/bifacial-applicability.yaml
+confidence: unknown
+contract: explicit_reviewed_configured_module_class_bifacial_applicability_authority_v1
+model: configured_module_class_bifacial_enabled_lower_fidelity_basis_v1
+scope: configured_module_class_bifacial_applicability_before_receiver_and_rear_model_binding
+coverage_scope: single_site_configured_module_class_bifacial_applicability_only
+supported_fidelity: supports_explicit_lower_fidelity_path
+temporal_semantics: unknown

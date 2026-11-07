@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952`, PR #135 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6`, PR #136 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -125,7 +125,7 @@ only `config/sites.yaml`; temporal applicability and confidence remain unknown.
 The configured string count of **2076 remains unadmitted**, retained only as a manifest
 source fact. No IDs, members or MPPT/inverter mappings are created.
 
-Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+At P2D, manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
 Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
 S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
 All other coverage and all 65 other manifest items remain unchanged from P2C.
@@ -135,6 +135,46 @@ per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
 No physics, runtime, configuration or production source changes. P2 continues;
 P3 remains inactive.
+
+### P2E — consolidated upstream physical-input admission package
+
+The [P2E boundary](../architecture/site-upstream-physical-input-admission.md) owns all remaining upstream weather/time,
+irradiance/optics, spectral/thermal model and sensor/zone/environment admission.
+Only `irradiance.bifacial_applicability` is newly admitted, as configured lower-fidelity
+model-class applicability for JKM570N-72HL4-BDV / mono_si / bifacial true. This is
+not receiver coverage or canonical electrical response: the generic 0.80 factor
+remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
+time semantics, irradiance plane, spectral or thermal authority is invented.
+
+Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
+Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
+Every other section and all 65 other items remain unchanged. All paths retain
+blockers. The 608 geometry points are not a 50,736-module inventory. Population
+49,824 / 47,448 / 50,736 remains unresolved; electrical_topology remains None.
+
+P2E is implemented as the current reviewed admission/evidence-request package,
+not upstream readiness for P3. Future upstream evidence updates P2E in place;
+do not create a new P2 letter per field. P2F is reserved for the consolidated DC
+plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+
+The consolidated P2 execution plan is:
+
+```text
+P2A — evidence baseline                     COMPLETE
+P2B — site identity                         COMPLETE
+P2C — module electrical basis               COMPLETE
+P2D — string series-count basis             COMPLETE
+P2E — upstream physical-input admission      IMPLEMENTED BY THIS PR; evidence gaps remain
+P2F — DC plant + inverter/control authority  NEXT
+P2G — AC network + revenue-meter authority
+P2H — benchmark/uncertainty + P2 closure
+P3  — shadow execution                      INACTIVE
+```
+
+P2E completion means review/admission boundaries and one consolidated evidence
+request exist. It does not close the unresolved upstream physics path. P2F must
+not absorb unfinished upstream requirements or create per-field P2 increments.
 
 ### Pre-shadow readiness gates
 
@@ -178,7 +218,7 @@ P1 physical shadow-output contract — COMPLETE (no writer/execution)
 ↓
 P2A site evidence manifest / Bracon baseline — COMPLETE
 ↓
-P2 site evidence admission — IN PROGRESS (P2A/P2B/P2C complete; P2D lower-fidelity series-count basis admitted)
+P2 site evidence admission — IN PROGRESS (P2E upstream package implemented; P2F consolidated DC/control next)
 ↓
 P3 shadow execution
 ```
