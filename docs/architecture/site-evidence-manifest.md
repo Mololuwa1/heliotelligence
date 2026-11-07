@@ -250,6 +250,36 @@ Further DC/inverter/controller evidence updates P2F in place; P2E still owns ups
 evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
 AC network + transformer + revenue-meter authority.
 
+### P2G — downstream AC network / transformer / meter evidence review
+
+The [P2G review](site-ac-network-meter-admission.md) is a **zero-admission** package spanning
+S11 LV collection, S12 transformer and S13 MV/HV/grid/revenue-meter boundaries.
+P2G is complete as the current evidence-review package; it is not physically
+admitted. All 22 S11/S12/S13 items remain missing/blocked. No manifest, evidence
+scope, authority YAML or engine authority implementation changes are made.
+
+Manifest remains `bracon-ash-dc-inverter-control-admission-v6`: evidence 17/48/1/0,
+admission 6/11/49/0 and support 1/5/60/0. All six P2F admissions are preserved.
+S11 baseline/full blockers stay 5/5; S12 stays 5/7; S13 stays 9/9. Harmonic evidence
+remains optional, not a baseline transformer blocker. The complete serialized
+manifest and all 66 items are fingerprint-tested against PR #138 merge
+`076c310ce6087048e266bc42cc3bff95b76084d3`.
+
+The migration CSV is reviewed only for header/site-UUID association. It remains
+non-authoritative migration data, not meter identity, location, CT/PT scaling,
+signs, interval/timestamp semantics, calibration or accuracy. It is not added to
+S13 source references and changes no missing evidence to present. Site UUID is
+not meter identity. Legacy 1.70% AC loss is not physical impedance or an allocated
+LV/transformer/MV-HV loss budget; future activation needs a no-double-counting
+ownership decision. P2G changes no runtime and retires no percentage.
+
+Four practical evidence bundles cover LV collection, transformers, MV/HV/grid
+and revenue meter. Future downstream evidence updates P2G in place; upstream/DC
+items stay owned by P2E/P2F. electrical_topology remains None and population
+49,824 / 47,448 / 50,736 remains unresolved. P2 remains in progress; P3 inactive.
+P2H is next and remains the final consolidated benchmark/uncertainty/P2 closure
+increment. Completion of a review package does not authorize physical execution.
+
 The eventual Digital Twin sequence is:
 
 ```text
