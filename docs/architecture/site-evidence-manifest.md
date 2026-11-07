@@ -192,7 +192,7 @@ only `config/sites.yaml`; temporal applicability and confidence remain unknown.
 The configured string count of **2076 remains unadmitted**, retained only as a manifest
 source fact. No IDs, members or MPPT/inverter mappings are created.
 
-Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+At P2D, manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
 Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
 S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
 All other coverage and all 65 other manifest items remain unchanged from P2C.
@@ -202,6 +202,28 @@ per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
 No physics, runtime, configuration or production source changes. P2 continues;
 P3 remains inactive.
+
+### P2E — consolidated upstream physical-input admission package
+
+The [P2E boundary](site-upstream-physical-input-admission.md) owns all remaining upstream weather/time,
+irradiance/optics, spectral/thermal model and sensor/zone/environment admission.
+Only `irradiance.bifacial_applicability` is newly admitted, as configured lower-fidelity
+model-class applicability for JKM570N-72HL4-BDV / mono_si / bifacial true. This is
+not receiver coverage or canonical electrical response: the generic 0.80 factor
+remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
+time semantics, irradiance plane, spectral or thermal authority is invented.
+
+Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
+Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
+Every other section and all 65 other items remain unchanged. All paths retain
+blockers. The 608 geometry points are not a 50,736-module inventory. Population
+49,824 / 47,448 / 50,736 remains unresolved; electrical_topology remains None.
+
+P2E is implemented as the current reviewed admission/evidence-request package,
+not upstream readiness for P3. Future upstream evidence updates P2E in place;
+do not create a new P2 letter per field. P2F is reserved for the consolidated DC
+plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
 
 The eventual Digital Twin sequence is:
 

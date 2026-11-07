@@ -59,7 +59,7 @@ only `config/sites.yaml`; temporal applicability and confidence remain unknown.
 The configured string count of **2076 remains unadmitted**, retained only as a manifest
 source fact. No IDs, members or MPPT/inverter mappings are created.
 
-Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+At P2D, manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
 Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
 S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
 All other coverage and all 65 other manifest items remain unchanged from P2C.
@@ -70,12 +70,59 @@ consumption requires a reviewed binding that permits the uniform assumption.
 No physics, runtime, configuration or production source changes. P2 continues;
 P3 remains inactive.
 
+### P2E — consolidated upstream physical-input admission package
+
+The [P2E boundary](../architecture/site-upstream-physical-input-admission.md) owns all remaining upstream weather/time,
+irradiance/optics, spectral/thermal model and sensor/zone/environment admission.
+Only `irradiance.bifacial_applicability` is newly admitted, as configured lower-fidelity
+model-class applicability for JKM570N-72HL4-BDV / mono_si / bifacial true. This is
+not receiver coverage or canonical electrical response: the generic 0.80 factor
+remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
+time semantics, irradiance plane, spectral or thermal authority is invented.
+
+Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
+Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
+Every other section and all 65 other items remain unchanged. All paths retain
+blockers. The 608 geometry points are not a 50,736-module inventory. Population
+49,824 / 47,448 / 50,736 remains unresolved; electrical_topology remains None.
+
+P2E is implemented as the current reviewed admission/evidence-request package,
+not upstream readiness for P3. Future upstream evidence updates P2E in place;
+do not create a new P2 letter per field. P2F is reserved for the consolidated DC
+plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+
+### P2E upstream physical-input evidence still required
+
+Provide or review these four onboarding bundles as one package. The
+[canonical P2E request](../architecture/site-upstream-physical-input-admission.md#unresolved--external-evidence-required)
+contains the exact scope and requirement mapping; this summary is not another authority matrix.
+
+1. **Weather/time semantics:** actual sources, snapshot/average semantics, timestamp
+   labels/durations, geometry evaluation, timezone/DST, cadence and historical applicability.
+   Solcast period_end and SCADA local-start/UTC-end conventions do not supply authority.
+2. **Irradiance/optical geometry and measurement:** physical sensor quantity/plane,
+   ownership, orientation, coverage, calibration/scaling/time relationship; explicit
+   receiver/row/blocking relationships, rear model geometry/albedo/applicability and
+   canonical response evidence. The 608-point reconstruction is not a module inventory;
+   SMP10-POA-1 is only a channel mapping and 0.80 is not an admitted response coefficient.
+3. **Spectral/thermal modelling:** reviewed enabled/disabled spectral treatment and
+   inputs, incident broadband thermal POA basis, native PVsyst or Faiman family,
+   parameters/provenance and wind calibration basis. Legacy u_c/u_v do not self-admit.
+4. **Thermal sensors/zones/environment:** ambient/wind quantities and height/basis,
+   module-back versus cell quantity, locations/calibration/aggregation, zones and
+   receiver/zone bindings, temporal coverage. Channel mappings alone are insufficient.
+
+Weather source identifiers and complete module-position evidence remain unadmitted;
+placeholder-shaped resource IDs and application paths do not prove a live source.
+Additional upstream evidence updates P2E rather than creating another P2 letter.
+
 The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
 <!-- BEGIN P2A MANIFEST COVERAGE -->
 | Requirement | Evidence | Admission |
 | --- | --- | --- |
-| `irradiance.bifacial_applicability` | present | not_admitted |
+| `irradiance.bifacial_applicability` | present | admitted |
 | `irradiance.front_measurement_plane` | missing | blocked |
 | `irradiance.front_source_quantity` | present | not_admitted |
 | `irradiance.rear_model_basis` | missing | blocked |

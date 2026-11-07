@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #135 merge e164a5b6bbb23e53b076569277bf9ce792a06952
+PR #136 merge 2d2ae9ce53a0fb11b3202898c9548eebb9d134b6
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -27,10 +27,11 @@ P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
 P2B: physical-site identity admitted
 P2C: configured module model/raw basis admitted only at lower fidelity
 P2D: configured uniform series-count basis admitted only at lower fidelity; all paths retain blockers
-Next: P2 site evidence finalisation; no shadow activation
+P2E: consolidated upstream package implemented; remaining inputs unresolved
+Next: P2F DC plant + inverter/control; upstream evidence stays within P2E; no shadow activation
 ```
 
-Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952` (PR #135 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6` (PR #136 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -102,7 +103,7 @@ only `config/sites.yaml`; temporal applicability and confidence remain unknown.
 The configured string count of **2076 remains unadmitted**, retained only as a manifest
 source fact. No IDs, members or MPPT/inverter mappings are created.
 
-Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+At P2D, manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
 Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
 S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
 All other coverage and all 65 other manifest items remain unchanged from P2C.
@@ -112,6 +113,35 @@ per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
 No physics, runtime, configuration or production source changes. P2 continues;
 P3 remains inactive.
+
+### P2E — consolidated upstream physical-input admission package
+
+The [P2E boundary](architecture/site-upstream-physical-input-admission.md) owns all remaining upstream weather/time,
+irradiance/optics, spectral/thermal model and sensor/zone/environment admission.
+Only `irradiance.bifacial_applicability` is newly admitted, as configured lower-fidelity
+model-class applicability for JKM570N-72HL4-BDV / mono_si / bifacial true. This is
+not receiver coverage or canonical electrical response: the generic 0.80 factor
+remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
+time semantics, irradiance plane, spectral or thermal authority is invented.
+
+Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
+Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
+Every other section and all 65 other items remain unchanged. All paths retain
+blockers. The 608 geometry points are not a 50,736-module inventory. Population
+49,824 / 47,448 / 50,736 remains unresolved; electrical_topology remains None.
+
+P2E is implemented as the current reviewed admission/evidence-request package,
+not upstream readiness for P3. Future upstream evidence updates P2E in place;
+do not create a new P2 letter per field. P2F is reserved for the consolidated DC
+plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+
+The engine authority is `site_bifacial_applicability_authority.py`; the reviewed
+file is `evidence/authorities/bracon-ash/bifacial-applicability.yaml`. It has an
+independent validator and exact supplied-path config/library binding. It consumes
+only identity/model/technology/bifacial boolean, never factor, geometry, population
+or thermal data. P2G remains AC network/meter and P2H benchmark/uncertainty/closure.
+Read the four consolidated evidence bundles before any further upstream work.
 
 ### Physics implementation-delta recovery
 

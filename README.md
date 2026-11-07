@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952` (PR #135 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6` (PR #136 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -204,6 +204,18 @@ P2 remains in progress and P3 inactive. No runtime or production source is activ
 The [reviewed series-count authority](docs/architecture/site-string-series-count-authority.md)
 admits only the configured assumption of 24 series modules per string, at lower
 fidelity. The configured string count of 2076 remains unadmitted; no physical inventory,
-IDs, membership or topology is created. Current admission is 4/13/49/0 and support
+IDs, membership or topology is created. At P2D, admission was 4/13/49/0 and support
 1/3/62/0. Only S8 baseline blockers reduce 8 → 7; full blockers remain 9. All paths
 retain blockers; population conflict is unresolved. P2 continues; P3 is inactive.
+
+## P2E consolidated upstream physical-input admission
+
+The [P2E boundary package](docs/architecture/site-upstream-physical-input-admission.md)
+reviews weather/time, irradiance/optics, spectral/thermal and sensor/zone evidence
+as one workstream. It newly admits only configured model-class bifacial applicability
+at lower fidelity; 0.80 is not admitted as phi_Isc. Admission is 5/12/49/0 and support
+1/4/61/0. Upstream baseline blockers reduce 7 → 6; full blockers stay 8. The four
+consolidated evidence bundles remain required; no upstream runtime is activated.
+Future upstream evidence updates P2E in place. P2F is DC plant + inverter/control;
+P2G AC network/meter; P2H benchmark/uncertainty and P2 closure. P2 remains in progress;
+P3 remains inactive. No new P2 letter is created for individual upstream fields.

@@ -1,36 +1,39 @@
-# P2D: configured uniform series-count basis admitted only at explicit lower fidelity.
+# P2E: upstream input package; only configured model-class bifacial applicability newly admitted.
 identity:
   site_config_id: site-001
   site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
   site_name: Bracon Ash
-  manifest_version: bracon-ash-string-series-count-lower-fidelity-admitted-v4
+  manifest_version: bracon-ash-upstream-physical-input-admission-v5
 items:
 - requirement_id: irradiance.bifacial_applicability
   domain: irradiance_optics
   stage_refs:
   - UPSTREAM
   evidence_state: present
-  admission_state: not_admitted
+  admission_state: admitted
   source_references:
   - config/sites.yaml
   - src/heliotelligence/data/module_library.yaml
   source_kind: repository_configuration
   reference_planes: []
   physical_scope:
-    scope_type: site
+    scope_type: model_class
     identifiers:
-    - site-001
+    - JKM570N-72HL4-BDV
   temporal_scope:
     semantics: unknown
     start_timestamp: null
     end_timestamp: null
-  supported_fidelity: does_not_resolve_physical_path
-  admitted_authority_contract_ids: []
+  supported_fidelity: supports_explicit_lower_fidelity_path
+  admitted_authority_contract_ids:
+  - explicit_reviewed_configured_module_class_bifacial_applicability_authority_v1
   target_authority_contract_ids: []
-  gap_reason_codes:
-  - canonical_authority_binding_not_admitted
-  notes: Configured bifacial flag/factor and module label are present; rear geometry/model applicability
-    and receiver-specific canonical binding are not admitted.
+  gap_reason_codes: []
+  notes: >-
+    Only configured/model-library bifacial applicability is admitted, at explicit lower fidelity.
+    The 0.80 factor remains an unadmitted source fact; it is not identified as IEC phi_Isc
+    or a canonical electrical-response coefficient. Receiver binding, rear geometry, rear model
+    and response coefficient remain unresolved. Installed-equipment temporal applicability is unknown.
   facts:
   - fact_id: bifacial_flag
     source_reference: config/sites.yaml
@@ -38,7 +41,7 @@ items:
   - fact_id: bifaciality_factor
     source_reference: config/sites.yaml
     value: '0.80'
-  authority_binding_reference: null
+  authority_binding_reference: evidence/authorities/bracon-ash/bifacial-applicability.yaml
   applicability_reason: null
   confidence: unknown
 - requirement_id: irradiance.front_measurement_plane
