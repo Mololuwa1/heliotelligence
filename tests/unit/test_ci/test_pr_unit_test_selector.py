@@ -7,8 +7,10 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml  # type: ignore[import-untyped]
 from scripts.ci import select_pr_unit_tests as selector
 
 
@@ -460,3 +462,297 @@ def test_dynamic_import_with_relative_level_is_conservative(tmp_path: Path) -> N
     result = selector.select_tests(tmp_path, ["src/heliotelligence/feature.py"])
     assert result.mode == "targeted"
     assert result.tests == ("tests/unit/test_feature.py", "tests/unit/test_relative_loader.py")
+
+
+def evidence_tree(root: Path) -> Path:
+    return write(
+        root,
+        {
+            "evidence/sites/bracon-ash.yaml": "identity: {}\n",
+            "evidence/authorities/bracon-ash/site-identity.yaml": "identity: {}\n",
+            selector.SITE_EVIDENCE_TEST: "def test_manifest(): pass\n",
+            "tests/unit/test_engine/test_site_physical_identity_authority.py": (
+                "def test_identity(): pass\n"
+            ),
+            "tests/unit/test_engine/test_site_unrelated.py": "def test_other(): pass\n",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "path", ["evidence/sites/bracon-ash.yaml", "evidence/authorities/bracon-ash/site-identity.yaml"]
+)
+def test_controlled_bracon_evidence_has_explicit_owners(tmp_path: Path, path: str) -> None:
+    evidence_tree(tmp_path)
+    result = selector.select_tests(tmp_path, ["docs/readme.md", path])
+    assert result.mode == "targeted"
+    assert "controlled Bracon evidence owner tests" in result.reason
+    assert result.tests == (
+        selector.SITE_EVIDENCE_TEST,
+        "tests/unit/test_engine/test_site_physical_identity_authority.py",
+    )
+
+
+def test_future_site_authority_tests_are_discovered(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    future = "tests/unit/test_engine/test_site_future_authority.py"
+    write(tmp_path, {future: "def test_future(): pass\n"})
+    first = selector.select_tests(tmp_path, ["evidence/sites/bracon-ash.yaml"])
+    second = selector.select_tests(tmp_path, ["evidence/authorities/bracon-ash/site-identity.yaml"])
+    assert first.mode == second.mode == "targeted"
+    assert (
+        first.tests
+        == second.tests
+        == tuple(
+            sorted(
+                (
+                    selector.SITE_EVIDENCE_TEST,
+                    "tests/unit/test_engine/test_site_physical_identity_authority.py",
+                    future,
+                )
+            )
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "evidence/unknown-site.yaml",
+        "evidence/new-unregistered-site/authority.yaml",
+        "evidence/arbitrary-file.json",
+        "evidence/sites/other-site.yaml",
+        "evidence/sites/bracon-ash.yaml.backup",
+        "evidence/authorities/bracon-ash-other/site.yaml",
+    ],
+)
+def test_unregistered_evidence_remains_full(tmp_path: Path, path: str) -> None:
+    evidence_tree(tmp_path)
+    write(tmp_path, {path: "value: 1\n"})
+    result = selector.select_tests(tmp_path, ["evidence/sites/bracon-ash.yaml", path])
+    assert result.mode == "full"
+    assert path in result.reason
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        selector.SITE_EVIDENCE_TEST,
+        "tests/unit/test_engine/test_site_physical_identity_authority.py",
+    ],
+)
+@pytest.mark.parametrize(
+    "path", ["evidence/sites/bracon-ash.yaml", "evidence/authorities/bracon-ash/site-identity.yaml"]
+)
+def test_missing_evidence_owners_fail_full(tmp_path: Path, missing: str, path: str) -> None:
+    evidence_tree(tmp_path)
+    (tmp_path / missing).unlink()
+    result = selector.select_tests(tmp_path, [path])
+    assert result.mode == "full"
+    assert "unavailable" in result.reason or "site-authority" in result.reason
+
+
+def test_deleted_controlled_evidence_is_full(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    path = "evidence/authorities/bracon-ash/site-identity.yaml"
+    (tmp_path / path).unlink()
+    result = selector.select_tests(tmp_path, [path])
+    assert result.mode == "full"
+    assert "deleted/unavailable" in result.reason
+
+
+def test_symlinked_evidence_is_not_a_reviewed_path(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    path = "evidence/authorities/bracon-ash/site-identity.yaml"
+    (tmp_path / path).unlink()
+    (tmp_path / path).symlink_to(tmp_path / "evidence/sites/bracon-ash.yaml")
+    result = selector.select_tests(tmp_path, [path])
+    assert result.mode == "full"
+    assert "symlinked" in result.reason
+
+
+def test_evidence_and_python_union_is_sorted_deduplicated(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    basic(tmp_path)
+    direct = "tests/unit/test_direct.py"
+    write(tmp_path, {direct: "def test_direct(): pass\n"})
+    changes = ["evidence/sites/bracon-ash.yaml", "src/heliotelligence/feature.py", direct]
+    result = selector.select_tests(tmp_path, changes)
+    assert result.mode == "targeted"
+    assert result.tests == tuple(
+        sorted(
+            (
+                selector.SITE_EVIDENCE_TEST,
+                "tests/unit/test_engine/test_site_physical_identity_authority.py",
+                "tests/unit/test_feature.py",
+                direct,
+            )
+        )
+    )
+    assert selector.select_tests(tmp_path, list(reversed(changes)) + changes) == result
+
+
+def test_evidence_owners_do_not_mask_an_orphan_source(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    write(tmp_path, {"src/heliotelligence/orphan.py": "value = 1\n"})
+    result = selector.select_tests(
+        tmp_path, ["evidence/sites/bracon-ash.yaml", "src/heliotelligence/orphan.py"]
+    )
+    assert result.mode == "full"
+    assert "no affected unit tests" in result.reason
+
+
+def test_evidence_keeps_opaque_import_overselection(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    write(
+        tmp_path,
+        {
+            "tests/unit/helper.py": "import importlib\nimportlib.import_module(runtime_name)\n",
+            "tests/unit/test_opaque.py": "from tests.unit import helper\n",
+        },
+    )
+    result = selector.select_tests(tmp_path, ["evidence/sites/bracon-ash.yaml"])
+    assert result.mode == "targeted"
+    assert "tests/unit/test_opaque.py" in result.tests
+
+
+@pytest.mark.parametrize("source", ["def broken(:", "import heliotelligence.unavailable"])
+def test_evidence_owners_do_not_mask_analysis_failure(tmp_path: Path, source: str) -> None:
+    evidence_tree(tmp_path)
+    write(tmp_path, {"src/heliotelligence/broken.py": source})
+    assert selector.select_tests(tmp_path, ["evidence/sites/bracon-ash.yaml"]).mode == "full"
+
+
+def test_controlled_evidence_plus_broad_site_config_still_full(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    result = selector.select_tests(
+        tmp_path, ["evidence/sites/bracon-ash.yaml", "config/sites.yaml"]
+    )
+    assert result.mode == "full"
+    assert "config/sites.yaml" in result.reason
+
+
+def test_evidence_cannot_hide_missing_ci_owner(tmp_path: Path) -> None:
+    evidence_tree(tmp_path)
+    result = selector.select_tests(
+        tmp_path, ["evidence/sites/bracon-ash.yaml", ".github/workflows/ci.yml"]
+    )
+    assert result.mode == "full"
+    assert "CI selector tests" in result.reason
+
+
+@pytest.mark.parametrize(
+    "base,head",
+    [
+        ("0" * 40, "1" * 40),
+        ("1" * 40, "0" * 40),
+        ("0" * 64, "1" * 64),
+        ("", "1" * 40),
+        ("main", "1" * 40),
+        ("1" * 40, "2" * 40),
+    ],
+)
+def test_unusable_push_boundaries_publish_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, base: str, head: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "github-output"
+    assert selector.main(["--base", base, "--head", head, "--github-output", str(output)]) == 0
+    assert output.read_text().splitlines()[0] == "mode=full"
+
+
+def test_operational_analysis_failure_is_full_at_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    basic(tmp_path)
+    monkeypatch.setattr(selector, "changed_paths", lambda *args: ["src/heliotelligence/feature.py"])
+
+    def failure(*args: object) -> Any:
+        raise RuntimeError("operational uncertainty")
+
+    monkeypatch.setattr(selector, "build_import_graph", failure)
+    output = tmp_path / "github-output"
+    assert (
+        selector.main(["--base", "1" * 40, "--head", "2" * 40, "--github-output", str(output)]) == 0
+    )
+    assert output.read_text().splitlines()[0] == "mode=full"
+
+
+def workflow(name: str) -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[3]
+    # BaseLoader preserves GitHub's `on` key rather than YAML 1.1 Boolean coercion.
+    document = yaml.load((root / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
+    assert isinstance(document, dict)
+    return dict(document)
+
+
+def test_ordinary_ci_uses_exact_event_boundaries_and_all_modes() -> None:
+    ci = workflow("ci.yml")
+    assert set(ci["on"]) == {"pull_request", "push"}
+    assert ci["on"]["push"]["branches"] == ["main"]
+    assert set(ci["jobs"]) == {"backend-unit-tests", "frontend-build"}
+    steps = ci["jobs"]["backend-unit-tests"]["steps"]
+    assert steps[0]["with"]["fetch-depth"] == "0"
+    selection = next(step for step in steps if step.get("id") == "select")
+    assert selection["env"] == {
+        "BASE_SHA": (
+            "${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.base.sha || github.event.before }}"
+        ),
+        "HEAD_SHA": (
+            "${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.sha || github.sha }}"
+        ),
+    }
+    command = " ".join(selection["run"].replace("\\\n", "").split())
+    assert command == (
+        "python3 scripts/ci/select_pr_unit_tests.py "
+        '--base "$BASE_SHA" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"'
+    )
+    assert "reason: push to main" not in str(ci)
+    full = next(step for step in steps if step.get("name") == "Run full unit tests")
+    assert full["if"] == "steps.select.outputs.mode == 'full'"
+    assert full["run"] == "python -m pytest tests/unit/ -q --no-header --no-cov"
+    targeted = next(step for step in steps if step.get("name") == "Run targeted unit tests")
+    assert targeted["if"] == "steps.select.outputs.mode == 'targeted'"
+    assert "subprocess.run" in targeted["run"]
+    for name in ("Setup Python", "Install dependencies"):
+        step = next(step for step in steps if step.get("name") == name)
+        assert step["if"] == "steps.select.outputs.mode != 'skip'"
+    skipped = next(step for step in steps if step.get("name") == "No backend unit tests required")
+    assert skipped["if"] == "steps.select.outputs.mode == 'skip'"
+    assert ci["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+    assert "github.event.pull_request.number || github.run_id" in ci["concurrency"]["group"]
+
+
+def test_complete_regression_is_scheduled_and_dispatchable() -> None:
+    full = workflow("full-backend-regression.yml")
+    ordinary = workflow("ci.yml")
+    assert full["name"] == "Full Backend Regression"
+    assert set(full["on"]) == {"schedule", "workflow_dispatch"}
+    assert full["on"]["schedule"] == [{"cron": "17 3 * * *"}]
+    assert set(full["jobs"]) == {"full-backend-unit-tests"}
+    job = full["jobs"]["full-backend-unit-tests"]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert int(job["timeout-minutes"]) >= 120
+    assert (
+        job["env"]
+        == ordinary["jobs"]["backend-unit-tests"]["env"]
+        == {
+            "DATABASE_URL": "postgresql://test:test@localhost:5432/test",
+            "APP_ENV": "development",
+        }
+    )
+    steps = job["steps"]
+    assert steps[0]["uses"] == "actions/checkout@v4"
+    python = next(step for step in steps if step.get("name") == "Setup Python")
+    assert python["uses"] == "actions/setup-python@v5"
+    assert python["with"] == {"python-version": "3.13", "cache": "pip"}
+    assert (
+        next(step for step in steps if step.get("name") == "Install dependencies")["run"]
+        == 'python -m pip install ".[dev]"'
+    )
+    command = next(step for step in steps if step.get("name") == "Run full unit tests")
+    assert command["run"] == "python -m pytest tests/unit/ -q --no-header --no-cov"
+    assert "if" not in command

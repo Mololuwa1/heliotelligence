@@ -24,20 +24,13 @@ jobs:
       - name: Select backend unit tests
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            python3 scripts/ci/select_pr_unit_tests.py \
-              --base "$BASE_SHA" \
-              --head "$HEAD_SHA" \
-              --github-output "$GITHUB_OUTPUT"
-          else
-            echo "mode=full" >> "$GITHUB_OUTPUT"
-            echo "Backend test selection:"
-            echo "mode: full"
-            echo "reason: push to main"
-          fi
+          python3 scripts/ci/select_pr_unit_tests.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Validate selection mode
         env:
@@ -90,7 +83,7 @@ jobs:
 
       - name: No backend unit tests required
         if: steps.select.outputs.mode == 'skip'
-        run: echo "No backend unit tests required for this PR."
+        run: echo "No backend unit tests required for this change."
 
   frontend-build:
     runs-on: ubuntu-latest

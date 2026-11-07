@@ -459,9 +459,23 @@ No legacy percentage may remain active for a mechanism/path already owned by the
 
 During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`. Run optical/rear regressions when shared dependencies warrant them.
 
-Local development uses focused changed-feature tests and the immediate affected regression slice. PR CI conservatively selects changed/transitively affected unit tests; ambiguous backend impact falls back to the full unit suite. Docs/frontend-only PRs retain a successful backend check without installing backend dependencies or running unit tests. Superseded runs for the same PR are cancelled when a newer commit is pushed; different PRs and main validation do not cancel one another. Every push to `main` must run the full `python -m pytest tests/unit/ -q --no-header --no-cov` command. **Targeted PR CI is not a complete backend pass; main remains the authoritative full-backend validation.** Check the exact commit and live CI before review/release decisions.
+## CI validation cadence
 
-The [PR selector](../../scripts/ci/select_pr_unit_tests.py) reads the base/head git diff and parses the checked-out source/test import graph without importing application code. It follows test helpers, relative imports, package initializers, implicit conftest fixtures/plugins and literal dynamic imports; adds mirrored tests and conservative computed-import consumers; and uses full mode for unresolved import/parse analysis, broad configuration/dependency/data changes, deleted modules or source changes with no identifiable tests. Selection is sorted/deduplicated and printed before execution. Workflow/CI-tooling changes include the selector tests.
+| Validation tier | Scope and evidence |
+| --- | --- |
+| Local development | Focused changed-feature tests and immediate affected regressions; do not routinely run the whole backend locally. |
+| PR/main ordinary CI | Exact event base/head impact selection: skip, targeted or full. Frontend still builds on both events. |
+| Automatic full fallback | Unknown/ambiguous impact, unusable history, parse/import failure, broad config/dependency/migration changes or unavailable tests require the complete unit suite. |
+| Nightly/manual regression | Complete cross-repository backend sweep, independent of changed files. |
+| High-risk release/activation | Green manually dispatched complete regression at the exact intended main revision; validate head SHA, not just the branch name or an older run. |
+
+Local development uses focused changed-feature tests and the immediate affected regression slice. PR and main-push CI both use the conservative exact-diff backend selector: `skip`, `targeted` or `full`. PR boundaries are the event's base/head SHAs; main-push boundaries are `github.event.before` and `github.sha`, with full history available. Unknown/unusable history, analysis failure, broad config/dependencies/migrations, deleted/untraceable Python or unsafe impact selects full. Docs/frontend-only changes keep a successful backend check without dependency setup/tests. Superseded same-PR runs are cancelled; different PRs, main pushes and full regressions do not cancel one another. Report the exact SHA and actual mode: a targeted post-merge pass is valid change-scoped validation, not a complete backend sweep.
+
+The [Full Backend Regression workflow](../../.github/workflows/full-backend-regression.yml) runs the complete `python -m pytest tests/unit/ -q --no-header --no-cov` suite nightly at **03:17 UTC** and on manual dispatch. It is the authoritative complete regression sweep. Before P3 activation, P5 cutover, release-candidate validation or major dependency, migration or shared-infrastructure release decisions, require a successful manually dispatched full regression on the intended `main` revision and verify the run's exact head SHA. An older nightly does not validate later commits. No CI result alone authorizes activation.
+
+The [backend impact selector](../../scripts/ci/select_pr_unit_tests.py) reads the base/head git diff and parses the checked-out source/test import graph without importing application code. It follows test helpers, relative imports, package initializers, implicit conftest fixtures/plugins and literal dynamic imports; adds mirrored tests and conservative computed-import consumers; and uses full mode for unresolved import/parse analysis, broad configuration/dependency/data changes, deleted modules or source changes with no identifiable tests. Selection is sorted/deduplicated and printed before execution. Workflow/CI-tooling changes include the selector tests.
+
+The only data ownership exception is the reviewed Bracon P2 family: `evidence/sites/bracon-ash.yaml` and `evidence/authorities/bracon-ash/**`. These include the manifest test plus every existing `tests/unit/test_engine/test_site_*authority.py`, unioned with changed tests, transitive Python consumers and conservative opaque consumers. Missing/unavailable owner tests or evidence selects full. New/unregistered evidence paths remain full; `config/sites.yaml`, backend config/data/models/DB, dependencies and migrations stay broad. File references are not reclassified as documentation merely to reduce CI time.
 
 ## Site and portfolio validation
 
@@ -511,7 +525,7 @@ Focused tests use canonical S14B equation fixtures and a real public combined-pa
 
 Both missing and exceeded support policies preserve inherited residual NaNs and prevent any relation despite resolved combined bounds. Availability diagnostics count only eligible rows. Partial P/Q, empty schema, malformed residuals/bounds, arithmetic safety, all appended fields and all diagnostics are covered. Whole combined-parent replay rejects inherited residual, eligibility, bound, provenance, state, support and diagnostic tampering.
 
-Independent validation succeeds with production parent-composition, quantity, channel, record, frame, diagnostics and public interpretation helpers disabled. Local regression scope is the feature, combined parent, S14B and source-isolation files; full `main` CI is authoritative. No S14A/B/C numerical changes, causal attribution, statistical significance, probability, commercial inference or production/shadow activation are admitted.
+Independent validation succeeds with production parent-composition, quantity, channel, record, frame, diagnostics and public interpretation helpers disabled. Local regression scope is the feature, combined parent, S14B and source-isolation files; the nightly/manual complete backend regression is authoritative; ordinary main CI reports its selected mode. No S14A/B/C numerical changes, causal attribution, statistical significance, probability, commercial inference or production/shadow activation are admitted.
 
 ## Server-side authorization readiness
 
