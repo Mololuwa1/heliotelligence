@@ -1,9 +1,9 @@
-# P2C: reviewed configured module basis admitted only at explicit lower fidelity.
+# P2D: configured uniform series-count basis admitted only at explicit lower fidelity.
 identity:
   site_config_id: site-001
   site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
   site_name: Bracon Ash
-  manifest_version: bracon-ash-module-electrical-lower-fidelity-admitted-v3
+  manifest_version: bracon-ash-string-series-count-lower-fidelity-admitted-v4
 items:
 - requirement_id: irradiance.bifacial_applicability
   domain: irradiance_optics
@@ -1183,7 +1183,7 @@ items:
   stage_refs:
   - S8
   evidence_state: present
-  admission_state: not_admitted
+  admission_state: admitted
   source_references:
   - config/sites.yaml
   source_kind: repository_configuration
@@ -1196,13 +1196,17 @@ items:
     semantics: unknown
     start_timestamp: null
     end_timestamp: null
-  supported_fidelity: does_not_resolve_physical_path
-  admitted_authority_contract_ids: []
+  supported_fidelity: supports_explicit_lower_fidelity_path
+  admitted_authority_contract_ids:
+  - explicit_reviewed_configured_uniform_string_series_count_authority_v1
   target_authority_contract_ids: []
-  gap_reason_codes:
-  - canonical_authority_binding_not_admitted
-  notes: 24 modules/string is configured, but physical string IDs, member assignments and per-string count
-    evidence are unadmitted. Population conflict remains separately blocked.
+  gap_reason_codes: []
+  notes: >-
+    Reviewed configured uniform lower-fidelity series-count basis: only 24 modules per string
+    is consumed by P2D. The configured 2076 string count remains unadmitted. Physical string IDs,
+    member assignments and MPPT/inverter mappings remain unknown; explicit physical topology
+    is required independently. Population conflict remains unresolved. Installed-equipment
+    temporal applicability remains unknown.
   facts:
   - fact_id: configured_modules_per_string
     source_reference: config/sites.yaml
@@ -1210,7 +1214,7 @@ items:
   - fact_id: configured_string_count
     source_reference: config/sites.yaml
     value: '2076'
-  authority_binding_reference: null
+  authority_binding_reference: evidence/authorities/bracon-ash/string-series-count.yaml
   applicability_reason: null
   confidence: unknown
 - requirement_id: s8.string_mppt_mapping

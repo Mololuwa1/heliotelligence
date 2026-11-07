@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf` (PR #134 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952` (PR #135 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -193,8 +193,17 @@ The separately reviewed [site identity authority](docs/architecture/site-physica
 The [reviewed module authority](docs/architecture/site-module-electrical-authority.md)
 admits Bracon's configured model label and raw Tier-3 local-library electrical basis
 only at explicit lower fidelity (`datasheet_fit`, `fit_quality: low`). This is not
-manufacturer/as-built population evidence. Current admission is 3 admitted / 14 not
+manufacturer/as-built population evidence. At P2C, admission was 3 admitted / 14 not
 admitted / 49 blocked; active support is 1 full / 2 lower / 63 non-resolving.
 Module-electrical baseline blockers reduce 10 → 9; full-fidelity blockers remain 10.
 All sections retain blockers. Population conflict and absent topology are unchanged;
 P2 remains in progress and P3 inactive. No runtime or production source is activated.
+
+## P2D configured uniform lower-fidelity series-count basis
+
+The [reviewed series-count authority](docs/architecture/site-string-series-count-authority.md)
+admits only the configured assumption of 24 series modules per string, at lower
+fidelity. The configured string count of 2076 remains unadmitted; no physical inventory,
+IDs, membership or topology is created. Current admission is 4/13/49/0 and support
+1/3/62/0. Only S8 baseline blockers reduce 8 → 7; full blockers remain 9. All paths
+retain blockers; population conflict is unresolved. P2 continues; P3 is inactive.

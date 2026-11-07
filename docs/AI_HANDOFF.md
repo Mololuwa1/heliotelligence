@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #134 merge 6d00d2be1b76f620ceba08d523bb244090a07caf
+PR #135 merge e164a5b6bbb23e53b076569277bf9ce792a06952
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -25,11 +25,12 @@ P0 complete; module thermal, weather/irradiance and bounded population residual 
 P1: immutable output contract COMPLETE; no writer or physical source selected
 P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
 P2B: physical-site identity admitted
-P2C: configured module model/raw basis admitted only at lower fidelity; all paths retain blockers
+P2C: configured module model/raw basis admitted only at lower fidelity
+P2D: configured uniform series-count basis admitted only at lower fidelity; all paths retain blockers
 Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf` (PR #134 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952` (PR #135 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -80,7 +81,7 @@ mono_si, datasheet_fit/low, expected Tier 3/local_library. Real runtime lookup i
 regression-checked without forcing the tier. Raw STC authority is separate from
 runtime-owned fit_desoto_batzelis → calcparams_desoto → singlediode.
 
-Current manifest `bracon-ash-module-electrical-lower-fidelity-admitted-v3` has
+At P2C, manifest `bracon-ash-module-electrical-lower-fidelity-admitted-v3` had
 17/48/1/0 evidence, 3/14/49/0 admission and 1/2/63/0 support. Module-electrical
 baseline blockers reduce 10 → 9; full blockers stay 10. All nine sections retain
 blockers; other section coverage and the other 63 unadmitted items are unchanged.
@@ -90,6 +91,27 @@ thermal/optical or topology authority is admitted. Installed temporal applicabil
 remains unknown, population counts remain conflicting and electrical_topology None.
 P2 remains in progress; P3 inactive. Priority A/B remain pending. No runtime or
 production source change is made.
+
+### P2D — configured uniform lower-fidelity series-count basis
+
+The [series-count authority](architecture/site-string-series-count-authority.md) admits only
+`s8.string_module_count`, using the configured exact integer **24 modules/string**.
+This is a configured uniform lower-fidelity series-count basis, not a physical
+string inventory or topology authority. The separately reviewed declaration uses
+only `config/sites.yaml`; temporal applicability and confidence remain unknown.
+The configured string count of **2076 remains unadmitted**, retained only as a manifest
+source fact. No IDs, members or MPPT/inverter mappings are created.
+
+Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
+S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
+All other coverage and all 65 other manifest items remain unchanged from P2C.
+All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
+conflicting; electrical_topology remains None. Canonical S8 still needs explicit
+per-string counts in independently admitted topology. P2D creates none; later
+consumption requires a reviewed binding that permits the uniform assumption.
+No physics, runtime, configuration or production source changes. P2 continues;
+P3 remains inactive.
 
 ### Physics implementation-delta recovery
 

@@ -28,7 +28,7 @@ At P2B, manifest version was `bracon-ash-site-identity-admitted-v2`. Evidence co
 
 At P2B, all nine baseline and full-fidelity sections became `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. At that step, all other 65 requirements were unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. P2 admission remains in progress and P3 is inactive.
 
-### Current P2C configured module basis admission
+### P2C configured module basis admission
 
 The separately reviewed [module electrical basis](../architecture/site-module-electrical-authority.md)
 admits exactly two additional requirements, `site.module.model_label` and
@@ -39,7 +39,7 @@ or verified installed/as-built population evidence. The repository i_sc correcti
 note is not independently supplied manufacturer evidence. Temporal applicability
 remains unknown; full-fidelity module evidence remains open.
 
-Current manifest: `bracon-ash-module-electrical-lower-fidelity-admitted-v3`.
+At P2C, manifest: `bracon-ash-module-electrical-lower-fidelity-admitted-v3`.
 Evidence: **17 present / 48 missing / 1 conflicting / 0 N/A**.
 Admission: **3 admitted / 14 not admitted / 49 blocked / 0 N/A**.
 Active support: **1 full / 2 lower / 63 non-resolving / 0 N/A**.
@@ -48,6 +48,27 @@ remain 10, and every other section's blockers are unchanged. All nine sections
 remain partially admitted, with no complete physical path. The other 63 unadmitted
 items and identity binding are preserved. The three population representations
 remain unresolved; no topology is inferred. P2 continues; P3 remains inactive.
+
+### P2D — configured uniform lower-fidelity series-count basis
+
+The [series-count authority](../architecture/site-string-series-count-authority.md) admits only
+`s8.string_module_count`, using the configured exact integer **24 modules/string**.
+This is a configured uniform lower-fidelity series-count basis, not a physical
+string inventory or topology authority. The separately reviewed declaration uses
+only `config/sites.yaml`; temporal applicability and confidence remain unknown.
+The configured string count of **2076 remains unadmitted**, retained only as a manifest
+source fact. No IDs, members or MPPT/inverter mappings are created.
+
+Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
+S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
+All other coverage and all 65 other manifest items remain unchanged from P2C.
+All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
+conflicting; electrical_topology remains None. Canonical S8 still needs explicit
+per-string counts in independently admitted topology. P2D creates none; later
+consumption requires a reviewed binding that permits the uniform assumption.
+No physics, runtime, configuration or production source changes. P2 continues;
+P3 remains inactive.
 
 The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
@@ -95,7 +116,7 @@ The following table is the current manifest projection; the original zero-admiss
 | `s8.inverter_mppt_mapping` | missing | blocked |
 | `s8.population_residual` | missing | blocked |
 | `s8.shared_dc_collection_topology` | missing | blocked |
-| `s8.string_module_count` | present | not_admitted |
+| `s8.string_module_count` | present | admitted |
 | `s8.string_mppt_mapping` | missing | blocked |
 | `s9.conversion_model` | present | not_admitted |
 | `s9.fixed_q_convention` | missing | blocked |

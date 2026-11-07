@@ -172,7 +172,7 @@ because identity is a common mandatory prerequisite; every section still has
 required blockers and none has a complete admitted path. This is not downstream
 physics readiness. The other 65 items and the population conflict are unchanged.
 
-P2C now adds the [reviewed configured module electrical basis](site-module-electrical-authority.md).
+P2C added the [reviewed configured module electrical basis](site-module-electrical-authority.md).
 Only `site.module.model_label` and `module.electrical_parameters` are newly admitted,
 both as explicit lower-fidelity support, with unknown installed-equipment temporal
 applicability. Evidence remains 17/48/1/0; admission is 3/14/49/0 and active support
@@ -181,6 +181,27 @@ reduce from 10 to 9; full-fidelity blockers remain 10. All other section coverag
 the identity binding and 63 unadmitted items remain unchanged. No section is fully
 admitted. Configured low-fit STC evidence is not manufacturer/as-built certification;
 full-fidelity equipment, population, optics, thermal and topology remain separate.
+
+### P2D — configured uniform lower-fidelity series-count basis
+
+The [series-count authority](site-string-series-count-authority.md) admits only
+`s8.string_module_count`, using the configured exact integer **24 modules/string**.
+This is a configured uniform lower-fidelity series-count basis, not a physical
+string inventory or topology authority. The separately reviewed declaration uses
+only `config/sites.yaml`; temporal applicability and confidence remain unknown.
+The configured string count of **2076 remains unadmitted**, retained only as a manifest
+source fact. No IDs, members or MPPT/inverter mappings are created.
+
+Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
+S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
+All other coverage and all 65 other manifest items remain unchanged from P2C.
+All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
+conflicting; electrical_topology remains None. Canonical S8 still needs explicit
+per-string counts in independently admitted topology. P2D creates none; later
+consumption requires a reviewed binding that permits the uniform assumption.
+No physics, runtime, configuration or production source changes. P2 continues;
+P3 remains inactive.
 
 The eventual Digital Twin sequence is:
 

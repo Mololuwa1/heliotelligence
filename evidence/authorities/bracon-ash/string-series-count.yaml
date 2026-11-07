@@ -1,0 +1,16 @@
+# Reviewed configured uniform lower-fidelity series-count basis; not string inventory.
+site_config_id: site-001
+site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+site_name: Bracon Ash
+modules_per_string: 24
+authority_version: bracon-ash-configured-string-series-count-v1
+evidence_source_references:
+- config/sites.yaml
+authority_reference: evidence/authorities/bracon-ash/string-series-count.yaml
+confidence: unknown
+contract: explicit_reviewed_configured_uniform_string_series_count_authority_v1
+model: configured_uniform_modules_per_string_lower_fidelity_basis_v1
+scope: configured_string_series_module_count_before_physical_string_topology_binding
+coverage_scope: single_site_uniform_configured_modules_per_string_assumption_only
+supported_fidelity: supports_explicit_lower_fidelity_path
+temporal_semantics: unknown
