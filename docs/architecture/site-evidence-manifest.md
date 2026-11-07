@@ -27,7 +27,7 @@ not exist. Conflicting evidence stays blocked until a reviewed authoritative
 resolution is supplied; no count or confidence label selects a winner.
 
 The top-level `evidence/sites/` directory separates reviewed evidence inventories
-from compatibility/application `config/sites.yaml`. The initial file is
+from compatibility/application `config/sites.yaml`. The evolving controlled file is
 [Bracon Ash's manifest](../../evidence/sites/bracon-ash.yaml). It is explicitly
 declared data, not a scanner or an input to the active runtime. Repository paths
 identify source material; their presence is never an admission rule.
@@ -88,8 +88,9 @@ and unknown have no fabricated dates. Snapshots require one exact aware non-NaT
 `pandas.Timestamp`; inclusive bounded intervals require two ordered exact aware
 timestamps. UTC nanoseconds, original named/fixed-offset timezone and local ISO
 representation are retained during persistence. No calibration date, cadence or
-validity is extracted from text. The initial Bracon applicability is unknown,
-including values currently present in configuration.
+validity is extracted from text. The original P2A Bracon applicability was unknown, including values present in
+configuration. P2B now declares static applicability only for the reviewed identity
+binding; the other 65 evidence items retain their original applicability.
 
 Requirement levels are `mandatory_for_any_physical_path`,
 `mandatory_for_full_fidelity` and `optional_advanced`. The catalogue covers site
@@ -145,9 +146,9 @@ hand-maintained authority table.
 
 ## Bracon baseline and the Digital Twin
 
-The initial package has 17 present/not-admitted items, 48 missing/blocked items,
+The original P2A package had 17 present/not-admitted items, 48 missing/blocked items,
 one conflicting/blocked item, zero admitted items and no N/A exclusions. All nine
-path sections are blocked, at both baseline and full fidelity. Configuration loss
+path sections were blocked, at both baseline and full fidelity. Configuration loss
 percentages, nameplate values and `u_c/u_v` admit no authority.
 
 Population representations remain separate: 2,076 × 24 = 49,824; 659 × 72 = 47,448;
@@ -156,6 +157,20 @@ Geometry metadata (`module-cloud reconstruction @174.47`, residual 0.436 m) is
 retained only as supplied spatial evidence. The geometry API combines coordinates
 and some configuration-derived counts; it is not one homogeneous authority.
 See the generated matrix in the [Bracon site record](../sites/bracon-ash.md).
+
+The original counts above describe P2A history. The current P2B manifest separately
+admits exactly `site.identity.physical` through the
+[reviewed identity authority](site-physical-identity-authority.md). Configuration
+supplies source evidence; the separate checked-in authority and exact three-way
+binding provide the reviewed admission. Identity excludes capacity, inventory,
+geometry completeness and electrical connectivity.
+
+Current evidence counts remain 17/48/1/0. Admission is 1 admitted, 16 not admitted,
+49 blocked and zero N/A. Active fidelity support is 1 full, 0 lower, 65 non-resolving
+and zero N/A. All nine baseline/full-fidelity sections become partially admitted
+because identity is a common mandatory prerequisite; every section still has
+required blockers and none has a complete admitted path. This is not downstream
+physics readiness. The other 65 items and the population conflict are unchanged.
 
 The eventual Digital Twin sequence is:
 

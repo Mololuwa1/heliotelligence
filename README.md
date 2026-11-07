@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `49d4d11bccebf024aec3c487292b06a7dc6578d5` (PR #132 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -139,6 +139,7 @@ GitHub CI is the authoritative full-backend validation. Do not repeatedly run th
 
 - [AI handoff](docs/AI_HANDOFF.md): recovery context, known blockers and non-negotiable rules.
 - [Physics architecture](docs/architecture/physics-architecture.md): reference planes, stage responsibilities, fidelity and upstream migration boundaries.
+- [Reviewed site identity authority](docs/architecture/site-physical-identity-authority.md): narrow P2B identity/anchor admission, separate from configuration and downstream physics.
 - [Physics implementation-delta ledger](docs/architecture/physics-implementation-delta.md): original Stage 1–6 intent, canonical ownership, pending advanced fidelity and site evidence; no runtime change.
 - [Physics roadmap](docs/development/physics-roadmap.md): completed capabilities and future physics scope.
 - [Production-integration roadmap](docs/development/production-integration-roadmap.md): canonical activation phases, pre-shadow gates and ownership ledger.
@@ -177,4 +178,8 @@ The immutable [P1 output contract](docs/architecture/physical-shadow-output-cont
 
 ## P2A site evidence baseline
 
-The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now distinguishes configuration, supplied evidence, canonical authority admission and physical coverage. The controlled [Bracon inventory](evidence/sites/bracon-ash.yaml) has 66 requirements and zero admitted; conflicting module counts remain unresolved, and geometry establishes no electrical topology. P1 is complete; P2A inventory/baseline is complete; full P2 admission is in progress and P3 remains inactive. No source, writer, physical authority or public evidence API is activated.
+The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now distinguishes configuration, supplied evidence, canonical authority admission and physical coverage. The original [Bracon P2A inventory](evidence/sites/bracon-ash.yaml) had 66 requirements and zero admitted; conflicting module counts remain unresolved, and geometry establishes no electrical topology. P1 is complete; P2A inventory/baseline is complete; full P2 admission is in progress and P3 remains inactive. No source, writer, physical authority or public evidence API is activated.
+
+## P2B reviewed site identity
+
+The separately reviewed [site identity authority](docs/architecture/site-physical-identity-authority.md) now admits only `site.identity.physical`. Configuration supplied evidence; it did not self-admit. The current manifest has 1 admitted identity, 16 not-admitted items and 49 blocked items. All nine path sections are only partially admitted and retain blockers. Capacity, population, inventory and electrical topology are excluded from identity authority; the population conflict and absent electrical topology are unchanged. P2 admission continues; P3 is inactive.

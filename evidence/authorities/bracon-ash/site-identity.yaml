@@ -1,0 +1,17 @@
+# P2B reviewed identity/configured geographic-anchor binding only.
+# No capacity, population, inventory, survey boundary or electrical authority.
+site_config_id: site-001
+site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+site_name: Bracon Ash
+configured_latitude_deg: 52.56
+configured_longitude_deg: 1.21
+timezone: Europe/London
+authority_version: bracon-ash-physical-site-identity-v1
+evidence_source_references:
+  - config/sites.yaml
+authority_reference: evidence/authorities/bracon-ash/site-identity.yaml
+confidence: unknown
+contract: explicit_reviewed_physical_site_identity_authority_v1
+model: reviewed_site_config_identity_and_geographic_anchor_binding_v1
+scope: site_identity_binding_before_site_specific_physical_authority_admission
+coverage_scope: single_site_identity_name_uuid_timezone_and_configured_geographic_anchor_only

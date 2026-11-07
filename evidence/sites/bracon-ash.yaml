@@ -1,9 +1,9 @@
-# P2A declared repository inventory. No canonical site authority is admitted.
+# P2B reviewed site identity admitted; all other requirements retain the P2A baseline.
 identity:
   site_config_id: site-001
   site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
   site_name: Bracon Ash
-  manifest_version: bracon-ash-repository-baseline-v1
+  manifest_version: bracon-ash-site-identity-admitted-v2
 items:
 - requirement_id: irradiance.bifacial_applicability
   domain: irradiance_optics
@@ -1489,7 +1489,7 @@ items:
   stage_refs:
   - P1
   evidence_state: present
-  admission_state: not_admitted
+  admission_state: admitted
   source_references:
   - config/sites.yaml
   source_kind: repository_configuration
@@ -1499,16 +1499,18 @@ items:
     identifiers:
     - site-001
   temporal_scope:
-    semantics: unknown
+    semantics: static
     start_timestamp: null
     end_timestamp: null
-  supported_fidelity: does_not_resolve_physical_path
-  admitted_authority_contract_ids: []
+  supported_fidelity: supports_full_declared_physical_path
+  admitted_authority_contract_ids:
+  - explicit_reviewed_physical_site_identity_authority_v1
   target_authority_contract_ids: []
-  gap_reason_codes:
-  - canonical_authority_binding_not_admitted
-  notes: Application identity, location and capacity are configured. No reviewed physical-site authority
-    package is bound. Capacity does not reconcile module population.
+  gap_reason_codes: []
+  notes: Separately reviewed authority binds only site identity, name, UUID, timezone and configured
+    geographic anchor. Capacity remains an inventory source fact; it is not consumed by the identity
+    authority and does not resolve module population. No survey boundary, asset inventory or electrical
+    authority is admitted.
   facts:
   - fact_id: site_config_id
     source_reference: config/sites.yaml
@@ -1525,7 +1527,7 @@ items:
   - fact_id: configured_timezone
     source_reference: config/sites.yaml
     value: Europe/London
-  authority_binding_reference: null
+  authority_binding_reference: evidence/authorities/bracon-ash/site-identity.yaml
   applicability_reason: null
   confidence: unknown
 - requirement_id: site.legacy_compatibility_assumptions

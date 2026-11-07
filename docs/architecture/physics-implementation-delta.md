@@ -291,6 +291,12 @@ them retrospectively.
 | G-01 | Source isolation through controlled retirement | `KEEP_CANONICAL` | [Production roadmap](../development/production-integration-roadmap.md): P0 source isolation; P1 physical shadow-output contract; P2 site evidence/admission; P3 shadow execution; P4 reconciliation/validation; P5 controlled cutover; P6 mechanism-specific legacy retirement. These are integration phases, not physics mechanisms or new S-stages. |
 | G-02 | Site readiness after P2A | `SITE_EVIDENCE_PENDING` | [P2A manifest](site-evidence-manifest.md) and [Bracon record](../sites/bracon-ash.md) identify 66 requirements: 17 present/not admitted, 48 missing/blocked, one conflicting/blocked, zero admitted. The 49,824 / 47,448 / 50,736 population conflict remains unresolved; all nine path sections remain blocked. P2 is incomplete and P3 inactive. |
 
+P2B current-status note: G-02 records the original zero-admission P2A baseline.
+The current manifest now admits only the reviewed physical-site identity (1
+admitted / 16 not admitted / 49 blocked); all nine paths are only partially
+admitted and retain blockers. Identity supplies no evidence for Priority A or B;
+both remain `ADVANCED_FIDELITY_PENDING`. Full P2 remains incomplete and P3 inactive.
+
 Status after successful main CI #335:
 
 ```text
