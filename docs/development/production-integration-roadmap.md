@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6`, PR #136 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `576ded72f8a3a27e14ef5041898b1115a7735cd0`, PR #137 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -146,7 +146,7 @@ not receiver coverage or canonical electrical response: the generic 0.80 factor
 remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
 time semantics, irradiance plane, spectral or thermal authority is invented.
 
-Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+At P2E, manifest: `bracon-ash-upstream-physical-input-admission-v5`.
 Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
 Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
 Every other section and all 65 other items remain unchanged. All paths retain
@@ -158,6 +158,31 @@ not upstream readiness for P3. Future upstream evidence updates P2E in place;
 do not create a new P2 letter per field. P2F is reserved for the consolidated DC
 plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
 
+### P2F — consolidated DC plant + inverter/control admission package
+
+The [P2F boundary](../architecture/site-dc-inverter-control-admission.md) owns population/DC topology, inverter
+equipment/capability and controller requests/allocation as one onboarding package.
+Only `s8.inverter_inventory_binding` is newly admitted: 66 configured inverter
+labels and layout-group memberships, at explicit lower fidelity. The ordered
+MQA11/MQA21/MQA22/MQA23 groups contain 16/16/17/17 labels. Confidence and installed
+temporal applicability remain unknown; no as-built equipment verification is claimed.
+
+Current manifest: `bracon-ash-dc-inverter-control-admission-v6`.
+Evidence remains 17/48/1/0; admission is 6/11/49/0; support is 1/5/60/0.
+Only S8 baseline blockers reduce 7 → 6; full blockers stay 9. All other coverage
+and all 65 other items remain unchanged. All sections still retain blockers.
+Configured labels do not create electrical topology. Model names are not exact
+CEC/SAM references; PVWatts/eta are not canonical S9 conversion authority; active
+nameplate is not Smax; the aggregate grid cap is not controller dispatch.
+
+Population 49,824 / 47,448 / 50,736 stays conflicting; 2076 strings remains
+unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
+population residual, equipment capability or controller authority are inferred.
+P2F is implemented as the current reviewed package, not physical readiness for P3.
+Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
+evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+AC network + transformer + revenue-meter authority.
+
 The consolidated P2 execution plan is:
 
 ```text
@@ -165,9 +190,9 @@ P2A — evidence baseline                     COMPLETE
 P2B — site identity                         COMPLETE
 P2C — module electrical basis               COMPLETE
 P2D — string series-count basis             COMPLETE
-P2E — upstream physical-input admission      IMPLEMENTED BY THIS PR; evidence gaps remain
-P2F — DC plant + inverter/control authority  NEXT
-P2G — AC network + revenue-meter authority
+P2E — upstream physical-input admission      COMPLETE (reviewed package; evidence gaps remain)
+P2F — DC plant + inverter/control admission  IMPLEMENTED BY THIS PR; evidence gaps remain
+P2G — AC network + transformer + revenue-meter authority  NEXT
 P2H — benchmark/uncertainty + P2 closure
 P3  — shadow execution                      INACTIVE
 ```
@@ -218,7 +243,7 @@ P1 physical shadow-output contract — COMPLETE (no writer/execution)
 ↓
 P2A site evidence manifest / Bracon baseline — COMPLETE
 ↓
-P2 site evidence admission — IN PROGRESS (P2E upstream package implemented; P2F consolidated DC/control next)
+P2 site evidence admission — IN PROGRESS (P2F DC/control package implemented; P2G AC/transformer/meter next)
 ↓
 P3 shadow execution
 ```
