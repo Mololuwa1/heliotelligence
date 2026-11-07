@@ -2,7 +2,7 @@
 
 ## Purpose and checkpoint
 
-This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf`, PR #134 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
+This is the canonical roadmap for production activation, distinct from the [physics roadmap](physics-roadmap.md). Current canonical code checkpoint: `e164a5b6bbb23e53b076569277bf9ce792a06952`, PR #135 merge on `main`. Live GitHub CI must be rechecked for release/merge decisions.
 
 Heliotelligence has a validated generic **electrical** chain from admitted module/string electrical state through inverter/control, LV collection, transformer, MV/HV network, revenue-meter benchmarking and delivery-loss attribution: S8 → S9 → S10 → S11 → S12 → S13 → S14. This does not establish that the upstream production weather → irradiance/optics → module-thermal path is canonical or ready for end-to-end shadow activation.
 
@@ -115,6 +115,26 @@ Population 49,824 / 47,448 / 50,736 remains conflicting, temporal equipment
 validity unknown and electrical topology absent. P2 remains in progress; P3 inactive.
 No runtime, source or writer is activated.
 
+### P2D — configured uniform lower-fidelity series-count basis
+
+The [series-count authority](../architecture/site-string-series-count-authority.md) admits only
+`s8.string_module_count`, using the configured exact integer **24 modules/string**.
+This is a configured uniform lower-fidelity series-count basis, not a physical
+string inventory or topology authority. The separately reviewed declaration uses
+only `config/sites.yaml`; temporal applicability and confidence remain unknown.
+The configured string count of **2076 remains unadmitted**, retained only as a manifest
+source fact. No IDs, members or MPPT/inverter mappings are created.
+
+Current manifest: `bracon-ash-string-series-count-lower-fidelity-admitted-v4`.
+Evidence remains 17/48/1/0; admission is 4/13/49/0; support is 1/3/62/0.
+S8 baseline blockers reduce 8 → 7; full-fidelity blockers remain 9.
+All other coverage and all 65 other manifest items remain unchanged from P2C.
+All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
+conflicting; electrical_topology remains None. Canonical S8 still needs explicit
+per-string counts in independently admitted topology. P2D creates none; later
+consumption requires a reviewed binding that permits the uniform assumption.
+No physics, runtime, configuration or production source changes. P2 continues;
+P3 remains inactive.
 
 ### Pre-shadow readiness gates
 
@@ -158,7 +178,7 @@ P1 physical shadow-output contract — COMPLETE (no writer/execution)
 ↓
 P2A site evidence manifest / Bracon baseline — COMPLETE
 ↓
-P2 site evidence admission — IN PROGRESS (P2A/P2B complete; P2C lower-fidelity module basis admitted)
+P2 site evidence admission — IN PROGRESS (P2A/P2B/P2C complete; P2D lower-fidelity series-count basis admitted)
 ↓
 P3 shadow execution
 ```
