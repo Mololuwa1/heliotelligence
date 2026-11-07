@@ -133,7 +133,11 @@ Backend: FastAPI, pvlib and Heliotelligence-owned contracts; storage: PostgreSQL
 
 During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`.
 
-GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
+Ordinary PR/main CI uses a conservative exact-diff selector with `skip`, `targeted` and `full` modes. Main compares the push event's exact `before` SHA with its current SHA; PRs compare their event base/head SHAs. Unknown impact, broad configuration/dependency/migration changes and analysis/operational uncertainty retain full-suite fallback. Targeted passes are valid change-scoped validation; report the actual mode and exact SHA, and do not label a targeted main pass a complete backend regression. Frontend builds and existing mandatory check names remain unchanged.
+
+The [Full Backend Regression workflow](.github/workflows/full-backend-regression.yml) runs the complete backend unit suite nightly at **03:17 UTC** and on manual dispatch. It supplies authoritative complete regression assurance. A green manual run on the exact intended main revision is required before P3 activation, P5 cutover, release candidates and major dependency/migration/shared-infrastructure release decisions. An older nightly does not cover subsequent commits. See the [validation cadence](docs/validation/physics-validation-strategy.md#ci-validation-cadence).
+
+Controlled Bracon P2 evidence selects the manifest and all site-authority tests; unknown evidence remains full, and `config/sites.yaml` remains broad. Local development stays focused; documentation-only edits use Markdown/link/whitespace checks. No routine full local backend run is required.
 
 ## Documentation map
 

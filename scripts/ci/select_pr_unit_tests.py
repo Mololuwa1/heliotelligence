@@ -1,7 +1,7 @@
-"""Conservative PR unit-test impact selection using only the standard library.
+"""Conservative backend unit-test impact selection for PR and main-push diffs.
 
 Analyze the checked-out tree (normally GitHub's PR merge checkout), without
-importing application/test code. Main never uses this selector to narrow tests.
+importing application/test code. Both events supply exact base/head commit SHAs.
 Deleted Python paths, unresolved internal imports and analysis failures fall
 back to full. Opaque dynamic import consumers are added to otherwise classifiable selections;
 this deliberately overselects rather than guessing their runtime targets.
@@ -22,6 +22,8 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 CI_SELECTOR_TEST = "tests/unit/test_ci/test_pr_unit_test_selector.py"
+SITE_EVIDENCE_TEST = "tests/unit/test_engine/test_site_evidence_manifest.py"
+SITE_AUTHORITY_TEST_GLOB = "tests/unit/test_engine/test_site_*authority.py"
 _ROOTS = ("src/heliotelligence", "tests/unit", "scripts")
 _INTERNAL = frozenset({"heliotelligence", "tests", "scripts"})
 _BROAD_PREFIXES = (
@@ -82,6 +84,30 @@ def _safe_skip(path: str) -> bool:
 
 def _ci_path(path: str) -> bool:
     return path.startswith((".github/workflows/", "scripts/ci/", "tests/unit/test_ci/"))
+
+
+def _controlled_bracon_evidence(path: str) -> bool:
+    return path == "evidence/sites/bracon-ash.yaml" or path.startswith(
+        "evidence/authorities/bracon-ash/"
+    )
+
+
+def _require_available_file(root: Path, relative: str) -> None:
+    path = root / relative
+    if not path.is_file() or path.resolve() != root.resolve() / relative:
+        raise AnalysisError(f"deleted/unavailable or symlinked evidence/owner file: {relative}")
+
+
+def _evidence_owner_tests(root: Path) -> set[str]:
+    _require_available_file(root, SITE_EVIDENCE_TEST)
+    authorities = {
+        path.relative_to(root).as_posix() for path in root.glob(SITE_AUTHORITY_TEST_GLOB)
+    }
+    if not authorities:
+        raise AnalysisError("controlled Bracon evidence requires available site-authority tests")
+    for path in authorities:
+        _require_available_file(root, path)
+    return {SITE_EVIDENCE_TEST, *authorities}
 
 
 def _module(path: str) -> str:
@@ -249,6 +275,7 @@ def select_tests(root: Path, changed_files: Sequence[str]) -> Selection:
     count = len(changed)
     python_changes: list[str] = []
     infrastructure = False
+    evidence_changes: list[str] = []
     for path in changed:
         pure = PurePosixPath(path)
         if not path or pure.is_absolute() or ".." in pure.parts or "\x00" in path:
@@ -265,6 +292,8 @@ def select_tests(root: Path, changed_files: Sequence[str]) -> Selection:
             return Selection("full", f"broad backend/dependency configuration: {path}", count)
         if _ci_path(path):
             infrastructure = True
+        elif _controlled_bracon_evidence(path):
+            evidence_changes.append(path)
         elif not (
             path.endswith(".py") and path.startswith(("src/heliotelligence/", "tests/unit/"))
         ):
@@ -273,11 +302,18 @@ def select_tests(root: Path, changed_files: Sequence[str]) -> Selection:
             if not (root / path).is_file():
                 return Selection("full", f"deleted/unavailable Python module: {path}", count)
             python_changes.append(path)
-    if not python_changes and not infrastructure:
+    if not python_changes and not infrastructure and not evidence_changes:
         return Selection("skip", "no backend-affecting changes", count)
     try:
         graph = build_import_graph(root)
         selected: set[str] = set()
+        if evidence_changes:
+            for path in evidence_changes:
+                _require_available_file(root, path)
+            owners = _evidence_owner_tests(root)
+            if any(graph.modules.get(_module(path)) != path for path in owners):
+                raise AnalysisError("controlled Bracon evidence owner is outside analyzed graph")
+            selected.update(owners)
         if infrastructure:
             if not (root / CI_SELECTOR_TEST).is_file():
                 raise AnalysisError("CI selector tests are unavailable")
@@ -303,12 +339,19 @@ def select_tests(root: Path, changed_files: Sequence[str]) -> Selection:
             selected.update(affected)
         if not selected:
             raise AnalysisError("no unit tests safely identified")
-        if python_changes:
+        if python_changes or evidence_changes:
             for consumer in graph.opaque_consumers:
                 selected.update(graph.affected_tests(consumer))
+        reasons = []
+        if infrastructure:
+            reasons.append("CI infrastructure owner tests")
+        if evidence_changes:
+            reasons.append("controlled Bracon evidence owner tests")
+        if python_changes:
+            reasons.append("changed tests and transitive internal import consumers")
         return Selection(
             "targeted",
-            "changed tests and transitive internal import consumers",
+            "; ".join(reasons),
             count,
             tuple(sorted(selected)),
         )
@@ -319,6 +362,8 @@ def select_tests(root: Path, changed_files: Sequence[str]) -> Selection:
 def changed_paths(root: Path, base: str, head: str) -> list[str]:
     if not all(re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", sha) for sha in (base, head)):
         raise AnalysisError("base/head must be explicit commit SHAs")
+    if any(set(sha) == {"0"} for sha in (base, head)):
+        raise AnalysisError("base/head must be non-zero commit SHAs")
     # Disable rename compression so removed modules cannot lose their old path.
     result = subprocess.run(
         ["git", "diff", "--name-only", "-z", "--no-renames", base, head, "--"],
@@ -330,7 +375,7 @@ def changed_paths(root: Path, base: str, head: str) -> list[str]:
 
 
 def publish(selection: Selection, github_output: Path | None) -> None:
-    print("PR backend test selection:")
+    print("Backend unit-test selection:")
     print(f"mode: {selection.mode}")
     print(f"reason: {selection.reason}")
     print(f"changed files: {selection.changed_file_count}")
@@ -356,7 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         paths = changed_paths(root, arguments.base, arguments.head)
         selection = select_tests(root, paths)
     except Exception as error:  # Any operational/analysis uncertainty must fail safe.
-        selection = Selection("full", f"cannot safely select PR tests: {error}", 0)
+        selection = Selection("full", f"cannot safely select backend tests: {error}", 0)
     publish(selection, arguments.github_output)
     return 0
 
