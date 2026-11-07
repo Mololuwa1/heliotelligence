@@ -476,7 +476,7 @@ def test_proposed_binding_is_not_automatic_admission(
     before = manifest_module.serialize_site_evidence_manifest(proposed)
     a.validate_site_physical_identity_binding(proposed, authority, site)
     assert manifest_module.serialize_site_evidence_manifest(proposed) == before
-    assert proposed.diagnostics.admitted_count == 0
+    assert proposed.diagnostics.admitted_count == manifest.diagnostics.admitted_count - 1
 
 
 def test_capacity_topology_not_consumed(

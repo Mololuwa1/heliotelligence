@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #132 merge 49d4d11bccebf024aec3c487292b06a7dc6578d5
+PR #134 merge 6d00d2be1b76f620ceba08d523bb244090a07caf
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -24,11 +24,12 @@ Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
 P1: immutable output contract COMPLETE; no writer or physical source selected
 P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
-P2B: only physical-site identity admitted; all nine paths retain blockers
+P2B: physical-site identity admitted
+P2C: configured module model/raw basis admitted only at lower fidelity; all paths retain blockers
 Next: P2 site evidence finalisation; no shadow activation
 ```
 
-Current canonical code checkpoint: `49d4d11bccebf024aec3c487292b06a7dc6578d5` (PR #132 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf` (PR #134 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -66,7 +67,29 @@ P1 is complete. P2A inventory/baseline is complete; full P2 admission stays in p
 
 `engine/site_physical_identity_authority.py` loads the separately reviewed [Bracon identity file](../evidence/authorities/bracon-ash/site-identity.yaml), not an auto-generated SiteConfig authority. See the [identity contract](architecture/site-physical-identity-authority.md). The frozen declaration covers only site ID/UUID/name, configured latitude/longitude and exact timezone; no capacity, population, inventory, geometry completeness or electrical topology belongs to it. Source is `config/sites.yaml`, confidence `unknown`. An independent validator and pure exact manifest/authority/SiteConfig binding check guard admission; no runtime consumes it automatically.
 
-Current manifest `bracon-ash-site-identity-admitted-v2` admits only `site.identity.physical`. Evidence remains 17/48/1/0; admission is 1/16/49/0 and active fidelity 1/0/65/0. All nine baseline/full-fidelity labels become partially admitted solely through identity, with required blockers retained and no fully admitted section. The other 65 items are unchanged; all three population representations stay conflicting and `electrical_topology` is still `None`. P2 remains in progress and P3 inactive. Neither implementation-delta Priority A nor B is advanced by identity evidence.
+At P2B, manifest `bracon-ash-site-identity-admitted-v2` admitted only `site.identity.physical`. Evidence remains 17/48/1/0; admission is 1/16/49/0 and active fidelity 1/0/65/0. All nine baseline/full-fidelity labels become partially admitted solely through identity, with required blockers retained and no fully admitted section. The other 65 items are unchanged; all three population representations stay conflicting and `electrical_topology` is still `None`. P2 remains in progress and P3 inactive. Neither implementation-delta Priority A nor B is advanced by identity evidence.
+
+### P2C configured lower-fidelity module basis
+
+The [module electrical authority](architecture/site-module-electrical-authority.md)
+and `engine/site_module_electrical_authority.py` bind the reviewed declaration at
+`evidence/authorities/bracon-ash/module-electrical-basis.yaml` to explicit config,
+manifest and supplied local-library evidence. It admits only `site.module.model_label`
+and `module.electrical_parameters`, at lower fidelity: configured JKM570N-72HL4-BDV,
+mono_si, datasheet_fit/low, expected Tier 3/local_library. Real runtime lookup is
+regression-checked without forcing the tier. Raw STC authority is separate from
+runtime-owned fit_desoto_batzelis → calcparams_desoto → singlediode.
+
+Current manifest `bracon-ash-module-electrical-lower-fidelity-admitted-v3` has
+17/48/1/0 evidence, 3/14/49/0 admission and 1/2/63/0 support. Module-electrical
+baseline blockers reduce 10 → 9; full blockers stay 10. All nine sections retain
+blockers; other section coverage and the other 63 unadmitted items are unchanged.
+The library's i_sc correction note is repository evidence, not independent
+manufacturer certification. No as-built population, serial/flash inventory,
+thermal/optical or topology authority is admitted. Installed temporal applicability
+remains unknown, population counts remain conflicting and electrical_topology None.
+P2 remains in progress; P3 inactive. Priority A/B remain pending. No runtime or
+production source change is made.
 
 ### Physics implementation-delta recovery
 

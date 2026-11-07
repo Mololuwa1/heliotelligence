@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `49d4d11bccebf024aec3c487292b06a7dc6578d5` (PR #132 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `6d00d2be1b76f620ceba08d523bb244090a07caf` (PR #134 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -186,4 +186,15 @@ The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now di
 
 ## P2B reviewed site identity
 
-The separately reviewed [site identity authority](docs/architecture/site-physical-identity-authority.md) now admits only `site.identity.physical`. Configuration supplied evidence; it did not self-admit. The current manifest has 1 admitted identity, 16 not-admitted items and 49 blocked items. All nine path sections are only partially admitted and retain blockers. Capacity, population, inventory and electrical topology are excluded from identity authority; the population conflict and absent electrical topology are unchanged. P2 admission continues; P3 is inactive.
+The separately reviewed [site identity authority](docs/architecture/site-physical-identity-authority.md) now admits only `site.identity.physical`. Configuration supplied evidence; it did not self-admit. At P2B, the manifest had 1 admitted identity, 16 not-admitted items and 49 blocked items. All nine path sections are only partially admitted and retain blockers. Capacity, population, inventory and electrical topology are excluded from identity authority; the population conflict and absent electrical topology are unchanged. P2 admission continues; P3 is inactive.
+
+## P2C configured module electrical basis
+
+The [reviewed module authority](docs/architecture/site-module-electrical-authority.md)
+admits Bracon's configured model label and raw Tier-3 local-library electrical basis
+only at explicit lower fidelity (`datasheet_fit`, `fit_quality: low`). This is not
+manufacturer/as-built population evidence. Current admission is 3 admitted / 14 not
+admitted / 49 blocked; active support is 1 full / 2 lower / 63 non-resolving.
+Module-electrical baseline blockers reduce 10 → 9; full-fidelity blockers remain 10.
+All sections retain blockers. Population conflict and absent topology are unchanged;
+P2 remains in progress and P3 inactive. No runtime or production source is activated.

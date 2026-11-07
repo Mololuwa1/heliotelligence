@@ -20,13 +20,34 @@ Capacity 28,524 kWp remains configuration evidence. The surveyed file declares `
 
 Full P2 requires reviewed evidence and explicit canonical bindings for the intended path/fidelity. P2A creates no P1 output/run/source, physics authority, public evidence API, writer or shadow execution.
 
-### Current P2B physical-site identity admission
+### P2B physical-site identity admission
 
 The separately reviewed [identity authority](../architecture/site-physical-identity-authority.md), declared in [the authority file](../../evidence/authorities/bracon-ash/site-identity.yaml), now admits exactly `site.identity.physical`. Configuration supplied source evidence but did not self-admit. The binding covers only `site-001`, its canonical UUID/name, `Europe/London`, and configured latitude/longitude `52.56 / 1.21`; confidence remains `unknown`. It excludes capacity, population, inventory, legal/survey boundary, geometry completeness and electrical connectivity.
 
-Current manifest version: `bracon-ash-site-identity-admitted-v2`. Evidence counts remain **17 present / 48 missing / 1 conflicting / 0 N/A**. Admission is **1 admitted / 16 not admitted / 49 blocked / 0 N/A**; active support is **1 full / 0 lower / 65 non-resolving / 0 N/A**. Identity alone has static temporal scope; all other evidence applicability remains unchanged.
+At P2B, manifest version was `bracon-ash-site-identity-admitted-v2`. Evidence counts remain **17 present / 48 missing / 1 conflicting / 0 N/A**. Admission is **1 admitted / 16 not admitted / 49 blocked / 0 N/A**; active support is **1 full / 0 lower / 65 non-resolving / 0 N/A**. Identity alone has static temporal scope; all other evidence applicability remains unchanged.
 
-All nine baseline and full-fidelity sections are now `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. All other 65 requirements are unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. P2 admission remains in progress and P3 is inactive.
+At P2B, all nine baseline and full-fidelity sections became `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. At that step, all other 65 requirements were unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. P2 admission remains in progress and P3 is inactive.
+
+### Current P2C configured module basis admission
+
+The separately reviewed [module electrical basis](../architecture/site-module-electrical-authority.md)
+admits exactly two additional requirements, `site.module.model_label` and
+`module.electrical_parameters`, **only at explicit lower fidelity**. The declaration
+binds the configured `JKM570N-72HL4-BDV` / `mono_si` label and raw Tier-3 local-library
+parameters (`datasheet_fit`, `fit_quality: low`). This is not manufacturer certification
+or verified installed/as-built population evidence. The repository i_sc correction
+note is not independently supplied manufacturer evidence. Temporal applicability
+remains unknown; full-fidelity module evidence remains open.
+
+Current manifest: `bracon-ash-module-electrical-lower-fidelity-admitted-v3`.
+Evidence: **17 present / 48 missing / 1 conflicting / 0 N/A**.
+Admission: **3 admitted / 14 not admitted / 49 blocked / 0 N/A**.
+Active support: **1 full / 2 lower / 63 non-resolving / 0 N/A**.
+Only module-electrical baseline blockers reduce (10 → 9); full-fidelity blockers
+remain 10, and every other section's blockers are unchanged. All nine sections
+remain partially admitted, with no complete physical path. The other 63 unadmitted
+items and identity binding are preserved. The three population representations
+remain unresolved; no topology is inferred. P2 continues; P3 remains inactive.
 
 The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
@@ -40,7 +61,7 @@ The following table is the current manifest projection; the original zero-admiss
 | `irradiance.shading_geometry` | present | not_admitted |
 | `irradiance.spectral_admission` | missing | blocked |
 | `irradiance.thermal_poa_basis` | missing | blocked |
-| `module.electrical_parameters` | present | not_admitted |
+| `module.electrical_parameters` | present | admitted |
 | `s10.active_power_request` | missing | blocked |
 | `s10.controller_allocation` | missing | blocked |
 | `s10.reactive_power_request` | missing | blocked |
@@ -86,7 +107,7 @@ The following table is the current manifest projection; the original zero-admiss
 | `site.geometry.module_positions` | present | not_admitted |
 | `site.identity.physical` | present | admitted |
 | `site.legacy_compatibility_assumptions` | present | not_admitted |
-| `site.module.model_label` | present | not_admitted |
+| `site.module.model_label` | present | admitted |
 | `site.population.module_count` | conflicting | blocked |
 | `thermal.environmental_inputs` | present | not_admitted |
 | `thermal.model_parameters` | present | not_admitted |
