@@ -1,0 +1,91 @@
+# Reviewed configured labels and layout groups only; no equipment or electrical topology.
+site_config_id: site-001
+site_uuid: 5ab83b40-553c-5ddd-976f-71f6cb5d490f
+site_name: Bracon Ash
+configured_inverter_count: 66
+groups:
+- group_id: MQA11
+  inverter_ids:
+  - MQA11-TB101
+  - MQA11-TB102
+  - MQA11-TB103
+  - MQA11-TB104
+  - MQA11-TB105
+  - MQA11-TB106
+  - MQA11-TB107
+  - MQA11-TB108
+  - MQA11-TB109
+  - MQA11-TB110
+  - MQA11-TB111
+  - MQA11-TB112
+  - MQA11-TB113
+  - MQA11-TB114
+  - MQA11-TB115
+  - MQA11-TB116
+- group_id: MQA21
+  inverter_ids:
+  - MQA21-TB101
+  - MQA21-TB102
+  - MQA21-TB103
+  - MQA21-TB104
+  - MQA21-TB105
+  - MQA21-TB106
+  - MQA21-TB107
+  - MQA21-TB108
+  - MQA21-TB109
+  - MQA21-TB110
+  - MQA21-TB111
+  - MQA21-TB112
+  - MQA21-TB113
+  - MQA21-TB114
+  - MQA21-TB115
+  - MQA21-TB116
+- group_id: MQA22
+  inverter_ids:
+  - MQA22-TB201
+  - MQA22-TB202
+  - MQA22-TB203
+  - MQA22-TB204
+  - MQA22-TB205
+  - MQA22-TB206
+  - MQA22-TB207
+  - MQA22-TB208
+  - MQA22-TB209
+  - MQA22-TB210
+  - MQA22-TB211
+  - MQA22-TB212
+  - MQA22-TB213
+  - MQA22-TB214
+  - MQA22-TB215
+  - MQA22-TB216
+  - MQA22-TB217
+- group_id: MQA23
+  inverter_ids:
+  - MQA23-TB301
+  - MQA23-TB302
+  - MQA23-TB303
+  - MQA23-TB304
+  - MQA23-TB305
+  - MQA23-TB306
+  - MQA23-TB307
+  - MQA23-TB308
+  - MQA23-TB309
+  - MQA23-TB310
+  - MQA23-TB311
+  - MQA23-TB312
+  - MQA23-TB313
+  - MQA23-TB314
+  - MQA23-TB315
+  - MQA23-TB316
+  - MQA23-TB317
+authority_version: bracon-ash-configured-inverter-inventory-v1
+evidence_source_references:
+- config/sites.yaml
+authority_reference: evidence/authorities/bracon-ash/inverter-inventory.yaml
+confidence: unknown
+contract: explicit_reviewed_configured_inverter_label_inventory_authority_v1
+model: configured_inverter_ids_and_layout_group_membership_lower_fidelity_basis_v1
+scope: configured_site_inverter_identity_inventory_before_electrical_topology_and_equipment_binding
+coverage_scope: single_site_configured_inverter_labels_and_layout_group_membership_only
+supported_fidelity: supports_explicit_lower_fidelity_path
+temporal_semantics: unknown

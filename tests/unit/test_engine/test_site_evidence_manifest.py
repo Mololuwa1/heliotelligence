@@ -78,7 +78,7 @@ def test_contract_and_identity(manifest: m.SiteEvidenceManifest) -> None:
     assert manifest.identity.site_config_id == "site-001"
     assert manifest.identity.site_uuid == "5ab83b40-553c-5ddd-976f-71f6cb5d490f"
     assert manifest.identity.site_uuid == str(uuid5(NAMESPACE_DNS, "site-001"))
-    assert manifest.identity.manifest_version == "bracon-ash-upstream-physical-input-admission-v5"
+    assert manifest.identity.manifest_version == "bracon-ash-dc-inverter-control-admission-v6"
     m.validate_manifest_against_site_config(manifest, load_sites(ROOT / "config/sites.yaml")[0])
 
 
@@ -116,7 +116,7 @@ def test_site_cross_check_does_not_admit(manifest: m.SiteEvidenceManifest) -> No
     before = m.serialize_site_evidence_manifest(manifest)
     m.validate_manifest_against_site_config(manifest, site)
     assert m.serialize_site_evidence_manifest(manifest) == before
-    assert manifest.diagnostics.admitted_count == 5
+    assert manifest.diagnostics.admitted_count == 6
 
 
 def test_catalogue_complete_and_deterministic(manifest: m.SiteEvidenceManifest) -> None:
@@ -228,7 +228,7 @@ def test_target_authority_is_not_admitted_authority(manifest: m.SiteEvidenceMani
     )
     result = update(manifest, changed)
     assert result.diagnostics.full_fidelity_support_count == 1
-    assert result.diagnostics.admitted_count == 5
+    assert result.diagnostics.admitted_count == 6
     assert result.path_coverage == manifest.path_coverage
 
 
@@ -371,7 +371,7 @@ def test_diagnostics_close_without_maturity_score(manifest: m.SiteEvidenceManife
         48,
         1,
     )
-    assert (d.admitted_count, d.not_admitted_count, d.blocked_count) == (5, 12, 49)
+    assert (d.admitted_count, d.not_admitted_count, d.blocked_count) == (6, 11, 49)
     assert (
         d.present_count + d.missing_count + d.conflicting_count + d.not_applicable_count
         == d.total_requirement_count
@@ -395,7 +395,7 @@ def test_diagnostics_close_without_maturity_score(manifest: m.SiteEvidenceManife
     )
     assert not any("score" in f.name or "percent" in f.name for f in fields(d))
     result = update(manifest, admitted(item(manifest), lower=True))
-    assert result.diagnostics.lower_fidelity_support_count == 5
+    assert result.diagnostics.lower_fidelity_support_count == 6
     assert result.diagnostics.full_fidelity_support_count == 1
     assert (
         replace(result.items[0], confidence="high").supported_fidelity
@@ -541,7 +541,7 @@ def test_legacy_config_never_becomes_authority(
     changed = config.model_copy(update={group: nested})
     m.validate_manifest_against_site_config(manifest, changed)
     assert m.serialize_site_evidence_manifest(manifest) == before
-    assert manifest.diagnostics.admitted_count == 5
+    assert manifest.diagnostics.admitted_count == 6
 
 
 def test_generic_capability_and_targets_do_not_admit_site(manifest: m.SiteEvidenceManifest) -> None:
@@ -556,7 +556,7 @@ def test_generic_capability_and_targets_do_not_admit_site(manifest: m.SiteEviden
         "revenue_meter_measurement_uncertainty.py",
     ]
     assert all((ROOT / "src/heliotelligence/physics" / name).is_file() for name in controlled)
-    assert manifest.diagnostics.admitted_count == 5
+    assert manifest.diagnostics.admitted_count == 6
     assert any(i.target_authority_contract_ids for i in manifest.items)
     assert all(
         not i.admitted_authority_contract_ids
@@ -568,6 +568,7 @@ def test_generic_capability_and_targets_do_not_admit_site(manifest: m.SiteEviden
             "module.electrical_parameters",
             "s8.string_module_count",
             "irradiance.bifacial_applicability",
+            "s8.inverter_inventory_binding",
         }
     )
     assert all(
@@ -841,10 +842,11 @@ def test_wire_preserves_sources_scopes_and_tuple_order(manifest: m.SiteEvidenceM
     assert item(restored).admission_state == "blocked"
 
 
-def test_p2e_five_narrow_admissions(manifest: m.SiteEvidenceManifest) -> None:
+def test_p2f_six_narrow_admissions(manifest: m.SiteEvidenceManifest) -> None:
     assert [i.requirement_id for i in manifest.items if i.admission_state == "admitted"] == [
         "irradiance.bifacial_applicability",
         "module.electrical_parameters",
+        "s8.inverter_inventory_binding",
         "s8.string_module_count",
         "site.identity.physical",
         "site.module.model_label",
@@ -872,13 +874,13 @@ def test_p2e_five_narrow_admissions(manifest: m.SiteEvidenceManifest) -> None:
         d.not_admitted_count,
         d.blocked_count,
         d.admission_not_applicable_count,
-    ) == (5, 12, 49, 0)
+    ) == (6, 11, 49, 0)
     assert (
         d.full_fidelity_support_count,
         d.lower_fidelity_support_count,
         d.non_resolving_count,
         d.fidelity_not_applicable_count,
-    ) == (1, 4, 61, 0)
+    ) == (1, 5, 60, 0)
     assert all(
         p.state == p.full_fidelity_state == "partially_admitted" for p in manifest.path_coverage
     )
@@ -1098,6 +1100,7 @@ def test_only_s8_baseline_blocker_changes(manifest: m.SiteEvidenceManifest) -> N
 
 
 def p2d_checkpoint(manifest: m.SiteEvidenceManifest) -> m.SiteEvidenceManifest:
+    manifest = p2e_checkpoint(manifest)
     previous = replace(
         item(manifest, "irradiance.bifacial_applicability"),
         admission_state="not_admitted",
@@ -1121,6 +1124,7 @@ def p2d_checkpoint(manifest: m.SiteEvidenceManifest) -> m.SiteEvidenceManifest:
 
 
 def test_other_65_items_preserve_p2d(manifest: m.SiteEvidenceManifest) -> None:
+    manifest = p2e_checkpoint(manifest)
     # Exact reviewed PR #136 merge 2d2ae9ce53a0fb11b3202898c9548eebb9d134b6.
     others = [
         i
@@ -1136,6 +1140,7 @@ def test_other_65_items_preserve_p2d(manifest: m.SiteEvidenceManifest) -> None:
 
 
 def test_only_upstream_baseline_blocker_changes(manifest: m.SiteEvidenceManifest) -> None:
+    manifest = p2e_checkpoint(manifest)
     prior = p2d_checkpoint(manifest)
     assert prior.diagnostics.admitted_count == 4
     for before, after in zip(prior.path_coverage, manifest.path_coverage, strict=True):
@@ -1209,3 +1214,98 @@ def test_p2e_evidence_request_and_geometry_are_not_admission(
     assert geometry["_total_modules_extracted"] == 50736
     assert geometry["_source"] == "module-cloud reconstruction @174.47"
     assert geometry["_georef_residual_m"] == 0.436
+
+
+def p2e_checkpoint(manifest: m.SiteEvidenceManifest) -> m.SiteEvidenceManifest:
+    previous = replace(
+        item(manifest, "s8.inverter_inventory_binding"),
+        admission_state="not_admitted",
+        supported_fidelity=m.NON_RESOLVING,
+        admitted_authority_contract_ids=(),
+        authority_binding_reference=None,
+        gap_reason_codes=("canonical_authority_binding_not_admitted",),
+        physical_scope=m.PhysicalEvidenceScope("asset_set", ("MQA11", "MQA21", "MQA22", "MQA23")),
+        notes=(
+            "66 inverter labels in four layout groups (16/16/17/17) are metadata. "
+            "There is no Bracon electrical_topology block. Group membership cannot establish "
+            "electrical inverter, MPPT or string binding."
+        ),
+    )
+    return replace(
+        update(manifest, previous),
+        identity=replace(
+            manifest.identity, manifest_version="bracon-ash-upstream-physical-input-admission-v5"
+        ),
+    )
+
+
+def test_other_65_items_preserve_p2e(manifest: m.SiteEvidenceManifest) -> None:
+    # Exact PR #137 merge 576ded72f8a3a27e14ef5041898b1115a7735cd0.
+    others = [
+        i
+        for i in m.serialize_site_evidence_manifest(manifest)["items"]
+        if i["requirement_id"] != "s8.inverter_inventory_binding"
+    ]
+    assert len(others) == 65
+    encoded = json.dumps(others, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    assert (
+        hashlib.sha256(encoded).hexdigest()
+        == "901f50bd87407a13880a3154097d21d359c74ee085e903c94d1142c32914d8d1"
+    )
+
+
+def test_only_inventory_s8_baseline_blocker_changes(manifest: m.SiteEvidenceManifest) -> None:
+    prior = p2e_checkpoint(manifest)
+    assert prior.diagnostics.admitted_count == 5
+    for before, after in zip(prior.path_coverage, manifest.path_coverage, strict=True):
+        if after.section == "s8_dc":
+            assert before.state == after.state == "partially_admitted"
+            assert before.full_fidelity_state == after.full_fidelity_state == "partially_admitted"
+            assert len(before.blocking_requirement_ids) == 7
+            assert len(after.blocking_requirement_ids) == 6
+            assert after.blocking_requirement_ids == tuple(
+                k for k in before.blocking_requirement_ids if k != "s8.inverter_inventory_binding"
+            )
+            assert len(after.full_fidelity_blocking_requirement_ids) == 9
+            assert (
+                before.full_fidelity_blocking_requirement_ids
+                == after.full_fidelity_blocking_requirement_ids
+            )
+        else:
+            assert before == after
+    current = item(manifest, "s8.inverter_inventory_binding")
+    assert current.facts == item(prior, current.requirement_id).facts
+    assert current.supported_fidelity == m.LOWER_SUPPORT
+    assert current.temporal_scope.semantics == "unknown"
+    site = load_sites(ROOT / "config/sites.yaml")[0]
+    assert site.layout is not None
+    labels = tuple(i for g in site.layout.inverter_groups for i in g.inverters)
+    assert current.physical_scope == m.PhysicalEvidenceScope("asset_set", labels)
+    assert len(labels) == len(set(labels)) == 66
+    assert site.electrical_topology is None
+
+
+def test_p2f_consolidated_gaps_documented(manifest: m.SiteEvidenceManifest) -> None:
+    expected = (
+        "s8.direct_branch_resistance",
+        "s8.inverter_mppt_mapping",
+        "s8.population_residual",
+        "s8.string_mppt_mapping",
+        "site.geometry.electrical_mapping",
+        "site.population.module_count",
+    )
+    s8 = next(p for p in manifest.path_coverage if p.section == "s8_dc")
+    assert s8.blocking_requirement_ids == expected
+    control = next(p for p in manifest.path_coverage if p.section == "s9_s10_inverter_control")
+    assert len(control.blocking_requirement_ids) == 10
+    doc = (ROOT / "docs/architecture/site-dc-inverter-control-admission.md").read_text()
+    listed = doc.split("<!-- BEGIN P2F BASELINE BLOCKERS -->\n", 1)[1].split(
+        "\n<!-- END P2F BASELINE BLOCKERS -->", 1
+    )[0]
+    assert listed == "\n".join(
+        f"- `{key}`" for key in (*s8.blocking_requirement_ids, *control.blocking_requirement_ids)
+    )
+    assert item(manifest, "s8.shared_dc_collection_topology").admission_state == "blocked"
+    assert "s8.shared_dc_collection_topology" not in s8.blocking_requirement_ids
+    assert "s8.shared_dc_collection_topology" in s8.full_fidelity_blocking_requirement_ids
+    assert item(manifest, "s8.string_module_count").supported_fidelity == m.LOWER_SUPPORT

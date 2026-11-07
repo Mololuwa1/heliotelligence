@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6` (PR #136 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `576ded72f8a3a27e14ef5041898b1115a7735cd0` (PR #137 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -219,3 +219,14 @@ consolidated evidence bundles remain required; no upstream runtime is activated.
 Future upstream evidence updates P2E in place. P2F is DC plant + inverter/control;
 P2G AC network/meter; P2H benchmark/uncertainty and P2 closure. P2 remains in progress;
 P3 remains inactive. No new P2 letter is created for individual upstream fields.
+
+## P2F consolidated DC plant + inverter/control admission
+
+The [P2F package](docs/architecture/site-dc-inverter-control-admission.md) admits
+only 66 configured inverter labels/group memberships at lower fidelity. It does
+not create electrical topology, CEC/SAM, capability or controller authority.
+Admission is 6/11/49/0; support is 1/5/60/0. Only S8 baseline blockers reduce 7 → 6;
+full blockers remain 9 and all paths retain blockers. Three consolidated bundles
+cover population/DC topology, inverter equipment/capability and controller/PPC.
+P2E/P2F evidence updates their existing packages; P2G is AC network + transformer
++ revenue-meter authority next. P2 remains in progress and P3 inactive.

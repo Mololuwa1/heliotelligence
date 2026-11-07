@@ -80,7 +80,7 @@ not receiver coverage or canonical electrical response: the generic 0.80 factor
 remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
 time semantics, irradiance plane, spectral or thermal authority is invented.
 
-Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+At P2E, manifest: `bracon-ash-upstream-physical-input-admission-v5`.
 Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
 Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
 Every other section and all 65 other items remain unchanged. All paths retain
@@ -116,6 +116,51 @@ contains the exact scope and requirement mapping; this summary is not another au
 Weather source identifiers and complete module-position evidence remain unadmitted;
 placeholder-shaped resource IDs and application paths do not prove a live source.
 Additional upstream evidence updates P2E rather than creating another P2 letter.
+
+### P2F — consolidated DC plant + inverter/control admission package
+
+The [P2F boundary](../architecture/site-dc-inverter-control-admission.md) owns population/DC topology, inverter
+equipment/capability and controller requests/allocation as one onboarding package.
+Only `s8.inverter_inventory_binding` is newly admitted: 66 configured inverter
+labels and layout-group memberships, at explicit lower fidelity. The ordered
+MQA11/MQA21/MQA22/MQA23 groups contain 16/16/17/17 labels. Confidence and installed
+temporal applicability remain unknown; no as-built equipment verification is claimed.
+
+Current manifest: `bracon-ash-dc-inverter-control-admission-v6`.
+Evidence remains 17/48/1/0; admission is 6/11/49/0; support is 1/5/60/0.
+Only S8 baseline blockers reduce 7 → 6; full blockers stay 9. All other coverage
+and all 65 other items remain unchanged. All sections still retain blockers.
+Configured labels do not create electrical topology. Model names are not exact
+CEC/SAM references; PVWatts/eta are not canonical S9 conversion authority; active
+nameplate is not Smax; the aggregate grid cap is not controller dispatch.
+
+Population 49,824 / 47,448 / 50,736 stays conflicting; 2076 strings remains
+unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
+population residual, equipment capability or controller authority are inferred.
+P2F is implemented as the current reviewed package, not physical readiness for P3.
+Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
+evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+AC network + transformer + revenue-meter authority.
+
+### P2F DC/inverter/control evidence still required
+
+Supply or review these three procurement bundles. The [canonical P2F request](../architecture/site-dc-inverter-control-admission.md#unresolved--external-evidence-required)
+contains detailed authority ownership and the drift-tested remaining requirements.
+
+1. **DC topology and population:** as-built string schedule; inverter/MPPT/string
+   mapping; reconciled physical module/string inventory; DC cable/branch evidence;
+   combiner/shared collection evidence where applicable. Do not back-solve counts
+   from capacity or turn 0.48% wiring / 1.15% mismatch into physical authority.
+2. **Inverter equipment and capability:** verified installed inventory and model
+   evidence; explicit exact CEC/SAM-equivalent reference where intended; DC V/I
+   limits; P/S/Q capability; Q sign semantics and thermal derating/temperature evidence.
+   Sungrow SG350HX-15A is a configured label, not a CEC/SAM binding.
+3. **Plant controller / PPC:** controller identity, P/Q setpoint channels, allocation
+   rules, reference planes, units/signs, timestamp semantics and historical
+   applicability. The 20,000 kW legacy cap supplies no per-inverter request.
+
+No topology, model/capability or controller requirement is newly admitted here.
+Further evidence updates P2F in place; no additional P2 letter is needed per gap.
 
 The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
@@ -159,7 +204,7 @@ The following table is the current manifest projection; the original zero-admiss
 | `s14.benchmark_interval_semantics` | missing | blocked |
 | `s14.interval_support_policy` | missing | blocked |
 | `s8.direct_branch_resistance` | missing | blocked |
-| `s8.inverter_inventory_binding` | present | not_admitted |
+| `s8.inverter_inventory_binding` | present | admitted |
 | `s8.inverter_mppt_mapping` | missing | blocked |
 | `s8.population_residual` | missing | blocked |
 | `s8.shared_dc_collection_topology` | missing | blocked |

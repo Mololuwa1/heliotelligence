@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #136 merge 2d2ae9ce53a0fb11b3202898c9548eebb9d134b6
+PR #137 merge 576ded72f8a3a27e14ef5041898b1115a7735cd0
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -28,10 +28,11 @@ P2B: physical-site identity admitted
 P2C: configured module model/raw basis admitted only at lower fidelity
 P2D: configured uniform series-count basis admitted only at lower fidelity; all paths retain blockers
 P2E: consolidated upstream package implemented; remaining inputs unresolved
-Next: P2F DC plant + inverter/control; upstream evidence stays within P2E; no shadow activation
+P2F: consolidated DC/inverter/control package implemented; labels only newly admitted
+Next: P2G AC network/transformer/meter; P2E/P2F evidence gaps stay in their packages; no activation
 ```
 
-Current canonical code checkpoint: `2d2ae9ce53a0fb11b3202898c9548eebb9d134b6` (PR #136 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `576ded72f8a3a27e14ef5041898b1115a7735cd0` (PR #137 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -124,7 +125,7 @@ not receiver coverage or canonical electrical response: the generic 0.80 factor
 remains an unadmitted fact, not phi_Isc. No rear model, shading topology, weather
 time semantics, irradiance plane, spectral or thermal authority is invented.
 
-Current manifest: `bracon-ash-upstream-physical-input-admission-v5`.
+At P2E, manifest: `bracon-ash-upstream-physical-input-admission-v5`.
 Evidence remains 17/48/1/0; admission is 5/12/49/0; support is 1/4/61/0.
 Only upstream-environment baseline blockers reduce 7 → 6; full blockers stay 8.
 Every other section and all 65 other items remain unchanged. All paths retain
@@ -142,6 +143,38 @@ independent validator and exact supplied-path config/library binding. It consume
 only identity/model/technology/bifacial boolean, never factor, geometry, population
 or thermal data. P2G remains AC network/meter and P2H benchmark/uncertainty/closure.
 Read the four consolidated evidence bundles before any further upstream work.
+
+### P2F — consolidated DC plant + inverter/control admission package
+
+The [P2F boundary](architecture/site-dc-inverter-control-admission.md) owns population/DC topology, inverter
+equipment/capability and controller requests/allocation as one onboarding package.
+Only `s8.inverter_inventory_binding` is newly admitted: 66 configured inverter
+labels and layout-group memberships, at explicit lower fidelity. The ordered
+MQA11/MQA21/MQA22/MQA23 groups contain 16/16/17/17 labels. Confidence and installed
+temporal applicability remain unknown; no as-built equipment verification is claimed.
+
+Current manifest: `bracon-ash-dc-inverter-control-admission-v6`.
+Evidence remains 17/48/1/0; admission is 6/11/49/0; support is 1/5/60/0.
+Only S8 baseline blockers reduce 7 → 6; full blockers stay 9. All other coverage
+and all 65 other items remain unchanged. All sections still retain blockers.
+Configured labels do not create electrical topology. Model names are not exact
+CEC/SAM references; PVWatts/eta are not canonical S9 conversion authority; active
+nameplate is not Smax; the aggregate grid cap is not controller dispatch.
+
+Population 49,824 / 47,448 / 50,736 stays conflicting; 2076 strings remains
+unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
+population residual, equipment capability or controller authority are inferred.
+P2F is implemented as the current reviewed package, not physical readiness for P3.
+Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
+evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+AC network + transformer + revenue-meter authority.
+
+The engine module is `site_inverter_inventory_authority.py`; the reviewed file is
+`evidence/authorities/bracon-ash/inverter-inventory.yaml`. Nested frozen groups and
+independent validators enforce identity, count closure, unique labels and exact
+provenance. Guarded binding reads only site identity, inverter.num_units and group
+IDs/counts/labels. Model, capability, coordinates, module/topology and control
+fields are excluded. No ElectricalTopologyConfig is constructed.
 
 ### Physics implementation-delta recovery
 
