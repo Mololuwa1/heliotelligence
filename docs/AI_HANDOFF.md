@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #138 merge 076c310ce6087048e266bc42cc3bff95b76084d3
+PR #139 merge ba0044d39985796dbbf82884b18b53b475e2e620
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -23,17 +23,19 @@ combined interval magnitudes complete; eligible deterministic envelope interpret
 Next:
 P0 complete; module thermal, weather/irradiance and bounded population residual generic, dormant
 P1: immutable output contract COMPLETE; no writer or physical source selected
-P2A: evidence manifest / Bracon baseline COMPLETE; P2 admission IN PROGRESS
+P2A–P2G: review packages COMPLETE; physical evidence gaps remain
 P2B: physical-site identity admitted
 P2C: configured module model/raw basis admitted only at lower fidelity
 P2D: configured uniform series-count basis admitted only at lower fidelity; all paths retain blockers
 P2E: consolidated upstream package implemented; remaining inputs unresolved
 P2F: consolidated DC/inverter/control package implemented; labels only newly admitted
 P2G: downstream evidence review complete; zero admissions; all S11/S12/S13 evidence blocked
-Next: P2H benchmark/uncertainty/P2 closure; no shadow activation
+P2H: COMPLETE BY THIS PR; P2 REVIEW PHASE COMPLETE
+Bracon baseline physical admission: INCOMPLETE; P3 entry BLOCKED; execution INACTIVE
+Next: acquire/admit evidence within P2E–P2H; no additional P2 letter or shadow activation
 ```
 
-Current canonical code checkpoint: `076c310ce6087048e266bc42cc3bff95b76084d3` (PR #138 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `ba0044d39985796dbbf82884b18b53b475e2e620` (PR #139 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -57,7 +59,7 @@ Read the canonical [production-integration roadmap](development/production-integ
 
 The dormant [P1 contract](architecture/physical-shadow-output-contract.md) is implemented in `engine/physical_shadow_output_contract.py`, outside physics. It separates model source/version from explicit reference plane/boundary, uses exact run/site UUIDs and aware nanosecond snapshot identity, preserves independent P/Q resolution and carries fidelity/fallback/reason/provenance tuples. Overall state and apparent power are derived. Pure JSON-safe persistence round-trips are validated independently; no database I/O, execution, writer or hard-coded physical source is introduced.
 
-P1 is complete at the contract level. P2 evidence admission remains in progress and P3 remains inactive. Later `expected_energy` projection requires a resolved production channel at the explicitly intended reference plane; upstream resolution cannot masquerade as meter power and unresolved output cannot become zero. Legacy `physics_sdm`, authorization and Bracon admission are unchanged.
+P1 is complete at the contract level. Bracon physical admission remains incomplete and P3 remains inactive. Later `expected_energy` projection requires a resolved production channel at the explicitly intended reference plane; upstream resolution cannot masquerade as meter power and unresolved output cannot become zero. Legacy `physics_sdm`, authorization and Bracon admission are unchanged.
 
 ### P2A site evidence recovery
 
@@ -65,13 +67,13 @@ The [site evidence contract](architecture/site-evidence-manifest.md) and `engine
 
 The original P2A baseline had zero admitted requirements: 17 present/not admitted, 48 missing/blocked and one conflicting/blocked. Module counts 49,824 / 47,448 / 50,736 stay unresolved; capacity and geometry do not select one. At that baseline all nine path sections were blocked. Configuration is not authority; geometry is not electrical topology; telemetry labels are not measurement semantics; generic capability is not site admission. Missing means no sufficient supplied package evidence, not proof of external nonexistence. Unknown temporal validity stays unknown unless separately reviewed evidence declares its applicability.
 
-P1 is complete. P2A inventory/baseline is complete; full P2 admission stays in progress. P3 is inactive. Create no P1 record/run/source, authority, writer or public evidence endpoint here. The eventual Digital Twin derives its definition from admitted evidence/topology, then combines timestamped physical states; the 3D layer is only spatial evidence.
+P1 is complete. P2A inventory/baseline is complete; Bracon physical admission remains incomplete. P3 is inactive. Create no P1 record/run/source, authority, writer or public evidence endpoint here. The eventual Digital Twin derives its definition from admitted evidence/topology, then combines timestamped physical states; the 3D layer is only spatial evidence.
 
 ### P2B reviewed site identity
 
 `engine/site_physical_identity_authority.py` loads the separately reviewed [Bracon identity file](../evidence/authorities/bracon-ash/site-identity.yaml), not an auto-generated SiteConfig authority. See the [identity contract](architecture/site-physical-identity-authority.md). The frozen declaration covers only site ID/UUID/name, configured latitude/longitude and exact timezone; no capacity, population, inventory, geometry completeness or electrical topology belongs to it. Source is `config/sites.yaml`, confidence `unknown`. An independent validator and pure exact manifest/authority/SiteConfig binding check guard admission; no runtime consumes it automatically.
 
-At P2B, manifest `bracon-ash-site-identity-admitted-v2` admitted only `site.identity.physical`. Evidence remains 17/48/1/0; admission is 1/16/49/0 and active fidelity 1/0/65/0. All nine baseline/full-fidelity labels become partially admitted solely through identity, with required blockers retained and no fully admitted section. The other 65 items are unchanged; all three population representations stay conflicting and `electrical_topology` is still `None`. P2 remains in progress and P3 inactive. Neither implementation-delta Priority A nor B is advanced by identity evidence.
+At P2B, manifest `bracon-ash-site-identity-admitted-v2` admitted only `site.identity.physical`. Evidence remains 17/48/1/0; admission is 1/16/49/0 and active fidelity 1/0/65/0. All nine baseline/full-fidelity labels become partially admitted solely through identity, with required blockers retained and no fully admitted section. The other 65 items are unchanged; all three population representations stay conflicting and `electrical_topology` is still `None`. Bracon physical admission remains incomplete and P3 inactive. Neither implementation-delta Priority A nor B is advanced by identity evidence.
 
 ### P2C configured lower-fidelity module basis
 
@@ -92,7 +94,7 @@ The library's i_sc correction note is repository evidence, not independent
 manufacturer certification. No as-built population, serial/flash inventory,
 thermal/optical or topology authority is admitted. Installed temporal applicability
 remains unknown, population counts remain conflicting and electrical_topology None.
-P2 remains in progress; P3 inactive. Priority A/B remain pending. No runtime or
+Bracon physical admission remains incomplete; P3 inactive. Priority A/B remain pending. No runtime or
 production source change is made.
 
 ### P2D — configured uniform lower-fidelity series-count basis
@@ -113,7 +115,7 @@ All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
 conflicting; electrical_topology remains None. Canonical S8 still needs explicit
 per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
-No physics, runtime, configuration or production source changes. P2 continues;
+No physics, runtime, configuration or production source changes. Bracon evidence admission continues within P2E–P2H;
 P3 remains inactive.
 
 ### P2E — consolidated upstream physical-input admission package
@@ -136,7 +138,7 @@ blockers. The 608 geometry points are not a 50,736-module inventory. Population
 P2E is implemented as the current reviewed admission/evidence-request package,
 not upstream readiness for P3. Future upstream evidence updates P2E in place;
 do not create a new P2 letter per field. P2F is reserved for the consolidated DC
-plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+plant + inverter/control boundary. Full Bracon physical admission remains incomplete and P3 inactive.
 
 The engine authority is `site_bifacial_applicability_authority.py`; the reviewed
 file is `evidence/authorities/bracon-ash/bifacial-applicability.yaml`. It has an
@@ -167,7 +169,7 @@ unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
 population residual, equipment capability or controller authority are inferred.
 P2F is implemented as the current reviewed package, not physical readiness for P3.
 Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
-evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+evidence. Bracon physical admission remains incomplete; P3 inactive. P2G owns
 AC network + transformer + revenue-meter authority.
 
 The engine module is `site_inverter_inventory_authority.py`; the reviewed file is
@@ -203,9 +205,47 @@ ownership decision. P2G changes no runtime and retires no percentage.
 Four practical evidence bundles cover LV collection, transformers, MV/HV/grid
 and revenue meter. Future downstream evidence updates P2G in place; upstream/DC
 items stay owned by P2E/P2F. electrical_topology remains None and population
-49,824 / 47,448 / 50,736 remains unresolved. P2 remains in progress; P3 inactive.
-P2H is next and remains the final consolidated benchmark/uncertainty/P2 closure
-increment. Completion of a review package does not authorize physical execution.
+49,824 / 47,448 / 50,736 remains unresolved. Bracon physical admission remains incomplete; P3 inactive.
+P2H closes the consolidated benchmark/uncertainty review and P2 governance phase. Completion of a review package does not authorize physical execution.
+
+### P2H — benchmark/uncertainty review and final P2 closure
+
+The [P2H closure](architecture/site-p2-closure.md) completes P2A–P2H as the review/admission-governance
+phase for currently supplied evidence. **P2 REVIEW COMPLETE** does not mean
+physical-path readiness: **Bracon baseline physical admission is INCOMPLETE;
+P3 entry evidence is BLOCKED and execution INACTIVE**. There are zero new site
+admissions and no manifest/version changes. The four P2H benchmark/uncertainty
+requirements remain missing/blocked without numerical bounds, timing semantics
+or support thresholds.
+
+Current manifest remains `bracon-ash-dc-inverter-control-admission-v6`: evidence
+17/48/1/0, admission 6/11/49/0, support 1/5/60/0. All six admissions are unchanged.
+The validated path matrix contains 54 baseline blocker entries / 53 unique IDs,
+and 62 full-fidelity entries / 61 unique IDs. Only population is duplicated across
+baseline sections. Future baseline ownership is exact and disjoint: P2E 14,
+P2F 16, P2G 19, P2H 4. These counts are not a readiness percentage or maturity score.
+
+The baseline entry evidence rule is all(not section.blocking_requirement_ids for
+section in manifest.path_coverage); full fidelity uses its separate full-fidelity
+blocker tuples. A defensible lower-fidelity baseline may eventually clear entry
+without full fidelity. A clear gate means eligible to begin P3 engineering, not
+activation, validation or cutover. The exact-main manual full regression remains
+required before eventual activation/release; none is dispatched for P2 closure.
+
+The next engineering action is acquisition/admission of outstanding site evidence
+within existing P2E–P2H packages. No P2I or additional per-evidence P2 letter is
+planned. Future evidence updates the owning package and reruns closure; P3 begins
+only when the mandatory baseline blocker union reaches zero. No physics, runtime,
+production source or shadow execution changes occur.
+
+The current closure regression is `tests/unit/test_engine/test_site_p2_closure_readiness.py`.
+Use public manifest path_coverage as evidence authority; no new production readiness
+engine exists. All 53 unique baseline blockers have one stable future-update owner.
+Population remains P2F-owned even in module-electrical input; S12 full-only upgrades
+remain P2G-owned. P2H interval evidence depends on P2G meter semantics. No threshold
+or uncertainty coefficient is inferred from cadence, residuals, classes or confidence.
+Earlier package documents describe their review checkpoints; this closure defines
+the current whole-P2 review status. No full regression is dispatched for this closure.
 
 ### Physics implementation-delta recovery
 
@@ -213,7 +253,7 @@ The canonical [implementation-delta ledger](architecture/physics-implementation-
 
 Every ledger decision uses exactly one of `KEEP_CANONICAL`, `DOCUMENTATION_ALIGNMENT`, `ADVANCED_FIDELITY_PENDING` or `SITE_EVIDENCE_PENDING`. Priority A is the future advanced S8 member/sub-string/bypass route; Priority B is future cable/conductor parameter derivation feeding existing S8/S11/S13 solvers. Preserve the homogeneous string baseline, existing MPPT/branch/network solvers and S12 transformer ownership. Do not add a second gamma, spectral factor or loss subtraction to match an older stage equation. P2 evidence determines defensible site fidelity; these advanced items are not automatic blockers for every valid lower-fidelity P3 path.
 
-Status is contingent on successful post-merge main CI #335 on the exact PR #131 merge: P0, platform authorization, P1 and P2A complete; P2 site authority admission in progress; P3 inactive. The ledger is not Twin evidence and closes no Bracon admission gap.
+Status is contingent on successful post-merge main CI #335 on the exact PR #131 merge: P0, platform authorization, P1 and P2A complete; Bracon physical authority admission incomplete; P3 inactive. The ledger is not Twin evidence and closes no Bracon admission gap.
 
 ### Known pre-shadow blockers
 
@@ -237,7 +277,7 @@ P0 is complete. Generic module thermal plus weather-time/irradiance-boundary imp
 
 For resolved active authority rows, V_after=V_common, I_after=I_common(1−f), P_after=V_after I_after. Population loss is P_common−P_after; total mismatch closes both as shared+population and P_independent−P_after. Missing population evidence retains valid S8 values but active adjusted V/I/P stay NaN. Unresolved upstream cannot be repaired. Resolved-zero upstream stays exactly zero with or without authority, without fabricating a fraction; its selected path is not lower fidelity. Independent validation reconstructs equations, provenance, states and diagnostics without production builders. Upstream admission verifies the published aggregated S8 contract and internal consistency, including exact cause vocabulary/order and topology-ordered unresolved IDs; it does not reconstruct unavailable member-to-cause assignments.
 
-No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1 output contract is now implemented separately; P2 admission remains in progress and P3 inactive.
+No SiteConfig or legacy mismatch percentage is consumed. Bracon's 1.15% is not authority and remains on the legacy series only. Nameplate tolerance alone does not define member current/voltage distribution. Future member-resolved physics must compose series voltages at common current with explicit reverse/bypass authority where needed. DC collection is not integrated with this new boundary here; P1 output contract is now implemented separately; Bracon physical admission remains incomplete and P3 inactive.
 
 ## S14B support-policy recovery notes
 
@@ -287,7 +327,7 @@ The conversion is `T_cell = T_module_back + (E/E_ref) × deltaT`, with explicit 
 
 Thermal POA means supplied incident broadband POA, not automatically IAM/spectral electrical-effective irradiance. The thermal contract itself does not establish weather semantics; the new separate weather-time authority must be admitted explicitly. Thermal-zone mapping, calibrated POA selection and Bracon Ash sensor placement/calibration remain external. See the [architecture](architecture/physics-architecture.md#canonical-module-thermal-authority-and-state) and [site evidence gaps](sites/bracon-ash.md#module-thermal-evidence-onboarding).
 
-Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Remaining sequence: P1 output contract complete → P2 site evidence (including population residual and support policy) → P3. Shadow activation is not implemented.
+Completed generically: P0 source isolation, module thermal (PR #119), weather-time authority and date-consistent canonical irradiance boundary (PR #120), and bounded population-residual authority (PR #121). Generic S14B support eligibility was completed in PR #122; complete-chain measurement bounds were completed in PR #124; pointwise complete-model bounds were completed in PR #125; discrete expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). Remaining sequence: P1 output contract complete → P2 review complete → acquire/admit evidence within P2E–P2H → P3 only after baseline gate clears. Shadow activation is not implemented.
 
 ## Weather-time and irradiance handoff recovery notes
 
@@ -821,7 +861,7 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; P2 site evidence finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence acquisition/admission within P2E–P2H next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Deterministic interval envelope interpretation
 
@@ -829,7 +869,7 @@ Engineering sequence: measurement uncertainty complete; pointwise expected-model
 
 Gate order: S14B `benchmark_eligible` first; P/Q combined availability second; finite canonical residual and finite nonnegative bound third. Ineligible rows publish no relation or envelope endpoints and are not uncertainty-coverage gaps. Each channel needs both independently interpreted power and energy quantities. Exact equality means on-boundary; no tolerance or `isclose`. Missing authority and nonfinite arithmetic remain distinguishable through parent/channel states.
 
-Measurement, pointwise-model, interval-propagation and combined bounds are complete generically. Eligible deterministic S14B envelope interpretation is complete generically (PR #128). Platform authorization is implemented and tested; P2 site evidence finalisation is next, and P3 remains inactive. Inside does not prove correctness; outside is neither a physical loss nor a fault/causal/commercial finding. No probability or statistical significance is claimed. Bracon numerical admission, source selection, production and shadow behavior are unchanged.
+Measurement, pointwise-model, interval-propagation and combined bounds are complete generically. Eligible deterministic S14B envelope interpretation is complete generically (PR #128). Platform authorization is implemented and tested; site evidence acquisition/admission within P2E–P2H is next, and P3 remains inactive. Inside does not prove correctness; outside is neither a physical loss nor a fault/causal/commercial finding. No probability or statistical significance is claimed. Bracon numerical admission, source selection, production and shadow behavior are unchanged.
 
 ## Server-side authorization readiness
 
@@ -837,4 +877,4 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 admission remains in progress and no P3 shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence acquisition/admission within P2E–P2H is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; Bracon physical admission remains incomplete and no P3 shadow execution or deployment occurs.

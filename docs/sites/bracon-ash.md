@@ -6,7 +6,7 @@ Bracon Ash is one current reference/onboarded site used during Heliotelligence d
 
 The canonical machine-readable inventory is [evidence/sites/bracon-ash.yaml](../../evidence/sites/bracon-ash.yaml), governed by the [P2A manifest contract](../architecture/site-evidence-manifest.md). The table below is generated from it and checked by a drift regression; it is not a second authority matrix.
 
-P1 is complete. P2A establishes the inventory/baseline; P2 admission remains in progress and P3 is not active. Configuration is not authority; geometry is not electrical topology; telemetry presence is not measurement semantics; generic capability is not site admission. “Missing” means absent or insufficient in the current repository/onboarding package, not that external evidence cannot exist.
+P1 is complete. P2A establishes the inventory/baseline; Bracon physical admission remains incomplete and P3 is not active. Configuration is not authority; geometry is not electrical topology; telemetry presence is not measurement semantics; generic capability is not site admission. “Missing” means absent or insufficient in the current repository/onboarding package, not that external evidence cannot exist.
 
 Original P2A inventory: **66 requirements; 17 present/not admitted, 48 missing/blocked, one conflicting/blocked; zero admitted**. All nine baseline/full-fidelity path sections were blocked and temporal applicability was unknown. Present material includes configuration, layout group labels, reconstructed spatial geometry, local module-library fit/model labels, legacy assumptions and configured/source-code weather/SCADA conventions. No capability, topology, controller, meter, support-gap or numerical uncertainty authority is inferred.
 
@@ -18,7 +18,7 @@ The unresolved module-population conflict is retained without selecting a value:
 
 Capacity 28,524 kWp remains configuration evidence. The surveyed file declares `_source = module-cloud reconstruction @174.47` and `_georef_residual_m = 0.436`; spatial groups MQA11/MQA21/MQA22/MQA23 establish no electrical connectivity. The geometry API may combine surveyed coordinates with SiteConfig-derived counts, so evidence references point to their underlying files separately. No config or geometry value was changed to reconcile the conflict.
 
-Full P2 requires reviewed evidence and explicit canonical bindings for the intended path/fidelity. P2A creates no P1 output/run/source, physics authority, public evidence API, writer or shadow execution.
+Physical baseline admission requires reviewed evidence and explicit canonical bindings for the intended path/fidelity. P2A creates no P1 output/run/source, physics authority, public evidence API, writer or shadow execution.
 
 ### P2B physical-site identity admission
 
@@ -26,7 +26,7 @@ The separately reviewed [identity authority](../architecture/site-physical-ident
 
 At P2B, manifest version was `bracon-ash-site-identity-admitted-v2`. Evidence counts remain **17 present / 48 missing / 1 conflicting / 0 N/A**. Admission is **1 admitted / 16 not admitted / 49 blocked / 0 N/A**; active support is **1 full / 0 lower / 65 non-resolving / 0 N/A**. Identity alone has static temporal scope; all other evidence applicability remains unchanged.
 
-At P2B, all nine baseline and full-fidelity sections became `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. At that step, all other 65 requirements were unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. P2 admission remains in progress and P3 is inactive.
+At P2B, all nine baseline and full-fidelity sections became `partially_admitted` solely because the shared identity prerequisite is admitted. Every section still has required blockers; none is admitted as a complete physical path. At that step, all other 65 requirements were unchanged. Capacity remains an inventory fact not consumed by identity; the three population counts remain conflicting. `electrical_topology` remains `None`, and layout groups establish no electrical mapping. Bracon physical admission remains incomplete and P3 is inactive.
 
 ### P2C configured module basis admission
 
@@ -47,7 +47,7 @@ Only module-electrical baseline blockers reduce (10 → 9); full-fidelity blocke
 remain 10, and every other section's blockers are unchanged. All nine sections
 remain partially admitted, with no complete physical path. The other 63 unadmitted
 items and identity binding are preserved. The three population representations
-remain unresolved; no topology is inferred. P2 continues; P3 remains inactive.
+remain unresolved; no topology is inferred. Bracon evidence admission continues within P2E–P2H; P3 remains inactive.
 
 ### P2D — configured uniform lower-fidelity series-count basis
 
@@ -67,7 +67,7 @@ All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
 conflicting; electrical_topology remains None. Canonical S8 still needs explicit
 per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
-No physics, runtime, configuration or production source changes. P2 continues;
+No physics, runtime, configuration or production source changes. Bracon evidence admission continues within P2E–P2H;
 P3 remains inactive.
 
 ### P2E — consolidated upstream physical-input admission package
@@ -90,7 +90,7 @@ blockers. The 608 geometry points are not a 50,736-module inventory. Population
 P2E is implemented as the current reviewed admission/evidence-request package,
 not upstream readiness for P3. Future upstream evidence updates P2E in place;
 do not create a new P2 letter per field. P2F is reserved for the consolidated DC
-plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+plant + inverter/control boundary. Full Bracon physical admission remains incomplete and P3 inactive.
 
 ### P2E upstream physical-input evidence still required
 
@@ -139,7 +139,7 @@ unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
 population residual, equipment capability or controller authority are inferred.
 P2F is implemented as the current reviewed package, not physical readiness for P3.
 Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
-evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+evidence. Bracon physical admission remains incomplete; P3 inactive. P2G owns
 AC network + transformer + revenue-meter authority.
 
 ### P2F DC/inverter/control evidence still required
@@ -188,9 +188,8 @@ ownership decision. P2G changes no runtime and retires no percentage.
 Four practical evidence bundles cover LV collection, transformers, MV/HV/grid
 and revenue meter. Future downstream evidence updates P2G in place; upstream/DC
 items stay owned by P2E/P2F. electrical_topology remains None and population
-49,824 / 47,448 / 50,736 remains unresolved. P2 remains in progress; P3 inactive.
-P2H is next and remains the final consolidated benchmark/uncertainty/P2 closure
-increment. Completion of a review package does not authorize physical execution.
+49,824 / 47,448 / 50,736 remains unresolved. Bracon physical admission remains incomplete; P3 inactive.
+P2H closes the consolidated benchmark/uncertainty review and P2 governance phase. Completion of a review package does not authorize physical execution.
 
 ### P2G AC network / transformer / meter evidence still required
 
@@ -218,6 +217,63 @@ No transformer ratings are inferred from 28,524 kWp, and no network is inferred
 from layout groups. Legacy 1.70% AC loss has no validated LV/transformer/MV-HV
 allocation. Physical activation must resolve overlap explicitly; no loss percentage
 is retired or redistributed here. P2G remains physically blocked pending evidence.
+
+### P2H — benchmark/uncertainty review and final P2 closure
+
+The [P2H closure](../architecture/site-p2-closure.md) completes P2A–P2H as the review/admission-governance
+phase for currently supplied evidence. **P2 REVIEW COMPLETE** does not mean
+physical-path readiness: **Bracon baseline physical admission is INCOMPLETE;
+P3 entry evidence is BLOCKED and execution INACTIVE**. There are zero new site
+admissions and no manifest/version changes. The four P2H benchmark/uncertainty
+requirements remain missing/blocked without numerical bounds, timing semantics
+or support thresholds.
+
+Current manifest remains `bracon-ash-dc-inverter-control-admission-v6`: evidence
+17/48/1/0, admission 6/11/49/0, support 1/5/60/0. All six admissions are unchanged.
+The validated path matrix contains 54 baseline blocker entries / 53 unique IDs,
+and 62 full-fidelity entries / 61 unique IDs. Only population is duplicated across
+baseline sections. Future baseline ownership is exact and disjoint: P2E 14,
+P2F 16, P2G 19, P2H 4. These counts are not a readiness percentage or maturity score.
+
+The baseline entry evidence rule is all(not section.blocking_requirement_ids for
+section in manifest.path_coverage); full fidelity uses its separate full-fidelity
+blocker tuples. A defensible lower-fidelity baseline may eventually clear entry
+without full fidelity. A clear gate means eligible to begin P3 engineering, not
+activation, validation or cutover. The exact-main manual full regression remains
+required before eventual activation/release; none is dispatched for P2 closure.
+
+The next engineering action is acquisition/admission of outstanding site evidence
+within existing P2E–P2H packages. No P2I or additional per-evidence P2 letter is
+planned. Future evidence updates the owning package and reruns closure; P3 begins
+only when the mandatory baseline blocker union reaches zero. No physics, runtime,
+production source or shadow execution changes occur.
+
+### P2H benchmark / uncertainty evidence still required
+
+Supply these three practical bundles within the existing P2H package. The
+[canonical closure request](../architecture/site-p2-closure.md) states prerequisites,
+reference bases, complete-chain ownership and prohibited inference.
+
+<!-- BEGIN P2H EVIDENCE BUNDLES -->
+1. **Benchmark interval + support policy** — meter quantity, interval/time semantics,
+   duration, timestamp position, cadence/applicability and exact expected-support
+   alignment; validated sampling-sensitivity study or explicit cadence requirement,
+   maximum permitted expected gap, method, scope, source, confidence and applicability.
+   P2G meter measurement semantics must be established first; no threshold is guessed.
+2. **Revenue-meter measurement uncertainty** — already-combined complete-chain
+   numerical P/Q relative/absolute bounds with the same-channel measured-power
+   primary-unit reference basis; meter/CT/PT/scaling and calibration provenance,
+   measurement time scope, validity dates, method, source and categorical confidence.
+3. **Expected-model uncertainty** — complete expected-model-chain P/Q relative/absolute
+   bounds at the canonical meter boundary on the same-channel expected-power basis;
+   model/study/version, operating domain, method, applicability/validity, source and
+   confidence. Observed residuals must not define their own interpretation envelope.
+<!-- END P2H EVIDENCE BUNDLES -->
+
+No site S14 or uncertainty requirement is admitted. Numerical patterns, quality or
+class labels and confidence do not establish timing, gap policy or quantitative
+bounds. P2 review is closed; physical admission is incomplete and P3 remains blocked.
+Evidence acquisition/admission continues in P2E–P2H, with no further P2 letter.
 
 The following table is the current manifest projection; the original zero-admission P2A baseline above remains historical.
 
