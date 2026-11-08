@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `076c310ce6087048e266bc42cc3bff95b76084d3` (PR #138 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `ba0044d39985796dbbf82884b18b53b475e2e620` (PR #139 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -77,7 +77,7 @@ P0 expected-energy source isolation is complete. The generic canonical module th
 
 Generic mismatch coverage now distinguishes physical S8 shared-MPPT/common-voltage mismatch from an explicit lower-fidelity intra-string population residual. `module_population_mismatch.py` admits evidence per `(inverter_id, mppt_id)`: either explicitly negligible residual, or an equivalent post-MPPT current derate. Missing authority preserves valid S8 baseline values while active population-complete output remains unresolved. Resolved-zero upstream states remain exact zero without authority because the residual mechanism is inactive. It does not change homogeneous series scaling or the existing MPPT mismatch calculation.
 
-Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. This population capability activates no production or expected-energy source; P2 admission remains in progress and P3 inactive.
+Nameplate power tolerance alone is neither mismatch loss nor a member current/voltage distribution. No synthetic populations or member-resolved reverse/bypass physics are implemented. The legacy mismatch percentage is not consumed or retired. Bracon Ash's 1.15% remains unallocated legacy compatibility data, and Bracon is not admitted to this dormant authority. This population capability activates no production or expected-energy source; Bracon physical admission remains incomplete and P3 inactive.
 
 ## Interval benchmark support eligibility
 
@@ -160,13 +160,13 @@ For each P/Q channel and each published interval-average power/energy quantity, 
 
 Combined resolution does not imply benchmark eligibility. Missing/exceeded S14B support policy remains unchanged; withheld residuals remain NaN. No residual, residual envelope, significance flag or commercial result is reconstructed. The bound still excludes numerical support-density/continuous-path error.
 
-Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; P2 site evidence finalisation next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
+Engineering sequence: measurement uncertainty complete; pointwise expected-model uncertainty complete; expected-model interval propagation complete (PR #126); combined interval magnitudes complete (PR #127); eligible deterministic S14B envelope interpretation complete (PR #128); platform authorization implemented and tested; site evidence acquisition/admission within P2E–P2H next. P3 shadow execution is not activated. Bracon has no invented numerical admission. S14B/S14C numerics, source isolation, `physics_sdm` and production/shadow behaviour remain unchanged.
 
 ## Eligible interval uncertainty-envelope interpretation
 
 The dormant `revenue_meter_interval_uncertainty_interpretation.py` exact-replays the combined parent and interprets only already-published, benchmark-eligible S14B residuals. Each P/Q power and energy residual is compared independently to `[-B, +B]`: strictly within, exactly on either boundary, outside positive or outside negative. There is no epsilon or statistical interpretation. Zero bound with zero residual is on the boundary.
 
-The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is implemented and tested; P2 site evidence finalisation is next, and P3 is not activated.
+The excess `max(abs(canonical residual) - B, 0)` is a mathematical distance only. Inside does not establish model correctness; outside does not establish physical loss, fault, causality or commercial impact. Missing/exceeded support policy blocks interpretation even when combined uncertainty resolves. No residual is regenerated. Platform authorization is implemented and tested; site evidence acquisition/admission within P2E–P2H is next, and P3 is not activated.
 
 ## Server-side authorization readiness
 
@@ -174,19 +174,19 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](docs/architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site evidence finalisation is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; P2 admission remains in progress and no P3 shadow execution or deployment occurs.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence acquisition/admission within P2E–P2H is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; Bracon physical admission remains incomplete and no P3 shadow execution or deployment occurs.
 
 ## P1 physical shadow-output boundary
 
-The immutable [P1 output contract](docs/architecture/physical-shadow-output-contract.md) now separates run/model identity, physical boundary, independent P/Q resolution and declared fidelity. Pure persistence round-trips retain exact snapshot timestamps and provenance; unresolved channels remain absent with reason codes. A future expected-energy projection requires resolved power at its explicitly intended reference plane. No physical source is named, writer or execution activated, or Bracon evidence admitted. P2 admission remains in progress and P3 remains inactive.
+The immutable [P1 output contract](docs/architecture/physical-shadow-output-contract.md) now separates run/model identity, physical boundary, independent P/Q resolution and declared fidelity. Pure persistence round-trips retain exact snapshot timestamps and provenance; unresolved channels remain absent with reason codes. A future expected-energy projection requires resolved power at its explicitly intended reference plane. No physical source is named, writer or execution activated, or Bracon evidence admitted. Bracon physical admission remains incomplete and P3 remains inactive.
 
 ## P2A site evidence baseline
 
-The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now distinguishes configuration, supplied evidence, canonical authority admission and physical coverage. The original [Bracon P2A inventory](evidence/sites/bracon-ash.yaml) had 66 requirements and zero admitted; conflicting module counts remain unresolved, and geometry establishes no electrical topology. P1 is complete; P2A inventory/baseline is complete; full P2 admission is in progress and P3 remains inactive. No source, writer, physical authority or public evidence API is activated.
+The [site evidence manifest](docs/architecture/site-evidence-manifest.md) now distinguishes configuration, supplied evidence, canonical authority admission and physical coverage. The original [Bracon P2A inventory](evidence/sites/bracon-ash.yaml) had 66 requirements and zero admitted; conflicting module counts remain unresolved, and geometry establishes no electrical topology. P1 is complete; P2A inventory/baseline is complete; Bracon physical admission is incomplete and P3 remains inactive. No source, writer, physical authority or public evidence API is activated.
 
 ## P2B reviewed site identity
 
-The separately reviewed [site identity authority](docs/architecture/site-physical-identity-authority.md) now admits only `site.identity.physical`. Configuration supplied evidence; it did not self-admit. At P2B, the manifest had 1 admitted identity, 16 not-admitted items and 49 blocked items. All nine path sections are only partially admitted and retain blockers. Capacity, population, inventory and electrical topology are excluded from identity authority; the population conflict and absent electrical topology are unchanged. P2 admission continues; P3 is inactive.
+The separately reviewed [site identity authority](docs/architecture/site-physical-identity-authority.md) now admits only `site.identity.physical`. Configuration supplied evidence; it did not self-admit. At P2B, the manifest had 1 admitted identity, 16 not-admitted items and 49 blocked items. All nine path sections are only partially admitted and retain blockers. Capacity, population, inventory and electrical topology are excluded from identity authority; the population conflict and absent electrical topology are unchanged. Bracon evidence admission continues within P2E–P2H; P3 is inactive.
 
 ## P2C configured module electrical basis
 
@@ -197,7 +197,7 @@ manufacturer/as-built population evidence. At P2C, admission was 3 admitted / 14
 admitted / 49 blocked; active support is 1 full / 2 lower / 63 non-resolving.
 Module-electrical baseline blockers reduce 10 → 9; full-fidelity blockers remain 10.
 All sections retain blockers. Population conflict and absent topology are unchanged;
-P2 remains in progress and P3 inactive. No runtime or production source is activated.
+Bracon physical admission remains incomplete and P3 inactive. No runtime or production source is activated.
 
 ## P2D configured uniform lower-fidelity series-count basis
 
@@ -206,7 +206,7 @@ admits only the configured assumption of 24 series modules per string, at lower
 fidelity. The configured string count of 2076 remains unadmitted; no physical inventory,
 IDs, membership or topology is created. At P2D, admission was 4/13/49/0 and support
 1/3/62/0. Only S8 baseline blockers reduce 8 → 7; full blockers remain 9. All paths
-retain blockers; population conflict is unresolved. P2 continues; P3 is inactive.
+retain blockers; population conflict is unresolved. Bracon evidence admission continues within P2E–P2H; P3 is inactive.
 
 ## P2E consolidated upstream physical-input admission
 
@@ -217,7 +217,7 @@ at lower fidelity; 0.80 is not admitted as phi_Isc. Admission is 5/12/49/0 and s
 1/4/61/0. Upstream baseline blockers reduce 7 → 6; full blockers stay 8. The four
 consolidated evidence bundles remain required; no upstream runtime is activated.
 Future upstream evidence updates P2E in place. P2F is DC plant + inverter/control;
-P2G AC network/meter; P2H benchmark/uncertainty and P2 closure. P2 remains in progress;
+P2G AC network/meter; P2H benchmark/uncertainty and P2 closure. Bracon physical admission remains incomplete;
 P3 remains inactive. No new P2 letter is created for individual upstream fields.
 
 ## P2F consolidated DC plant + inverter/control admission
@@ -229,7 +229,7 @@ Admission is 6/11/49/0; support is 1/5/60/0. Only S8 baseline blockers reduce 7 
 full blockers remain 9 and all paths retain blockers. Three consolidated bundles
 cover population/DC topology, inverter equipment/capability and controller/PPC.
 P2E/P2F evidence updates their existing packages; P2G is AC network + transformer
-+ revenue-meter authority next. P2 remains in progress and P3 inactive.
++ revenue-meter authority next. Bracon physical admission remains incomplete and P3 inactive.
 
 ## P2G downstream evidence readiness
 
@@ -238,5 +238,20 @@ as a **zero-admission evidence package**, not downstream physical readiness.
 The manifest is unchanged: 6 admitted / 11 not admitted / 49 blocked. S11/S12/S13
 remain missing/blocked; migration meter rows provide no meter engineering authority.
 Four evidence bundles cover LV collection, transformer, MV/HV/grid and revenue
-meter. P2H benchmark/uncertainty/P2 closure is next. P2 remains in progress and
+meter. P2H now closes the review phase; physical evidence remains blocked. Bracon physical admission remains incomplete and
 P3 inactive; no runtime or production source changes.
+
+## P2 review closure and blocked P3 entry
+
+The [P2H closure](docs/architecture/site-p2-closure.md) completes P2A–P2H review
+of currently supplied evidence, with zero new admissions. P2 REVIEW is complete;
+Bracon baseline physical admission remains incomplete and P3 entry is blocked.
+The unchanged v6 manifest retains 6 admissions and 53 unique mandatory baseline
+blockers. Every blocker has exactly one P2E/P2F/P2G/P2H future-update owner.
+
+The next engineering action is acquiring/admitting evidence within those existing
+packages. No P2I or additional per-evidence P2 letter is planned. P3 engineering is
+eligible only when all baseline blocker tuples are empty; full-fidelity readiness
+is separate. A clear gate is not production activation or physical-model validation.
+No shadow execution is activated. Exact-main manual full regression remains
+required before eventual activation/release, not for this blocked governance closure.

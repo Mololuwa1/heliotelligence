@@ -9,7 +9,7 @@ contains the single reviewed, versioned 66-requirement catalogue.
 Starting checkpoint: PR #130 merge `1237d05172d774f3a28ecfa0037363e205a01c3f`.
 Main CI #333 succeeded, including the full backend suite and frontend, before
 branch creation. P1's output contract is complete. P2A establishes the inventory
-and baseline; full P2 admission remains in progress and P3 is not active.
+and baseline; Bracon baseline physical admission remains incomplete and P3 is not active.
 
 ## Evidence, configuration and admission
 
@@ -200,7 +200,7 @@ All nine sections retain blockers. Population 49,824 / 47,448 / 50,736 remains
 conflicting; electrical_topology remains None. Canonical S8 still needs explicit
 per-string counts in independently admitted topology. P2D creates none; later
 consumption requires a reviewed binding that permits the uniform assumption.
-No physics, runtime, configuration or production source changes. P2 continues;
+No physics, runtime, configuration or production source changes. Bracon evidence admission continues within P2E–P2H;
 P3 remains inactive.
 
 ### P2E — consolidated upstream physical-input admission package
@@ -223,7 +223,7 @@ blockers. The 608 geometry points are not a 50,736-module inventory. Population
 P2E is implemented as the current reviewed admission/evidence-request package,
 not upstream readiness for P3. Future upstream evidence updates P2E in place;
 do not create a new P2 letter per field. P2F is reserved for the consolidated DC
-plant + inverter/control boundary. Full P2 remains in progress and P3 inactive.
+plant + inverter/control boundary. Full Bracon physical admission remains incomplete and P3 inactive.
 
 ### P2F — consolidated DC plant + inverter/control admission package
 
@@ -247,7 +247,7 @@ unadmitted and electrical_topology remains None. No IDs/mappings, resistance,
 population residual, equipment capability or controller authority are inferred.
 P2F is implemented as the current reviewed package, not physical readiness for P3.
 Further DC/inverter/controller evidence updates P2F in place; P2E still owns upstream
-evidence. P2 remains in progress; P3 inactive. P2G is next and remains reserved for
+evidence. Bracon physical admission remains incomplete; P3 inactive. P2G owns
 AC network + transformer + revenue-meter authority.
 
 ### P2G — downstream AC network / transformer / meter evidence review
@@ -276,9 +276,38 @@ ownership decision. P2G changes no runtime and retires no percentage.
 Four practical evidence bundles cover LV collection, transformers, MV/HV/grid
 and revenue meter. Future downstream evidence updates P2G in place; upstream/DC
 items stay owned by P2E/P2F. electrical_topology remains None and population
-49,824 / 47,448 / 50,736 remains unresolved. P2 remains in progress; P3 inactive.
-P2H is next and remains the final consolidated benchmark/uncertainty/P2 closure
-increment. Completion of a review package does not authorize physical execution.
+49,824 / 47,448 / 50,736 remains unresolved. Bracon physical admission remains incomplete; P3 inactive.
+P2H closes the consolidated benchmark/uncertainty review and P2 governance phase. Completion of a review package does not authorize physical execution.
+
+### P2H — benchmark/uncertainty review and final P2 closure
+
+The [P2H closure](site-p2-closure.md) completes P2A–P2H as the review/admission-governance
+phase for currently supplied evidence. **P2 REVIEW COMPLETE** does not mean
+physical-path readiness: **Bracon baseline physical admission is INCOMPLETE;
+P3 entry evidence is BLOCKED and execution INACTIVE**. There are zero new site
+admissions and no manifest/version changes. The four P2H benchmark/uncertainty
+requirements remain missing/blocked without numerical bounds, timing semantics
+or support thresholds.
+
+Current manifest remains `bracon-ash-dc-inverter-control-admission-v6`: evidence
+17/48/1/0, admission 6/11/49/0, support 1/5/60/0. All six admissions are unchanged.
+The validated path matrix contains 54 baseline blocker entries / 53 unique IDs,
+and 62 full-fidelity entries / 61 unique IDs. Only population is duplicated across
+baseline sections. Future baseline ownership is exact and disjoint: P2E 14,
+P2F 16, P2G 19, P2H 4. These counts are not a readiness percentage or maturity score.
+
+The baseline entry evidence rule is all(not section.blocking_requirement_ids for
+section in manifest.path_coverage); full fidelity uses its separate full-fidelity
+blocker tuples. A defensible lower-fidelity baseline may eventually clear entry
+without full fidelity. A clear gate means eligible to begin P3 engineering, not
+activation, validation or cutover. The exact-main manual full regression remains
+required before eventual activation/release; none is dispatched for P2 closure.
+
+The next engineering action is acquisition/admission of outstanding site evidence
+within existing P2E–P2H packages. No P2I or additional per-evidence P2 letter is
+planned. Future evidence updates the owning package and reruns closure; P3 begins
+only when the mandatory baseline blocker union reaches zero. No physics, runtime,
+production source or shadow execution changes occur.
 
 The eventual Digital Twin sequence is:
 
@@ -297,5 +326,5 @@ UI / map / 3D projection
 Existing 3D geometry is one evidence layer, not the complete Twin Definition.
 P2A creates no P1 outputs, run IDs, model sources, adapter, migration, writer, API,
 frontend response or activation. Evidence is operationally sensitive and is not
-exposed through an interface here. P2 admission stays in progress; P3, production
+exposed through an interface here. Bracon physical admission remains incomplete; P3, production
 source changes and shadow execution remain inactive.
