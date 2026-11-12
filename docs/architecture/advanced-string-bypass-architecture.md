@@ -32,7 +32,7 @@ EXISTING S8 common-voltage shared-MPPT solve
 EXISTING S9 inverter
 ```
 
-Only the topology authority is implemented here. No second DC collection, MPPT
+Topology authority and isolated section Bishop I-V are implemented. No second DC collection, MPPT
 or inverter chain is introduced. Future advanced I-V output must meet the same
 physical `string_terminal` boundary before any existing branch transformation.
 
@@ -40,14 +40,14 @@ physical `string_terminal` boundary before any existing branch transformation.
 
 | Increment | Responsibility | Current status |
 | --- | --- | --- |
-| Stage4a-1 | Member / bypass-protected-section topology authority | Implemented by this increment, dormant |
-| Stage4a-2 | Section electrical authority + reverse-bias I-V | Pending |
+| Stage4a-1 | Member / bypass-protected-section topology authority | COMPLETE, dormant |
+| Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE BY THIS PR, dormant |
 | Stage4a-3 | Common-current section/module/string composition + diode clamp | Pending |
 | Stage4a-4 | Multi-peak identification and advanced candidate/global operating handoff | Pending |
 | Stage4a-5 | Optical/shading-state → section binding, string-class optimisation and Method-B validation | Pending |
 
-Stage 4a is not complete. In particular, A-06 reverse-bias/composition and A-07
-multi-peak/global selection remain pending in the
+Stage 4a is not complete. A-06 remains partially pending for bypass clamp and
+common-current composition; A-07 multi-peak/global selection remains pending in the
 [implementation-delta ledger](physics-implementation-delta.md). Geometry/shading
 binding remains pending within A-05; connectivity authority is its first slice.
 
@@ -120,6 +120,89 @@ No readiness percentage is published. The independent
 records, global module identities, ordering, provenance and diagnostics without
 calling builders, constructors or admission helpers. Public resolution validates
 input records and its detached output, including deliberately forged frozen state.
+
+## Stage4a-2 — explicit reverse-breakdown authority and section I-V
+
+The [reverse authority](../../src/heliotelligence/physics/string_section_reverse_breakdown_authority.py)
+consumes the existing Stage4a-1 result, never independent SiteConfig topology.
+`BypassSectionIdentity(module_id, section_id)` is the canonical immutable key;
+no concatenation or string-derived identity is introduced. Partial/empty coverage
+is valid. Detached immutable output retains parent traversal order, resolved and
+unavailable section identities and exact diagnostics:
+`topology_section_count = reverse_authority_section_count +
+reverse_authority_unavailable_section_count`, plus `avalanche_enabled_section_count`.
+
+```text
+contract: explicit_bypass_section_reverse_breakdown_authority_v1
+model: bishop88_explicit_section_reverse_breakdown_parameters_v1
+scope: advanced_s8_section_reverse_breakdown_before_diode_clamp_and_series_composition
+coverage: explicit_stage4a1_bypass_sections_with_reviewed_reverse_breakdown_parameters
+```
+
+Every supplied section requires explicit finite non-Boolean real
+`breakdown_factor` in [0, 1], negative `breakdown_voltage_v` and positive
+`breakdown_exponent`. None has a default. Explicit factor zero means no avalanche
+term, not missing authority. Exact parameter source, categorical confidence,
+method reference and applicability are retained. Confidence changes no numerical
+result. The independent validator checks all reconstructible parent invariants,
+section identities, parameters, fixed metadata, order, partitions and counts
+without constructors or admission builders. Stage4a-1 remains responsible for
+its original physical StringConfig count binding; no substitute topology is built.
+Validation is not cryptographic evidence authentication.
+
+The [section kernel](../../src/heliotelligence/physics/string_section_reverse_iv.py)
+requires an explicit frozen `SectionSingleDiodeOperatingState`: state reference,
+effective irradiance, cell temperature, photocurrent, saturation current, series
+resistance, shunt resistance and nNsVth. These are already-resolved **section**
+parameters. Irradiance and temperature are context, not inputs to a new parameter
+fit or photocurrent calculation. No module Rs/Rsh/nNsVth is divided by section
+count, and module IL/I0 is not copied into sections. Connectivity cell/branch
+counts alone cannot justify a transformation from an aggregate fitted module SDM,
+especially for half-cut/parallel branches. A later reviewed binding owns that work.
+
+```text
+contract: bypass_section_single_diode_reverse_iv_v1
+model: pvlib_bishop88_explicit_reverse_breakdown_section_iv_v1
+scope: advanced_s8_bypass_section_iv_before_bypass_diode_clamp
+```
+
+The kernel calls pinned **pvlib 0.15.2** public `bishop88` and
+`bishop88_v_from_i`, not copied equations or existing forward-only electrical
+helpers. Open circuit uses the same explicit parameters and Newton method,
+required by pvlib for nonzero breakdown. Newton tolerance is 1e-10 V with up to
+100 iterations. A returned endpoint must have current magnitude no greater than
+1e-8 A + 1e-9 × photocurrent; this is numerical acceptance, not evidence uncertainty.
+Solver errors, nonfinite curves and failed endpoint checks raise contextual
+errors containing section identity and state reference. No zero/forward-only or
+alternate-model fallback exists.
+
+The explicit breakdown voltage belongs to this **section-equivalent Bishop
+element**. It is not multiplied by cell count or divided from a module value.
+The fixed `REVERSE_BREAKDOWN_GRID_GUARD_FRACTION = 0.99` samples minimum diode
+voltage at 0.99 × the negative breakdown voltage (for example -14.85 V for -15 V).
+This guard is numerical sampling, not site evidence or a physical diode parameter.
+The singular breakdown boundary is never sampled. The deterministic grid has
+exact requested length (exact integer >= 3, default 401): the first half of
+intervals runs from the guard to exact diode voltage zero, then the remaining
+intervals run to Bishop open circuit. A zero-photocurrent state has a degenerate
+zero forward endpoint; no fictitious illuminated forward region is created.
+Grid density is numerical resolution, not an evidence fidelity claim.
+
+Output is a fresh owned DataFrame plus detached immutable state/authority metadata,
+including both layers' contract IDs and exact source parameters. Columns are
+`curve_point`, `diode_voltage_v`, `voltage_v`, `current_a`, `power_w`, `reverse_bias`.
+Power is exactly terminal voltage × current. Negative terminal voltage and power
+are physically valid here and remain unclipped. `reverse_bias` means strictly
+**diode_voltage_v < 0**; it is not terminal-voltage sign or bypass conduction.
+No bypass forward voltage or `max(V, -Vf)` clamp exists. Stage4a-3 owns explicit
+diode authority/clamping and common-current composition; no module/string curve
+or MPPT candidate is produced by Stage4a-2.
+
+Coverage explicitly fixes `d2mutau = 0`, `NsVbi = infinity`: no PVsyst thin-film
+recombination term. CdTe/a-Si recombination would need a separately reviewed
+extension; this kernel makes no universal-technology claim. Test-only Bishop
+fixtures such as factor 0.002, voltage -15 V and exponent 3 are numerical references,
+never site defaults or inferred JKM570 evidence.
 
 ## Method A before Method B
 

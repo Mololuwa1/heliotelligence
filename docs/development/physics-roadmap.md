@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `633316400f7d9f6ca34a799b7c1c1c87a7267f40` (PR #140 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `df54d99267f451718a125a1cebcc090726514241` (PR #141 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -64,9 +64,9 @@ Generic mismatch coverage now supports physical shared-MPPT mismatch, an explici
 
 ## Bounded future physics
 
-The canonical [implementation-delta ledger](../architecture/physics-implementation-delta.md) reconciles the original external Stage 1–6 design intent with current owners. It identifies two principal advanced-fidelity workstreams, with only the first topology slice implemented:
+The canonical [implementation-delta ledger](../architecture/physics-implementation-delta.md) reconciles the original external Stage 1–6 design intent with current owners. It identifies two principal advanced-fidelity workstreams, with topology and isolated section reverse-I-V slices implemented:
 
-1. **Priority A — advanced S8 member/sub-string and bypass-diode path:** Stage4a-1 topology authority is implemented and dormant; [bounded sequence and evidence rules](../architecture/advanced-string-bypass-architecture.md). Geometry/shading binding and all numerical bypass work remain pending. Remaining work: explicit physical ordering/routing, shaded cell/sub-string state, diode/reverse-bias/clamp behavior, current-consistent series composition and reviewed multi-peak/all-candidate/global selection/diagnostics. Preserve homogeneous string I-V as a valid baseline and the existing string-terminal → direct branch → shared MPPT → S9 boundaries. Existing sampled-candidate selection must not be relabelled as a bypass-resolved global tracking model.
+1. **Priority A — advanced S8 member/sub-string and bypass-diode path:** Stage4a-1 topology authority is complete and dormant; Stage4a-2 explicit reverse-breakdown authority and isolated Bishop section I-V are complete by this PR; [bounded sequence and evidence rules](../architecture/advanced-string-bypass-architecture.md). Geometry/shading binding, diode authority/clamp and composition remain pending. No module parameters are split into sections. Remaining work: shaded cell/sub-string state, explicit diode clamp behavior, current-consistent series composition and reviewed multi-peak/all-candidate/global selection/diagnostics. Preserve homogeneous string I-V as a valid baseline and the existing string-terminal → direct branch → shared MPPT → S9 boundaries. Existing sampled-candidate selection must not be relabelled as a bypass-resolved global tracking model.
 2. **Priority B — cable/conductor parameter authority:** derive electrical parameters from explicit construction, installation and temperature evidence, including additional AC effects only where admitted. Feed existing S8 direct branch, S11 series R/X and S13 nominal-pi owners; extend those contracts where needed rather than subtracting cable power in a parallel engine. Keep S12 transformer losses separate.
 
 Neither is a universal prerequisite for P3. P2 determines the site's evidence, intended fidelity and material benefit; a valid lower-fidelity path still needs explicit admission and all remaining activation gates. Engerer2, thermal calibration/dynamics, flash-data variability and arbitrary shared DC collection remain lower-priority refinements where evidence/use case requires them. Shared-feeder sites cannot pretend direct independent branches cover their shared conductors.
