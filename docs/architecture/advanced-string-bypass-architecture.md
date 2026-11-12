@@ -1,5 +1,7 @@
 # Advanced S8 string-member and bypass architecture
 
+Current reviewed checkpoint: PR #142 merge `8b17c2f703929bbc0b821769f54f0d67705a08fa`.
+
 ## Ownership and current boundary
 
 Stage 4a from the external `Stage_4a_-_String_Aggregation_and_Bypass_Diode_Model.docx`
@@ -32,7 +34,7 @@ EXISTING S8 common-voltage shared-MPPT solve
 EXISTING S9 inverter
 ```
 
-Topology authority and isolated section Bishop I-V are implemented. No second DC collection, MPPT
+Topology authority, isolated section Bishop I-V and explicit bypass/common-current composition are implemented. No second DC collection, MPPT
 or inverter chain is introduced. Future advanced I-V output must meet the same
 physical `string_terminal` boundary before any existing branch transformation.
 
@@ -41,13 +43,13 @@ physical `string_terminal` boundary before any existing branch transformation.
 | Increment | Responsibility | Current status |
 | --- | --- | --- |
 | Stage4a-1 | Member / bypass-protected-section topology authority | COMPLETE, dormant |
-| Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE BY THIS PR, dormant |
-| Stage4a-3 | Common-current section/module/string composition + diode clamp | Pending |
+| Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE, dormant; PR #142 |
+| Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE BY THIS PR, dormant |
 | Stage4a-4 | Multi-peak identification and advanced candidate/global operating handoff | Pending |
 | Stage4a-5 | Optical/shading-state → section binding, string-class optimisation and Method-B validation | Pending |
 
-Stage 4a is not complete. A-06 remains partially pending for bypass clamp and
-common-current composition; A-07 multi-peak/global selection remains pending in the
+Stage 4a is not complete. A-06 now has explicit reverse, diode clamp and
+common-current composition coverage; A-07 multi-peak/global selection remains pending in the
 [implementation-delta ledger](physics-implementation-delta.md). Geometry/shading
 binding remains pending within A-05; connectivity authority is its first slice.
 
@@ -194,7 +196,7 @@ including both layers' contract IDs and exact source parameters. Columns are
 Power is exactly terminal voltage × current. Negative terminal voltage and power
 are physically valid here and remain unclipped. `reverse_bias` means strictly
 **diode_voltage_v < 0**; it is not terminal-voltage sign or bypass conduction.
-No bypass forward voltage or `max(V, -Vf)` clamp exists. Stage4a-3 owns explicit
+No bypass forward voltage or `max(V, -Vf)` clamp exists in the Stage4a-2 kernel. Stage4a-3 owns explicit
 diode authority/clamping and common-current composition; no module/string curve
 or MPPT candidate is produced by Stage4a-2.
 
@@ -203,6 +205,109 @@ recombination term. CdTe/a-Si recombination would need a separately reviewed
 extension; this kernel makes no universal-technology claim. Test-only Bishop
 fixtures such as factor 0.002, voltage -15 V and exponent 3 are numerical references,
 never site defaults or inferred JKM570 evidence.
+
+## Stage4a-3 — explicit diode and common-current series composition
+
+The [diode authority](../../src/heliotelligence/physics/string_section_bypass_diode_authority.py)
+requires a positive finite non-Boolean forward-voltage magnitude, exact canonical
+`BypassSectionIdentity`, source, confidence, method and applicability. There is no
+universal forward voltage or inference from technology, counts or breakdown data.
+Partial/empty diode coverage is explicit, ordered and immutable. Its independent
+validator inspects frozen fields, identities, parent coverage and closing counts.
+Binding takes both canonical parent results: Stage4a-1 topology plus Stage4a-2
+reverse authority. The existing public Stage4a-2 validator verifies their integrity;
+reverse evidence may be empty, and diode coverage may include sections whose
+reverse evidence is unavailable. This reuses parent validation without rebuilding
+configuration or weakening either earlier contract.
+
+```text
+contract: explicit_bypass_section_diode_authority_v1
+model: constant_forward_voltage_bypass_diode_v1
+scope: advanced_s8_section_bypass_diode_before_common_current_composition
+coverage: explicit_stage4a1_bypass_sections_with_reviewed_diode_forward_voltage
+```
+
+The [isolated clamp](../../src/heliotelligence/physics/string_section_bypass_clamp.py)
+uses public pinned Bishop `bishop88_i_from_v(-Vf)` with the explicit Stage4a-2
+state/parameters and Newton solving to obtain the PV-branch transition current.
+It verifies the inverse using public `bishop88`; no equations are copied.
+For imposed current below transition, `bishop88_v_from_i` supplies the raw PV
+terminal voltage. At transition the terminal is exactly `-Vf`, with zero bypass
+current and bypass-active false. Above transition it remains exactly `-Vf`:
+PV-branch current is the transition current, and bypass current is imposed current
+minus that PV current. Thus the current split closes by construction, up to
+floating-point addition roundoff. Bypass-active means strictly positive excess
+current, not negative voltage or Stage4a-2 reverse bias.
+
+The unconstrained PV voltage at *excess imposed current* is deliberately not
+solved: it is `NaN`, with `raw_voltage_evaluated = false` and
+`raw_voltage_state = not_evaluated_bypass_active`. This is explicit audit
+unavailability, not a numerical fallback or zero. Such a solve is unnecessary
+for the parallel diode/PV circuit and may leave the required Bishop domain.
+The actual PV-branch voltage/current remain finite and published at the clamp.
+Below transition the raw PV voltage remains separately available. Stage4a-2's
+unclamped reverse curves and negative powers remain unchanged.
+
+The clamp verifies transition and non-bypassed solutions in the valid Bishop
+diode-voltage domain. Numerical acceptance uses 1e-8 A + 1e-9 × max(1 A,
+transition current), and 1e-8 V + 1e-9 × Vf; only boundary roundoff within this
+voltage tolerance may be raised to `-Vf` on the non-bypassed branch. These are
+solver checks, not physical uncertainty/evidence coefficients. Solver failures,
+nonfinite values and invalid domains raise contextual errors; no fallback exists.
+
+```text
+contract: explicit_bypass_section_common_current_clamp_v1
+model: bishop88_transition_and_constant_forward_voltage_ideal_bypass_clamp_v1
+scope: advanced_s8_section_terminal_response_before_series_composition
+coverage: explicit_section_sdm_reverse_breakdown_and_bypass_diode_authority
+```
+
+The [composer](../../src/heliotelligence/physics/string_common_current_composition.py)
+accepts an exact non-empty tuple of finite non-Boolean, nonnegative, strictly
+increasing common-current samples. It rejects duplicates/reversal; it never sorts,
+adds samples, refines a sweep, interpolates onto a search grid or selects peaks.
+This is caller-controlled deterministic numerical evaluation, not Stage4a-4.
+The grid evaluates each string independently; it neither connects strings nor
+sums their currents.
+
+Every composed string requires complete topology, operating state, reverse
+breakdown and diode evidence for **every** owned section. Missing one item
+withholds the entire advanced string and publishes the missing section identities
+and evidence kinds. No baseline/advanced hybrid, copied neighbor, dropped section
+or inferred parameter is allowed. Explicit invalid inputs fail closed; numerical
+failure raises instead of being relabelled missing evidence. The independent
+homogeneous S8 path remains valid but is not dispatched by this composer.
+
+Each current is imposed identically across all sections. `math.fsum` in physical
+order gives each module's section-voltage sum, then each string's module-voltage
+sum. Power is string voltage × common current. Section audit rows retain module
+series index, section index, position reference, current, raw-voltage availability,
+PV/bypass currents, terminal voltage, transition and Vf. Owned module/string frames
+and detached frozen topology/state/authority snapshots permit reconstruction.
+Mapping insertion order cannot change physical order. Repeated results share no
+mutable frames or caller provenance records.
+
+Stage4a-1-unavailable strings have a separate ordered partition: the parent does
+not retain their interleaving with advanced candidates, so no order is invented.
+Candidate resolved/unavailable partitions retain parent candidate order.
+Diagnostics close topology = candidate + topology-unavailable, candidate =
+composed + unavailable-candidate, and section/module/string sample counts.
+No maturity percentage is produced.
+
+```text
+contract: explicit_topology_common_current_section_module_string_iv_v1
+model: ordered_series_voltage_sum_with_explicit_section_bypass_clamps_v1
+scope: advanced_s8_physical_string_terminal_iv_before_dc_branch_and_mppt
+coverage: complete_per_string_section_sdm_reverse_breakdown_and_bypass_diode_authority
+reference plane: string_terminal
+```
+
+Output curves retain caller current order and may include negative terminal
+voltage/power. They describe the existing physical `string_terminal` plane;
+no downstream adapter, branch loss, MPPT solve or S9 execution is invoked.
+Stage4a-4 will own the explicit candidate/global handoff. Stage4a-5 will own
+optical mapping/optimisation and validated Method B. No diode failure/degradation
+state, module-parameter splitting, cell-voltage scaling or site authority is added.
 
 ## Method A before Method B
 

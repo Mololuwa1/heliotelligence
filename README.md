@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `df54d99267f451718a125a1cebcc090726514241` (PR #141 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `8b17c2f703929bbc0b821769f54f0d67705a08fa` (PR #142 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -256,7 +256,7 @@ is separate. A clear gate is not production activation or physical-model validat
 No shadow execution is activated. Exact-main manual full regression remains
 required before eventual activation/release, not for this blocked governance closure.
 
-## Advanced S8 topology and section reverse I-V — Stage4a-1/2
+## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3
 
 The [advanced string/bypass architecture](docs/architecture/advanced-string-bypass-architecture.md) defines the bounded
 Stage4a-1–5 sequence under canonical S8 ownership. Stage4a-1 now implements
@@ -265,12 +265,16 @@ for an explicit subset of existing physical strings. Section cell-series and
 parallel-branch counts require evidence; no bypass count, diode voltage, layout or
 orientation is inferred. Independent validation hardens nested frozen records.
 
-Stage4a-2 now adds explicit section reverse-breakdown authority and isolated
+Stage4a-2 (PR #142) supplies explicit section reverse-breakdown authority and isolated
 pvlib 0.15.2 Bishop reverse/forward I-V from an already-resolved section SDM state.
 No module SDM parameters are split or inferred, and no cell/module breakdown
 voltage is scaled into a section. Negative terminal voltage/power is preserved.
-Geometry/shading binding, diode clamping, common-current composition and
-multi-peak/global selection remain pending. Method A must precede validated
+Stage4a-3 adds explicit diode authority, transition-gated bypass clamp and
+ordered common-current composition to string_terminal at caller-supplied currents.
+Missing section evidence withholds the whole advanced string. Raw voltage is
+explicitly unevaluated above clamp transition, with finite actual PV/bypass branch
+states. No inferred diode voltage or hidden baseline substitution is used.
+Geometry/shading binding and multi-peak/global selection remain pending. Method A must precede validated
 Method B. Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
 and S9/downstream physics remain unchanged. No configuration schema changes or
 Bracon admissions occur: P2 review is complete, all 53 unique baseline blockers
