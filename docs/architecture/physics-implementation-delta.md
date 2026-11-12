@@ -8,7 +8,9 @@ more rigorous canonical physics unchanged. Use design detail to identify
 repository documentation alignment, genuine advanced fidelity and site evidence
 still required; do not rebuild an effect already represented in the chain.
 
-Reviewed code baseline: PR #131 merge
+Current advanced-S8 checkpoint: PR #142 merge `8b17c2f703929bbc0b821769f54f0d67705a08fa`.
+
+Original ledger baseline: PR #131 merge
 `879bb186b459b7be344b3ad01337863213b0a086`. Completion status below is contingent
 on successful post-merge main CI #335 on that exact SHA. Check live source, tests,
 Git history and exact CI before release decisions. This ledger grants no site
@@ -188,8 +190,8 @@ Source reference: `Stage_4a_-_String_Aggregation_and_Bypass_Diode_Model.docx`.
 | A-02 | Parallel common-voltage solution and shared-MPPT mismatch | `KEEP_CANONICAL` | S8 solves complete physical strings at shared voltage and preserves independent-string counterfactual versus common-MPPT power. That mismatch owner must not absorb a differently scoped population residual or optical effect. |
 | A-03 | Direct string branch and MPPT-input I-V | `KEEP_CANONICAL` | [DC collection](../../src/heliotelligence/physics/dc_collection.py) transforms explicit per-string total loop resistance from `string_terminal` to `mppt_input`, then solves at that sink plane. Preserve V/I/P and branch-loss ownership. |
 | A-04 | Bounded intra-string population residual | `KEEP_CANONICAL` | [Population authority](../../src/heliotelligence/physics/module_population_mismatch.py) retains explicit negligible-by-evidence or lower-fidelity post-MPPT equivalent current derate. It is not manufacturing/member I-V physics and consumes no legacy percentage. |
-| A-05 | Member/sub-string geometry and topology | `ADVANCED_FIDELITY_PENDING` | Stage4a-1 implements explicit ordered physical module-member and bypass-protected-section topology authority in S8; see the [advanced architecture](advanced-string-bypass-architecture.md). Geometry/shading binding, orientation/routing interpretation and numerical bypass physics remain pending. Existing aggregate geometry supplies no advanced authority. Priority A; partial implementation, not complete Stage 4a. |
-| A-06 | Reverse-bias, diode clamping and series sub-string composition | `ADVANCED_FIDELITY_PENDING` | Stage4a-2 implements explicit section reverse-breakdown authority and isolated pvlib Bishop reverse/forward section I-V from already-resolved section SDM state. No module parameter splitting or inferred breakdown scaling. Bypass diode authority/clamp and common-current section/module/string composition remain pending. Do not average member powers or assume missing current-domain/bypass behaviour. Priority A; partial implementation. |
+| A-05 | Member/sub-string geometry and topology | `ADVANCED_FIDELITY_PENDING` | Stage4a-1 implements explicit ordered physical module-member and bypass-protected-section topology authority in S8; see the [advanced architecture](advanced-string-bypass-architecture.md). Geometry/shading binding and orientation/routing interpretation remain pending; numerical reverse/clamp/composition is owned by A-06 and peak handling by A-07. Existing aggregate geometry supplies no advanced authority. Priority A; partial implementation, not complete Stage 4a. |
+| A-06 | Reverse-bias, diode clamping and series sub-string composition | `KEEP_CANONICAL` | Stage4a-2 retains explicit section reverse authority and isolated Bishop I-V. Stage4a-3 adds explicit constant-forward-voltage diode authority, transition-gated bypass clamp and ordered common-current section/module/string voltage composition at string_terminal. Complete per-string evidence is required; no module SDM splitting, inferred diode voltage, peak selection or optical binding. Unconstrained raw PV voltage is explicitly not evaluated at bypass-active samples; actual branch voltage/current remain auditable. Generic and dormant; A-07 and geometry/shading binding remain pending. |
 | A-07 | Multi-peak strings and global operating selection | `ADVANCED_FIDELITY_PENDING` | Bypass-induced per-string multi-peak P-V, member/sub-string-resolved nonuniform-string parallel combination, all candidate peaks, global maximum selection and bypass activation diagnostics remain future coverage. Existing S8 already combines differing complete string curves and selects the maximum over its admitted sampled candidate voltages; that is not an all-peaks guarantee for a new bypass-resolved domain. Reuse/extend the existing owner only after validating that domain. Priority A. |
 | A-08 | Member-resolved flash-data variability | `ADVANCED_FIDELITY_PENDING` | Explicit flash/I-V population evidence and its member electrical mapping are future higher resolution, not the bounded residual authority. Nameplate tolerance and Bracon's legacy 1.15% do not define a distribution. |
 | A-09 | Advanced-path integration and inverter interaction | `DOCUMENTATION_ALIGNMENT` | Future member/sub-string fidelity must produce the existing physical string-terminal boundary, retain the existing branch transform and shared-MPPT owner, and reconcile multi-peak selection with S9's canonical MPPT envelope/selection semantics. Current S9 envelope reports constraints; it does not invent a constrained/global tracking solution. |
@@ -291,8 +293,8 @@ them retrospectively.
 | G-01 | Source isolation through controlled retirement | `KEEP_CANONICAL` | [Production roadmap](../development/production-integration-roadmap.md): P0 source isolation; P1 physical shadow-output contract; P2 site evidence/admission; P3 shadow execution; P4 reconciliation/validation; P5 controlled cutover; P6 mechanism-specific legacy retirement. These are integration phases, not physics mechanisms or new S-stages. |
 | G-02 | Site readiness after P2A | `SITE_EVIDENCE_PENDING` | [P2A manifest](site-evidence-manifest.md) and [Bracon record](../sites/bracon-ash.md) identify 66 requirements: 17 present/not admitted, 48 missing/blocked, one conflicting/blocked, zero admitted. The 49,824 / 47,448 / 50,736 population conflict remains unresolved; all nine path sections remain blocked. P2 is incomplete and P3 inactive. |
 
-P2B current-status note: G-02 records the original zero-admission P2A baseline.
-The current manifest now admits only the reviewed physical-site identity (1
+Historical P2B status note: G-02 records the original zero-admission P2A baseline.
+At the P2B checkpoint the manifest admitted only the reviewed physical-site identity (1
 admitted / 16 not admitted / 49 blocked); all nine paths are only partially
 admitted and retain blockers. Identity supplies no evidence for Priority A or B;
 both remain `ADVANCED_FIDELITY_PENDING`. Full P2 remains incomplete and P3 inactive.
@@ -317,7 +319,7 @@ execution/selection behavior. It is not itself Twin evidence or an admission.
 This is the highest-value unresolved detailed mechanism from the supplied design:
 electrical shading/mismatch, multi-peak behavior and more resolved future fault
 signatures. Its generic implementation and site use require explicit physical
-mapping and diode/current-domain evidence. Preserve the current baseline path. Stage4a-1 now supplies dormant member/section connectivity authority only; A-05 geometry/shading binding and A-06 clamp/composition and A-07 multi-peak work remain pending; Stage4a-2 now supplies isolated explicit section Bishop I-V.
+mapping and diode/current-domain evidence. Preserve the current baseline path. Stage4a-1 now supplies dormant member/section connectivity authority only; A-05 geometry/shading binding and A-07 multi-peak work remain pending; Stage4a-2 supplies isolated explicit section Bishop I-V and Stage4a-3 adds explicit diode clamp and common-current series composition.
 
 **Priority B: advanced cable/conductor parameter authority (C-02–C-03).** The
 network solvers already own rigorous electrical solutions; the principal missing
@@ -346,7 +348,7 @@ Advanced items do not automatically block every P3 shadow run. An independently
 valid lower-fidelity physical path may be admitted only with explicit intended
 fidelity, evidence, reference planes and coverage limits, plus the other P3 gates.
 This is neither a blanket exemption nor permission to activate Bracon or choose a
-source now. P2 remains incomplete.
+source now. P2 review is complete; Bracon physical admission remains incomplete, with 53 unique mandatory baseline blockers and P3 BLOCKED/INACTIVE.
 
 ## Digital Twin connection and change control
 
