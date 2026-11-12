@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #139 merge ba0044d39985796dbbf82884b18b53b475e2e620
+PR #140 merge 633316400f7d9f6ca34a799b7c1c1c87a7267f40
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -35,7 +35,7 @@ Bracon baseline physical admission: INCOMPLETE; P3 entry BLOCKED; execution INAC
 Next: acquire/admit evidence within P2E–P2H; no additional P2 letter or shadow activation
 ```
 
-Current canonical code checkpoint: `ba0044d39985796dbbf82884b18b53b475e2e620` (PR #139 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `633316400f7d9f6ca34a799b7c1c1c87a7267f40` (PR #140 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -878,3 +878,19 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 The [platform authorization policy](architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
 The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence acquisition/admission within P2E–P2H is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; Bracon physical admission remains incomplete and no P3 shadow execution or deployment occurs.
+
+## Advanced S8 member topology — Stage4a-1
+
+The [advanced string/bypass architecture](architecture/advanced-string-bypass-architecture.md) defines the bounded
+Stage4a-1–5 sequence under canonical S8 ownership. Stage4a-1 now implements
+dormant ordered module-member and bypass-protected-section connectivity authority
+for an explicit subset of existing physical strings. Section cell-series and
+parallel-branch counts require evidence; no bypass count, diode voltage, layout or
+orientation is inferred. Independent validation hardens nested frozen records.
+
+Geometry/shading binding, reverse-bias I-V, diode clamping, composition and
+multi-peak/global selection remain pending. Method A must precede validated
+Method B. Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
+and S9/downstream physics remain unchanged. No configuration schema changes or
+Bracon admissions occur: P2 review is complete, all 53 unique baseline blockers
+remain, and P3 is BLOCKED and INACTIVE. No runtime/source activation occurs.

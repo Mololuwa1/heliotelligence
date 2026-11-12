@@ -1,6 +1,6 @@
 # Physics development roadmap
 
-Current canonical code checkpoint: `879bb186b459b7be344b3ad01337863213b0a086` (PR #131 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `633316400f7d9f6ca34a799b7c1c1c87a7267f40` (PR #140 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 Source-of-truth order: live source, tests, exact git history/merged PRs and current main, then documentation. CI must be checked on the exact reviewed commit.
 
@@ -56,17 +56,17 @@ These items are not additional S12/S13/S14 stages. They are prerequisites for ca
 - preserve the completed platform-authorization boundary (PR #129); no browser-admin-secret fallback or site-membership bypass for ordinary users;
 - explicitly declare S9-4A fixed-Q sign semantics at the authority boundary.
 
-Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). P1 and P2A are complete; next is P2 site authority admission, then gated P3. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
+Completed: P0, generic module thermal (PR #119), generic weather-time/irradiance boundary (PR #120), bounded population residual (PR #121), all dormant from physical shadow activation. S14B explicit support eligibility is complete generically (PR #122), as are measurement bounds (PR #124). Pointwise complete-model bounds are complete generically (PR #125). Discrete S14B expected-model interval propagation is complete generically (PR #126); combined interval magnitudes are complete generically (PR #127). P1 and P2A–P2H review are complete; outstanding evidence updates P2E–P2H in place. Bracon physical admission remains incomplete; P3 is BLOCKED and INACTIVE. Site weather/optics/thermal, population residual and support-policy admission remain explicit. P3/P4 must not treat site admission or remaining gates as implicitly solved.
 
 ## Bounded population mismatch capability
 
-Generic mismatch coverage now supports physical shared-MPPT mismatch, an explicit lower-fidelity intra-string population residual, and explicit unresolved active population output when evidence is absent. Resolved-zero upstream remains exact zero without population authority because the mechanism is inactive. The two residual modes are negligible-by-evidence and equivalent post-MPPT current derate. Neither changes homogeneous string scaling. Valid S8 baseline survives missing residual authority; no legacy percentage is read. Bracon is not admitted and its aggregate 1.15% is not retired. Site applicability/MPPT coverage and non-overlap evidence remain required. P1 and P2A are complete; P2 admission remains in progress and P3 inactive.
+Generic mismatch coverage now supports physical shared-MPPT mismatch, an explicit lower-fidelity intra-string population residual, and explicit unresolved active population output when evidence is absent. Resolved-zero upstream remains exact zero without population authority because the mechanism is inactive. The two residual modes are negligible-by-evidence and equivalent post-MPPT current derate. Neither changes homogeneous string scaling. Valid S8 baseline survives missing residual authority; no legacy percentage is read. Bracon is not admitted and its aggregate 1.15% is not retired. Site applicability/MPPT coverage and non-overlap evidence remain required. P1 and P2A are complete; P2 review is complete, Bracon physical admission incomplete and P3 blocked/inactive.
 
 ## Bounded future physics
 
-The canonical [implementation-delta ledger](../architecture/physics-implementation-delta.md) reconciles the original external Stage 1–6 design intent with current owners. It identifies two principal **pending**, not implemented, advanced-fidelity workstreams:
+The canonical [implementation-delta ledger](../architecture/physics-implementation-delta.md) reconciles the original external Stage 1–6 design intent with current owners. It identifies two principal advanced-fidelity workstreams, with only the first topology slice implemented:
 
-1. **Priority A — advanced S8 member/sub-string and bypass-diode path:** explicit physical ordering/routing, shaded cell/sub-string state, diode/reverse-bias/clamp behavior, current-consistent series composition and reviewed multi-peak/all-candidate/global selection/diagnostics. Preserve homogeneous string I-V as a valid baseline and the existing string-terminal → direct branch → shared MPPT → S9 boundaries. Existing sampled-candidate selection must not be relabelled as a bypass-resolved global tracking model.
+1. **Priority A — advanced S8 member/sub-string and bypass-diode path:** Stage4a-1 topology authority is implemented and dormant; [bounded sequence and evidence rules](../architecture/advanced-string-bypass-architecture.md). Geometry/shading binding and all numerical bypass work remain pending. Remaining work: explicit physical ordering/routing, shaded cell/sub-string state, diode/reverse-bias/clamp behavior, current-consistent series composition and reviewed multi-peak/all-candidate/global selection/diagnostics. Preserve homogeneous string I-V as a valid baseline and the existing string-terminal → direct branch → shared MPPT → S9 boundaries. Existing sampled-candidate selection must not be relabelled as a bypass-resolved global tracking model.
 2. **Priority B — cable/conductor parameter authority:** derive electrical parameters from explicit construction, installation and temperature evidence, including additional AC effects only where admitted. Feed existing S8 direct branch, S11 series R/X and S13 nominal-pi owners; extend those contracts where needed rather than subtracting cable power in a parallel engine. Keep S12 transformer losses separate.
 
 Neither is a universal prerequisite for P3. P2 determines the site's evidence, intended fidelity and material benefit; a valid lower-fidelity path still needs explicit admission and all remaining activation gates. Engerer2, thermal calibration/dynamics, flash-data variability and arbitrary shared DC collection remain lower-priority refinements where evidence/use case requires them. Shared-feeder sites cannot pretend direct independent branches cover their shared conductors.
@@ -79,7 +79,7 @@ Direct-branch resistance does not cover shared post-parallel DC conductors. A sh
 
 During development, run focused changed-stage tests. Before PR review, run focused feature tests and the immediate parent/downstream regression slice, Ruff, formatting checks, strict mypy where relevant, Python compilation and `git diff --check`. Run optical/rear regressions when shared dependencies warrant them.
 
-GitHub CI is the authoritative full-backend validation. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
+PR/main CI uses conservative exact-diff skip/targeted/full selection; nightly/manual CI supplies the complete backend regression. Do not repeatedly run the full local backend after hardening changes. A full local suite may be run deliberately when justified, but is not the default. Documentation-only changes require Markdown/link/whitespace checks rather than backend tests. Check the exact base/head and live CI for review or release decisions.
 
 ## Site evidence
 
@@ -107,7 +107,7 @@ Firebase authentication now exposes only uid, email and the exact boolean `platf
 
 The [platform authorization policy](../architecture/platform-authorization.md) documents every current route, canonical alert ownership before acknowledgement, validated access grants, secret retirement and out-of-band Firebase claim bootstrap/token refresh. The focused tests enforce all 19 application route policies and cross-site denials. Health remains public and `/api/v1/admin/me` remains authenticated identity introspection. Frontend navigation is not authorization.
 
-The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site authority admission is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 and P2A are complete; P2 admission remains in progress and P3 inactive.
+The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; P2 site authority admission is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 and P2A are complete; P2 review is complete, Bracon physical admission incomplete and P3 blocked/inactive.
 
 ## Integration checkpoint and evidence gate
 
