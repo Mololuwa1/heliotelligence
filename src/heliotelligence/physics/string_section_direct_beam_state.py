@@ -257,3 +257,47 @@ def resolve_section_direct_beam_state(
         solar_zenith_deg=context[2] if context is not None else None,
         solar_azimuth_deg=context[3] if context is not None else None,
     )
+
+
+def validate_section_direct_beam_state(
+    parent: TopologyStringMemberAuthorityResult,
+    geometry: SiteGeometry,
+    authority: SectionOpticalBindingAuthorityResult,
+    snapshots: tuple[DirectBeamVisibilitySnapshot, ...],
+    result: SectionDirectBeamStateResult,
+) -> None:
+    """Replay the existing sample aggregation and inspect exact nested field state.
+
+    This verifies supplied snapshot integrity, not its external authenticity or
+    mesh conversion. No ray tracing or new optical mathematics is performed.
+    """
+    from dataclasses import is_dataclass
+    from typing import Any
+
+    def inspect(actual: Any, expected: Any) -> None:
+        if type(actual) is not type(expected):
+            raise ValueError("optical replay field type mismatch")
+        if is_dataclass(expected):
+            for field in fields(expected):
+                inspect(getattr(actual, field.name), getattr(expected, field.name))
+        elif isinstance(expected, Mapping):
+            if len(actual) != len(expected):
+                raise ValueError("optical replay mapping size mismatch")
+            for left, right in zip(actual, expected, strict=True):
+                inspect(left, right)
+                inspect(actual[left], expected[right])
+        elif isinstance(expected, tuple):
+            if len(actual) != len(expected):
+                raise ValueError("optical replay tuple size mismatch")
+            for left, right in zip(actual, expected, strict=True):
+                inspect(left, right)
+        elif actual != expected:
+            raise ValueError("optical replay value mismatch")
+
+    if type(result) is not SectionDirectBeamStateResult:
+        raise ValueError("expected exact direct-beam optical result")
+    expected = resolve_section_direct_beam_state(parent, geometry, authority, snapshots)
+    try:
+        inspect(result, expected)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(f"Stage4a-5a optical parent fails canonical replay: {exc}") from exc
