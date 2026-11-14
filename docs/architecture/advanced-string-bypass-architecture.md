@@ -1,6 +1,6 @@
 # Advanced S8 string-member and bypass architecture
 
-Current reviewed checkpoint: PR #145 merge `cd5db52e0c22833ad83ab197ddc6bdadb60acf8c`.
+Current reviewed checkpoint: PR #146 merge `4881547a13adc9f4c7e4b8616e80d81b184a1f12`.
 
 ## Ownership and current boundary
 
@@ -48,15 +48,15 @@ physical `string_terminal` boundary before any existing branch transformation.
 | Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE, dormant; PR #143 |
 | Stage4a-4 | Complete piecewise-linear multi-peak candidates/global selection and canonical curve handoff | COMPLETE, dormant; PR #144 |
 | Stage4a-5a | Explicit geometry/receiver/sample → module/section binding and direct-beam optical state | COMPLETE, dormant; PR #145 |
-| Stage4a-5b | Explicit complete reviewed section electrical-state binding and existing-owner Method A execution | COMPLETE BY THIS PR, dormant |
-| Stage4a-5c | String-class optimisation and Method B validated against Method A | PENDING |
+| Stage4a-5b | Explicit complete reviewed section electrical-state binding and existing-owner Method A execution | COMPLETE, dormant; PR #146 |
+| Stage4a-5c | Exact numerical classes, operating-level Method B and explicit A/B validation | COMPLETE BY THIS PR, dormant |
 
-Stage 4a is not complete. A-06 now has explicit reverse, diode clamp and
-common-current composition coverage; A-07 now has exact piecewise-linear candidate/global selection in the
-[implementation-delta ledger](physics-implementation-delta.md). Stage4a-5a adds explicit optical sample ownership within A-05. Section electrical-state
-binding and existing-owner Method A (5b) are implemented by this PR;
-optimisation/Method B (5c) and site evidence remain pending; A-05
-stays ADVANCED_FIDELITY_PENDING. Overall Stage 4a remains incomplete.
+**Bounded Stage4a generic capability: COMPLETE by this PR, DORMANT, NOT
+SITE-ADMITTED, NOT PRODUCTION-ACTIVE.** A-05–A-07 retain the canonical generic
+owners; A-08 member/flash variability is separately pending and A-10 owns site
+evidence. This is not a claim that all Heliotelligence production physics is
+complete. Bracon's 53 mandatory baseline blockers and P3 BLOCKED/INACTIVE state
+are unchanged.
 
 ## Exact authority representation
 
@@ -312,8 +312,7 @@ voltage/power. They describe the existing physical `string_terminal` plane;
 no downstream adapter, branch loss, MPPT solve or S9 execution is invoked.
 Stage4a-4 owns the explicit piecewise-linear candidate/global handoff. Stage4a-5a
 owns explicit optical sample binding; 5b now binds explicit complete section
-SDM states and orchestrates Method A. Stage4a-5c optimisation/validated Method B
-remains pending. No diode failure/degradation
+SDM states and orchestrates Method A. Stage4a-5c now adds exact classes and explicit Method B comparison below. No diode failure/degradation
 state, module-parameter splitting, cell-voltage scaling or site authority is added.
 
 ## Stage4a-4 — complete piecewise-linear candidates and global handoff
@@ -438,7 +437,7 @@ unchanged. Strict typing additions in the touched legacy module helpers change
 no De Soto/module numerical equations.
 
 Stage4a-5a adds explicit optical sample binding and Stage4a-5b explicit complete
-section-state binding/Method A below. Stage4a-5c optimisation/Method B remains pending. No tracking, control, blocking-diode or degradation model is added.
+section-state binding/Method A below. Stage4a-5c provides exact classes and explicit Method B comparison below. No tracking, control, blocking-diode or degradation model is added.
 All 53 Bracon baseline blockers and P3 BLOCKED/INACTIVE status remain unchanged.
 
 ## Stage4a-5a — explicit optical sample ownership
@@ -536,8 +535,7 @@ parameters. No temperature, effective irradiance, IL, I0, Rs, Rsh or nNsVth is
 created or changed. IAM, diffuse, rear, bifacial, spectral, soiling and thermal
 ownership remains separate. No Bishop, clamp, composition, peak, branch, MPPT,
 inverter or runtime execution is invoked by 5a. Stage4a-5b below binds explicit
-reviewed electrical states and orchestrates Method A. Stage4a-5c optimisation
-and Method B validated against Method A remain pending.
+reviewed electrical states and orchestrates Method A. Stage4a-5c exact classes and Method B comparison are described below.
 
 ## Stage4a-5b — explicit electrical-state binding and reference Method A
 
@@ -631,14 +629,144 @@ This dormant reference execution stops before DC branch, parallel shared-MPPT,
 inverter and production/source dispatch. No site validation or annual accuracy
 claim follows from generic Method A capability.
 
-## Method A before Method B
+## Stage4a-5c — exact classes and explicitly validated Method B
 
-The complete I-V method (Method A) is the reference implementation. Operating-level
-Method B is not implemented here and may be introduced only after Method A exists
-and deterministic validation demonstrates its approximation envelope. The source
-document's annual/timestep comparison criteria are design targets, not Bracon
-evidence or universal production admission policy. No comparison thresholds are
-hard-coded by Stage4a-1.
+### Exact string operating equivalence
+
+The [class owner](../../src/heliotelligence/physics/string_operating_classes.py)
+validates complete topology/electrical/reverse/diode evidence before grouping.
+The signature preserves module boundaries and ordered section tuples. Each
+section includes cell-series/parallel-branch counts, all seven SDM operating
+numerics, three reverse parameters and explicit diode forward voltage. Numerical
+equality is exact: no tolerance, rounding, quantisation, zone or geometry labels.
+A near-equal value splits classes. Canonical first topology occurrence determines
+`operating-class-0000`, subsequent IDs and each first-member representative;
+Python runtime hashes are not exported as identities.
+
+```text
+contract: exact_advanced_string_operating_equivalence_classes_v1
+model: ordered_section_topology_and_complete_numerical_state_equivalence_v1
+scope: advanced_s8_exact_string_classification_before_method_b_candidate_evaluation
+coverage: complete_stage4a_section_state_reverse_and_bypass_diode_evidence
+```
+
+String/module/local-section IDs, opaque positions, state references and
+provenance-only source/confidence/method/applicability fields do not define
+numerical equivalence. They remain detached in the retained physical authorities:
+grouping means identical numerical execution, not identical assets or evidence.
+Incomplete strings have no partial class and receive no baseline substitution.
+The independent validator reconstructs signatures, first representatives, class
+ordering, exact member/unavailable partitions, metadata and closing counts without
+calling the class resolver. Reused-member count is classifiable strings minus
+representatives, not a predicted speedup. There is no persistent runtime cache.
+
+### Operating-level Method B
+
+The [Method B owner](../../src/heliotelligence/physics/string_method_b.py) calls
+pinned pvlib 0.15.2 public `singlediode.bishop88_mpp` with every explicit section
+SDM/reverse parameter and `d2mutau=0`, `NsVbi=infinity`. Newton uses the existing
+numerical conventions (1e-10 tolerance, 100 iterations), not an approximation
+policy. Nonfinite, negative or nonclosing MPP replies and solver failures raise
+contextual errors; no fallback exists. An explicit zero-photocurrent state owns
+exact 0 A without an artificial low-light capability.
+
+```text
+contract: advanced_string_method_b_operating_level_candidates_v1
+model: section_bishop_mpp_current_candidates_with_existing_common_current_composition_v1
+scope: advanced_s8_method_b_candidate_operating_points_before_dc_branch
+coverage: complete_section_operating_reverse_breakdown_bypass_diode_and_exact_class_evidence
+```
+
+For each class, the representative's ordered section MPP-current basis is computed
+once. The candidate tuple is the sorted exact union of those currents with 0 A;
+near-equal currents remain distinct. Other physical members reuse only this exact
+current basis. This is not a claim that their complete electrical execution is
+cached. The exact union across classes is passed once to the existing
+`compose_topology_common_current_iv`, which still evaluates each physical string.
+An empty class set uses only a zero boundary to preserve the composer's non-empty
+grid contract; it creates no candidates or resolved strings.
+
+Each string retains only its own class's candidate currents. Rows preserve its
+physical identity, class/index, current, terminal voltage/power, source section
+identities and canonical Stage4a-3 bypass-active identities/counts. Zero boundary
+sources are empty unless explicit zero-state sections naturally own 0 A, in
+which case all such identities are retained. No bypass condition or voltage sum
+is recalculated by Method B. Power is terminal V×I. Negative intermediate
+candidates remain auditable; the zero-power boundary is always available.
+
+Selection maximises candidate power, then chooses lowest terminal voltage on an
+exact tie, then lowest current if voltage also ties. There is no epsilon tie,
+stationary-point insertion, few-percent peak classifier or Stage4a-4 search call.
+States distinguish active, explicit dark zero and unavailable evidence. Counts
+close physical strings, classes, active/zero/unavailable members, union currents,
+candidate rows and selections. Frozen metadata is detached; numerical frames
+are fresh owned outputs. Method B publishes operating candidates, not a complete
+globally searched curve or another parallel-MPPT/inverter chain.
+
+### Snapshot and duration-weighted comparison
+
+The [comparison owner](../../src/heliotelligence/physics/string_method_b_validation.py)
+requires canonical A/B result types and exact timestamp/timezone, geometry and
+optical-reference agreement. Retained admitted electrical context, topology,
+reverse/diode inputs and missing-evidence state must agree. Both outputs must be
+at the physical string-terminal plane. This checks retained result integrity;
+it is not external evidence authentication or a replacement for admission/replay.
+
+```text
+contract: advanced_string_method_b_against_method_a_validation_v1
+model: explicit_snapshot_and_duration_weighted_method_b_error_metrics_v1
+scope: advanced_s8_method_b_validation_against_method_a_reference
+coverage: shared_complete_method_a_and_method_b_string_terminal_observations
+```
+
+Method A's existing `is_selected_global` point is read, never independently
+reselected or reconstructed from its curve. An incomplete Stage4a-4 search domain
+cannot certify Method B. Each immutable per-string record publishes selected
+A/B P/V/I, signed B−A power/voltage/current errors, absolute/relative power error,
+exact-match and resolution state. For positive A power, relative error is
+`abs(B−A)/A`. A=0/B=0 resolves to zero; A=0/B>0 has undefined relative error and an
+explicit unresolved state, never infinity or an epsilon denominator.
+Unrepresentable relative arithmetic fails closed.
+
+Snapshot sums use `math.fsum` only over the explicitly retained comparable
+string IDs. Reference/method-unavailable counts and comparison completeness
+prevent a partial subset being presented as full-site validation. Finite-sample
+resolution remains a modelling choice: B may differ in either direction from
+A's admitted piecewise-linear reference. No universal error envelope is claimed.
+
+Multi-snapshot energy requires explicit finite positive non-Boolean duration
+hours with exact aware timestamp/timezone keys; duration is never inferred from
+row spacing. Snapshots must share the same ordered physical string universe.
+Stable chronological `math.fsum` accumulation yields A/B Wh, signed/absolute/
+relative energy error, maximum string and snapshot relative errors, timestamp
+counts and completeness. Comparison records and duration metadata are detached.
+
+`MethodBValidationPolicy` has **no numerical defaults**. A caller explicitly
+supplies nonnegative finite maximum string, snapshot and energy relative-error
+fractions plus source/confidence/method/applicability. Without a policy, only metrics are reported; no pass/fail classification is made. With a policy, states are within policy, outside policy
+or unresolved incomplete reference. These states do not select production
+Method B. Descriptive confidence changes no bound or numerical result.
+
+### Source-design reconciliation and dormant close-out
+
+Method A remains the reference. The source document's useful class and
+operating-level ideas are adopted with exact complete numerical signatures and
+explicit current candidates. Its example irradiance/temperature cache bins,
+unshaded automatic dispatcher and universal comparison thresholds are not
+adopted. No approximate cache, cache lifecycle, random tolerance distribution,
+flash-data spread, diode failure or edge-soiling model is added.
+
+The source's annual 0.2-percentage-point criterion concerns **electrical mismatch
+loss**, not generic total-energy relative error. Its loss-waterfall denominator
+and site-validation basis must be supplied/reviewed separately before using that
+criterion. No source example threshold is encoded as a production default.
+
+The immediate engineering sequence is generic Stage4a close-out → P2 site
+evidence/admission → Priority B only where admitted evidence/use case requires
+it → P3 only when all evidence and activation gates clear. Generic completion
+activates no source, scheduler, worker, cache, fidelity dispatcher or production
+expected-energy path. Site admission remains A-10; A-08 higher-resolution member
+variability remains separately pending.
 
 ## Explicit exclusions and site gates
 
