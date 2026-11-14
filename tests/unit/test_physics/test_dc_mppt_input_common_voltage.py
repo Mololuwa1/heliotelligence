@@ -37,12 +37,8 @@ from heliotelligence.physics.electrical import (  # type: ignore[import-untyped]
     calculate_topology_mppt_mismatch_from_string_iv,
 )
 
-s8_support: Any = importlib.import_module(
-    "tests.unit.test_physics.test_state_aware_mppt_mismatch"
-)
-branch_support: Any = importlib.import_module(
-    "tests.unit.test_physics.test_dc_branch_iv_transform"
-)
+s8_support: Any = importlib.import_module("tests.unit.test_physics.test_state_aware_mppt_mismatch")
+branch_support: Any = importlib.import_module("tests.unit.test_physics.test_dc_branch_iv_transform")
 
 
 def _path(resistance: float | None) -> DcBranchPathConfig | None:
@@ -98,10 +94,14 @@ def _s8b(
         receiver_count=count,
     )
     authority = resolve_dc_branch_path_authority(topology)
-    return s81, authority, calculate_topology_mppt_input_string_iv(
-        topology,
+    return (
         s81,
         authority,
+        calculate_topology_mppt_input_string_iv(
+            topology,
+            s81,
+            authority,
+        ),
     )
 
 
@@ -111,9 +111,7 @@ def _run(
     authority: DcBranchPathAuthorityResult,
     value: TopologyMpptInputStringIVResult,
 ) -> TopologyMpptInputOperatingPointResult:
-    return calculate_topology_mppt_input_operating_points(
-        topology, s81, authority, value
-    )
+    return calculate_topology_mppt_input_operating_points(topology, s81, authority, value)
 
 
 def _curve_like(
@@ -133,9 +131,7 @@ def _curve_like(
             "voltage_v": volts,
             "current_a": amps,
             "power_w": volts * amps,
-            "effective_irradiance_wm2": [
-                state["spectral_electrical_equivalent_irradiance_wm2"]
-            ]
+            "effective_irradiance_wm2": [state["spectral_electrical_equivalent_irradiance_wm2"]]
             * len(volts),
             "tier_used": [state["tier_used"]] * len(volts),
             "fit_quality": [state["fit_quality"]] * len(volts),
@@ -219,25 +215,20 @@ def test_two_string_analytic_mismatch_at_mppt_input() -> None:
     changed_s81 = _replace_s81_curves(
         s81,
         {
-            "string-a": _curve_like(
-                s81, "string-a", [0.0, 1.0, 2.0, 4.0], [10.0, 10.0, 2.0, 0.0]
-            ),
-            "string-b": _curve_like(
-                s81, "string-b", [0.0, 1.0, 2.0, 4.0], [4.0, 4.0, 4.0, 0.0]
-            ),
+            "string-a": _curve_like(s81, "string-a", [0.0, 1.0, 2.0, 4.0], [10.0, 10.0, 2.0, 0.0]),
+            "string-b": _curve_like(s81, "string-b", [0.0, 1.0, 2.0, 4.0], [4.0, 4.0, 4.0, 0.0]),
         },
     )
-    transformed = calculate_topology_mppt_input_string_iv(
-        topology, changed_s81, authority
-    )
+    transformed = calculate_topology_mppt_input_string_iv(topology, changed_s81, authority)
 
     row = _run(topology, changed_s81, authority, transformed).operating_points.iloc[0]
 
-    assert row["p_independent_mppt_input_w"] == pytest.approx(18.0)
-    assert row["p_mppt_input_w"] == pytest.approx(14.0)
-    assert row["p_mppt_input_mismatch_w"] == pytest.approx(4.0)
-    assert row["v_mppt_input_v"] == pytest.approx(1.0)
-    assert row["i_mppt_input_a"] == pytest.approx(14.0)
+    # PL stationary points: independent 18.125 W; common 15.125 W.
+    assert row["p_independent_mppt_input_w"] == pytest.approx(18.125)
+    assert row["p_mppt_input_w"] == pytest.approx(15.125)
+    assert row["p_mppt_input_mismatch_w"] == pytest.approx(3.0)
+    assert row["v_mppt_input_v"] == pytest.approx(1.375)
+    assert row["i_mppt_input_a"] == pytest.approx(11.0)
 
 
 def test_different_branch_resistances_are_transformed_before_aggregation() -> None:
@@ -250,9 +241,7 @@ def test_different_branch_resistances_are_transformed_before_aggregation() -> No
     row = _run(topology, s81, authority, transformed).operating_points.iloc[0]
 
     assert row["mppt_input_state"] == "resolved_mppt_input_common_voltage"
-    assert row["p_mppt_input_w"] == pytest.approx(
-        row["v_mppt_input_v"] * row["i_mppt_input_a"]
-    )
+    assert row["p_mppt_input_w"] == pytest.approx(row["v_mppt_input_v"] * row["i_mppt_input_a"])
 
 
 def test_all_zero_and_mixed_active_zero_state_semantics() -> None:
@@ -260,27 +249,27 @@ def test_all_zero_and_mixed_active_zero_state_semantics() -> None:
     zero_s81, zero_authority, all_zero = _s8b(topology, zero=True)
     zero_row = _run(topology, zero_s81, zero_authority, all_zero).operating_points.iloc[0]
     assert zero_row["mppt_input_state"] == "resolved_zero_mppt_input_common_voltage"
-    assert zero_row[
-        [
-            "v_mppt_input_v",
-            "i_mppt_input_a",
-            "p_mppt_input_w",
-            "p_independent_mppt_input_w",
-            "p_mppt_input_mismatch_w",
-            "mppt_input_mismatch_pct",
+    assert (
+        zero_row[
+            [
+                "v_mppt_input_v",
+                "i_mppt_input_a",
+                "p_mppt_input_w",
+                "p_independent_mppt_input_w",
+                "p_mppt_input_mismatch_w",
+                "mppt_input_mismatch_pct",
+            ]
         ]
-    ].eq(0.0).all()
+        .eq(0.0)
+        .all()
+    )
 
     _, s81 = s8_support._real_s81(topology, receiver_count=2)
     mixed_s81 = s8_support._set_string_zero(s81, "string-b")
     mixed_authority = resolve_dc_branch_path_authority(topology)
-    mixed = calculate_topology_mppt_input_string_iv(
-        topology, mixed_s81, mixed_authority
-    )
+    mixed = calculate_topology_mppt_input_string_iv(topology, mixed_s81, mixed_authority)
     mixed_row = _run(topology, mixed_s81, mixed_authority, mixed).operating_points.iloc[0]
-    assert mixed_row["mppt_input_state"] == (
-        "unresolved_mixed_active_zero_requires_blocking_model"
-    )
+    assert mixed_row["mppt_input_state"] == ("unresolved_mixed_active_zero_requires_blocking_model")
     assert pd.isna(mixed_row["p_mppt_input_w"])
 
 
@@ -291,9 +280,7 @@ def test_unresolved_member_causes_and_summaries_are_preserved() -> None:
         missing_topology, missing_s81, missing_authority, missing
     ).operating_points.iloc[0]
     assert missing_row["mppt_input_state"] == "unresolved_member_mppt_input_iv"
-    assert missing_row["unresolved_string_states"] == (
-        "unresolved_no_explicit_dc_branch_path"
-    )
+    assert missing_row["unresolved_string_states"] == ("unresolved_no_explicit_dc_branch_path")
 
     topology = _topology([("mppt-1", [("string-1", 1000.0)])])
     s81 = branch_support._replace_curve(
@@ -321,9 +308,7 @@ def test_unresolved_member_causes_and_summaries_are_preserved() -> None:
     upstream_row = _run(
         upstream_topology, unresolved_s81, upstream_authority, upstream
     ).operating_points.iloc[0]
-    assert upstream_row["unresolved_string_states"] == (
-        "unresolved_receiver_module_electrical"
-    )
+    assert upstream_row["unresolved_string_states"] == ("unresolved_receiver_module_electrical")
 
 
 def test_repeated_mppt_ids_multiple_mppts_and_empty_mppt_order() -> None:
@@ -409,9 +394,7 @@ def test_tampered_state_is_rejected_before_physics(
     s81, authority, valid = _s8b(topology)
     states = valid.states.copy(deep=True)
     states.iloc[0, states.columns.get_loc(column)] = (
-        not bool(states.iloc[0][column])
-        if column == "mppt_input_iv_resolved"
-        else "forged"
+        not bool(states.iloc[0][column]) if column == "mppt_input_iv_resolved" else "forged"
     )
     tampered = replace(valid, states=states)
     calls = 0
@@ -567,15 +550,12 @@ def test_contract_provenance_and_diagnostic_closure() -> None:
 
     assert row["source_reference_plane"] == STRING_TERMINAL_REFERENCE_PLANE
     assert row["sink_reference_plane"] == MPPT_INPUT_REFERENCE_PLANE
-    assert row["mppt_input_common_voltage_contract"] == (
-        MPPT_INPUT_COMMON_VOLTAGE_CONTRACT_ID
-    )
+    assert row["mppt_input_common_voltage_contract"] == (MPPT_INPUT_COMMON_VOLTAGE_CONTRACT_ID)
     assert row["mppt_input_common_voltage_model"] == MPPT_INPUT_COMMON_VOLTAGE_MODEL_ID
     assert row["mppt_input_common_voltage_scope"] == MPPT_INPUT_COMMON_VOLTAGE_SCOPE
     assert row["mppt_input_common_voltage_coverage_scope"] == (
         MPPT_INPUT_COMMON_VOLTAGE_COVERAGE_SCOPE
     )
     assert result.diagnostics.resolved_mppt_state_count == (
-        result.diagnostics.active_mppt_state_count
-        + result.diagnostics.zero_mppt_state_count
+        result.diagnostics.active_mppt_state_count + result.diagnostics.zero_mppt_state_count
     )

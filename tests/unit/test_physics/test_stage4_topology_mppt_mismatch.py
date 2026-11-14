@@ -130,9 +130,7 @@ def test_one_string_one_mppt_matches_canonical_result() -> None:
 
 def test_multiple_strings_positive_mismatch_matches_canonical_result() -> None:
     first, second = _positive_mismatch_curves()
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-a", "string-b"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-a", "string-b"])]))
 
     result = calculate_topology_mppt_mismatch(
         topology,
@@ -141,9 +139,9 @@ def test_multiple_strings_positive_mismatch_matches_canonical_result() -> None:
     direct = calculate_physical_mismatch([first, second])
 
     pd.testing.assert_frame_equal(_without_topology_ids(result), direct)
-    assert result.iloc[0]["p_independent_mp_w"] == pytest.approx(18.0)
-    assert result.iloc[0]["p_common_mppt_w"] == pytest.approx(14.0)
-    assert result.iloc[0]["p_mismatch_w"] == pytest.approx(4.0)
+    assert result.iloc[0]["p_independent_mp_w"] == pytest.approx(18.125)
+    assert result.iloc[0]["p_common_mppt_w"] == pytest.approx(15.125)
+    assert result.iloc[0]["p_mismatch_w"] == pytest.approx(3.0)
 
 
 def test_two_mppts_are_evaluated_independently_in_topology_order() -> None:
@@ -166,7 +164,7 @@ def test_two_mppts_are_evaluated_independently_in_topology_order() -> None:
 
     assert result["mppt_id"].tolist() == ["mppt-1", "mppt-2"]
     assert result["string_count"].tolist() == [2, 1]
-    assert result["p_mismatch_w"].tolist() == pytest.approx([4.0, 0.0])
+    assert result["p_mismatch_w"].tolist() == pytest.approx([3.0, 0.0])
 
 
 def test_repeated_mppt_id_across_inverters_remains_separate() -> None:
@@ -190,9 +188,7 @@ def test_repeated_mppt_id_across_inverters_remains_separate() -> None:
 
 
 def test_missing_configured_string_is_rejected() -> None:
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-a", "string-b"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-a", "string-b"])]))
 
     with pytest.raises(ValueError, match="missing string ids: string-b"):
         calculate_topology_mppt_mismatch(
@@ -215,9 +211,7 @@ def test_unexpected_string_is_rejected() -> None:
 
 
 def test_missing_and_unexpected_strings_are_reported_together() -> None:
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-a", "string-b"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-a", "string-b"])]))
 
     with pytest.raises(
         ValueError,
@@ -235,9 +229,7 @@ def test_missing_and_unexpected_strings_are_reported_together() -> None:
 def test_invalid_global_id_contract_calls_no_physics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-a", "string-b"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-a", "string-b"])]))
     calls = 0
 
     def fail_if_called(_: list[pd.DataFrame]) -> pd.DataFrame:
@@ -321,9 +313,7 @@ def test_topology_string_order_overrides_mapping_insertion_order(
 ) -> None:
     curve_a = _curve([0.0, 1.0], [1.0, 0.0])
     curve_b = _curve([0.0, 2.0], [2.0, 0.0])
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-b", "string-a"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-b", "string-a"])]))
     captured: list[list[pd.DataFrame]] = []
     canonical = electrical.calculate_physical_mismatch
 
@@ -373,16 +363,11 @@ def test_one_physics_call_per_populated_mppt(
 
 
 def test_physical_validation_error_includes_inverter_and_mppt_context() -> None:
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["active", "night"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["active", "night"])]))
 
     with pytest.raises(
         ValueError,
-        match=(
-            "inverter 'inverter-A' MPPT 'mppt-1'.*"
-            "reverse-current or blocking-device model"
-        ),
+        match=("inverter 'inverter-A' MPPT 'mppt-1'.*reverse-current or blocking-device model"),
     ) as error:
         calculate_topology_mppt_mismatch(
             topology,
@@ -424,9 +409,7 @@ def test_timestamp_order_timezone_and_topology_group_order_are_preserved() -> No
 
 
 def test_inputs_and_topology_are_not_mutated() -> None:
-    topology = _topology(
-        ("inverter-A", [("mppt-1", ["string-a", "string-b"])])
-    )
+    topology = _topology(("inverter-A", [("mppt-1", ["string-a", "string-b"])]))
     curves = {
         "string-a": _curve([0.0, 1.0], [1.0, 0.0]),
         "string-b": _curve([0.0, 2.0], [2.0, 0.0]),
