@@ -8,7 +8,7 @@ more rigorous canonical physics unchanged. Use design detail to identify
 repository documentation alignment, genuine advanced fidelity and site evidence
 still required; do not rebuild an effect already represented in the chain.
 
-Current advanced-S8 checkpoint: PR #142 merge `8b17c2f703929bbc0b821769f54f0d67705a08fa`.
+Current advanced-S8 checkpoint: PR #143 merge `8148299f632f8cb5f97ce2b9940bfb5d6aababc0`.
 
 Original ledger baseline: PR #131 merge
 `879bb186b459b7be344b3ad01337863213b0a086`. Completion status below is contingent
@@ -191,8 +191,8 @@ Source reference: `Stage_4a_-_String_Aggregation_and_Bypass_Diode_Model.docx`.
 | A-03 | Direct string branch and MPPT-input I-V | `KEEP_CANONICAL` | [DC collection](../../src/heliotelligence/physics/dc_collection.py) transforms explicit per-string total loop resistance from `string_terminal` to `mppt_input`, then solves at that sink plane. Preserve V/I/P and branch-loss ownership. |
 | A-04 | Bounded intra-string population residual | `KEEP_CANONICAL` | [Population authority](../../src/heliotelligence/physics/module_population_mismatch.py) retains explicit negligible-by-evidence or lower-fidelity post-MPPT equivalent current derate. It is not manufacturing/member I-V physics and consumes no legacy percentage. |
 | A-05 | Member/sub-string geometry and topology | `ADVANCED_FIDELITY_PENDING` | Stage4a-1 implements explicit ordered physical module-member and bypass-protected-section topology authority in S8; see the [advanced architecture](advanced-string-bypass-architecture.md). Geometry/shading binding and orientation/routing interpretation remain pending; numerical reverse/clamp/composition is owned by A-06 and peak handling by A-07. Existing aggregate geometry supplies no advanced authority. Priority A; partial implementation, not complete Stage 4a. |
-| A-06 | Reverse-bias, diode clamping and series sub-string composition | `KEEP_CANONICAL` | Stage4a-2 retains explicit section reverse authority and isolated Bishop I-V. Stage4a-3 adds explicit constant-forward-voltage diode authority, transition-gated bypass clamp and ordered common-current section/module/string voltage composition at string_terminal. Complete per-string evidence is required; no module SDM splitting, inferred diode voltage, peak selection or optical binding. Unconstrained raw PV voltage is explicitly not evaluated at bypass-active samples; actual branch voltage/current remain auditable. Generic and dormant; A-07 and geometry/shading binding remain pending. |
-| A-07 | Multi-peak strings and global operating selection | `ADVANCED_FIDELITY_PENDING` | Bypass-induced per-string multi-peak P-V, member/sub-string-resolved nonuniform-string parallel combination, all candidate peaks, global maximum selection and bypass activation diagnostics remain future coverage. Existing S8 already combines differing complete string curves and selects the maximum over its admitted sampled candidate voltages; that is not an all-peaks guarantee for a new bypass-resolved domain. Reuse/extend the existing owner only after validating that domain. Priority A. |
+| A-06 | Reverse-bias, diode clamping and series sub-string composition | `KEEP_CANONICAL` | Stage4a-2 retains explicit section reverse authority and isolated Bishop I-V. Stage4a-3 adds explicit constant-forward-voltage diode authority, transition-gated bypass clamp and ordered common-current section/module/string voltage composition at string_terminal. Complete per-string evidence is required; no module SDM splitting, inferred diode voltage, peak selection or optical binding. Unconstrained raw PV voltage is explicitly not evaluated at bypass-active samples; actual branch voltage/current remain auditable. Generic and dormant; A-07 owns the represented global selection; geometry/shading binding remains pending. |
+| A-07 | Multi-peak strings and global operating selection | `KEEP_CANONICAL` | Stage4a-4 enumerates all breakpoints and interior concave-quadratic stationary candidates of the admitted piecewise-linear I(V), publishes local/bypass diagnostics and selects the exact represented global maximum (lowest-voltage exact tie). The same existing S8 owner supplies common-voltage selection and every independent-string mismatch counterfactual. Advanced curves require complete zero-current/zero-voltage coverage, exact Stage4a-3 transition replay and nonnegative string_terminal handoff. This is not an analytical continuous-Bishop global guarantee; A-05 optical binding remains pending. |
 | A-08 | Member-resolved flash-data variability | `ADVANCED_FIDELITY_PENDING` | Explicit flash/I-V population evidence and its member electrical mapping are future higher resolution, not the bounded residual authority. Nameplate tolerance and Bracon's legacy 1.15% do not define a distribution. |
 | A-09 | Advanced-path integration and inverter interaction | `DOCUMENTATION_ALIGNMENT` | Future member/sub-string fidelity must produce the existing physical string-terminal boundary, retain the existing branch transform and shared-MPPT owner, and reconcile multi-peak selection with S9's canonical MPPT envelope/selection semantics. Current S9 envelope reports constraints; it does not invent a constrained/global tracking solution. |
 | A-10 | Site advanced-path and baseline binding | `SITE_EVIDENCE_PENDING` | P2 needs physical routing, ordering/positions/orientations, string→MPPT assignment, module/sub-string diode layout, shading receiver→module mapping and optional flash data. Bracon currently lacks admitted baseline mapping as well; advanced generic code alone would not admit its advanced route. |
@@ -316,10 +316,13 @@ execution/selection behavior. It is not itself Twin evidence or an admission.
 ## Priority and relationship to P2
 
 **Priority A: advanced S8 member/sub-string and bypass-diode physics (A-05–A-07).**
-This is the highest-value unresolved detailed mechanism from the supplied design:
-electrical shading/mismatch, multi-peak behavior and more resolved future fault
-signatures. Its generic implementation and site use require explicit physical
-mapping and diode/current-domain evidence. Preserve the current baseline path. Stage4a-1 now supplies dormant member/section connectivity authority only; A-05 geometry/shading binding and A-07 multi-peak work remain pending; Stage4a-2 supplies isolated explicit section Bishop I-V and Stage4a-3 adds explicit diode clamp and common-current series composition.
+Stage4a-1–4 now implement explicit member topology, isolated section reverse I-V,
+diodes/clamping, common-current series composition and complete piecewise-linear
+multi-peak/global selection. Remaining Stage4a-5 optical/shading binding,
+string-class optimisation and validated Method B are pending. Preserve the
+independent homogeneous baseline. Generic capability still requires explicit
+physical inputs; it does not supply Bracon routing, diode or optical evidence.
+
 
 **Priority B: advanced cable/conductor parameter authority (C-02–C-03).** The
 network solvers already own rigorous electrical solutions; the principal missing

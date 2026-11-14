@@ -114,9 +114,7 @@ def test_single_active_string_has_zero_mismatch() -> None:
     result = _assert_common_fields_match([_physical_string_curve(900.0, 35.0)])
 
     assert result.columns.tolist() == OUTPUT_COLUMNS
-    assert result.iloc[0]["p_independent_mp_w"] == pytest.approx(
-        result.iloc[0]["p_common_mppt_w"]
-    )
+    assert result.iloc[0]["p_independent_mp_w"] == pytest.approx(result.iloc[0]["p_common_mppt_w"])
     assert result.iloc[0]["p_mismatch_w"] == 0.0
     assert result.iloc[0]["mismatch_pct"] == 0.0
     assert result.iloc[0]["string_count"] == 1
@@ -128,9 +126,7 @@ def test_identical_parallel_strings_have_zero_mismatch(string_count: int) -> Non
 
     result = calculate_physical_mismatch([curve] * string_count).iloc[0]
 
-    assert result["p_independent_mp_w"] == pytest.approx(
-        result["p_common_mppt_w"]
-    )
+    assert result["p_independent_mp_w"] == pytest.approx(result["p_common_mppt_w"])
     assert result["p_mismatch_w"] == 0.0
     assert result["mismatch_pct"] == 0.0
     assert result["string_count"] == string_count
@@ -142,13 +138,13 @@ def test_known_positive_mismatch_matches_manual_algebra() -> None:
 
     result = calculate_physical_mismatch([low_voltage, high_voltage]).iloc[0]
 
-    assert result["p_independent_mp_w"] == pytest.approx(18.0)
-    assert result["p_common_mppt_w"] == pytest.approx(14.0)
-    assert result["p_mismatch_w"] == pytest.approx(4.0)
-    assert result["mismatch_pct"] == pytest.approx(100.0 * 4.0 / 18.0)
+    assert result["p_independent_mp_w"] == pytest.approx(18.125)
+    assert result["p_common_mppt_w"] == pytest.approx(15.125)
+    assert result["p_mismatch_w"] == pytest.approx(3.0)
+    assert result["mismatch_pct"] == pytest.approx(100.0 * 3.0 / 18.125)
 
 
-def test_master_union_enriches_each_independent_candidate_grid() -> None:
+def test_independent_stationary_point_exhausts_piecewise_maximum() -> None:
     sparse = _curve([0.0, 1.0, 3.0, 4.0], [10.0, 10.0, 4.0, 0.0])
     contributes_two_volts = _curve(
         [0.0, 2.0, 4.0],
@@ -161,7 +157,7 @@ def test_master_union_enriches_each_independent_candidate_grid() -> None:
     result = calculate_physical_mismatch([sparse, contributes_two_volts]).iloc[0]
 
     assert sparse["power_w"].max() == pytest.approx(12.0)
-    assert result["p_independent_mp_w"] == pytest.approx(14.0)
+    assert result["p_independent_mp_w"] == pytest.approx(169.0 / 12.0 + 5e-9)
     assert result["p_common_mppt_w"] <= result["p_independent_mp_w"]
     assert result["p_mismatch_w"] >= 0.0
 
@@ -195,16 +191,20 @@ def test_different_physical_conditions_preserve_mismatch_invariants(
 def test_all_night_strings_return_zero_mismatch() -> None:
     result = calculate_physical_mismatch([_night_curve(), _night_curve()]).iloc[0]
 
-    assert result[
-        [
-            "v_common_mppt_v",
-            "i_common_mppt_a",
-            "p_common_mppt_w",
-            "p_independent_mp_w",
-            "p_mismatch_w",
-            "mismatch_pct",
+    assert (
+        result[
+            [
+                "v_common_mppt_v",
+                "i_common_mppt_a",
+                "p_common_mppt_w",
+                "p_independent_mp_w",
+                "p_mismatch_w",
+                "mismatch_pct",
+            ]
         ]
-    ].eq(0.0).all()
+        .eq(0.0)
+        .all()
+    )
     assert result["string_count"] == 2
 
 
@@ -219,16 +219,21 @@ def test_multiple_all_night_timestamps_preserve_order_and_timezone() -> None:
     assert result.index.equals(pd.RangeIndex(2))
     assert result["timestamp"].tolist() == timestamps
     assert str(result["timestamp"].dt.tz) == "Europe/London"
-    assert result[
-        [
-            "v_common_mppt_v",
-            "i_common_mppt_a",
-            "p_common_mppt_w",
-            "p_independent_mp_w",
-            "p_mismatch_w",
-            "mismatch_pct",
+    assert (
+        result[
+            [
+                "v_common_mppt_v",
+                "i_common_mppt_a",
+                "p_common_mppt_w",
+                "p_independent_mp_w",
+                "p_mismatch_w",
+                "mismatch_pct",
+            ]
         ]
-    ].eq(0.0).all().all()
+        .eq(0.0)
+        .all()
+        .all()
+    )
     assert result["string_count"].eq(2).all()
 
 

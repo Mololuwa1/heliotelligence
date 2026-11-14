@@ -1,6 +1,6 @@
 # Advanced S8 string-member and bypass architecture
 
-Current reviewed checkpoint: PR #142 merge `8b17c2f703929bbc0b821769f54f0d67705a08fa`.
+Current reviewed checkpoint: PR #143 merge `8148299f632f8cb5f97ce2b9940bfb5d6aababc0`.
 
 ## Ownership and current boundary
 
@@ -34,7 +34,8 @@ EXISTING S8 common-voltage shared-MPPT solve
 EXISTING S9 inverter
 ```
 
-Topology authority, isolated section Bishop I-V and explicit bypass/common-current composition are implemented. No second DC collection, MPPT
+Topology authority, isolated section Bishop I-V, explicit bypass/common-current
+composition and complete piecewise-linear candidate/global analysis are implemented. No second DC collection, MPPT
 or inverter chain is introduced. Future advanced I-V output must meet the same
 physical `string_terminal` boundary before any existing branch transformation.
 
@@ -44,12 +45,12 @@ physical `string_terminal` boundary before any existing branch transformation.
 | --- | --- | --- |
 | Stage4a-1 | Member / bypass-protected-section topology authority | COMPLETE, dormant |
 | Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE, dormant; PR #142 |
-| Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE BY THIS PR, dormant |
-| Stage4a-4 | Multi-peak identification and advanced candidate/global operating handoff | Pending |
+| Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE, dormant; PR #143 |
+| Stage4a-4 | Complete piecewise-linear multi-peak candidates/global selection and canonical curve handoff | COMPLETE BY THIS PR, dormant |
 | Stage4a-5 | Optical/shading-state → section binding, string-class optimisation and Method-B validation | Pending |
 
 Stage 4a is not complete. A-06 now has explicit reverse, diode clamp and
-common-current composition coverage; A-07 multi-peak/global selection remains pending in the
+common-current composition coverage; A-07 now has exact piecewise-linear candidate/global selection in the
 [implementation-delta ledger](physics-implementation-delta.md). Geometry/shading
 binding remains pending within A-05; connectivity authority is its first slice.
 
@@ -305,9 +306,134 @@ reference plane: string_terminal
 Output curves retain caller current order and may include negative terminal
 voltage/power. They describe the existing physical `string_terminal` plane;
 no downstream adapter, branch loss, MPPT solve or S9 execution is invoked.
-Stage4a-4 will own the explicit candidate/global handoff. Stage4a-5 will own
+Stage4a-4 owns the explicit piecewise-linear candidate/global handoff. Stage4a-5 will own
 optical mapping/optimisation and validated Method B. No diode failure/degradation
 state, module-parameter splitting, cell-voltage scaling or site authority is added.
+
+## Stage4a-4 — complete piecewise-linear candidates and global handoff
+
+The [canonical S8 electrical owner](../../src/heliotelligence/physics/electrical.py)
+now publishes `calculate_common_voltage_mppt_candidates`. The existing
+`calculate_common_voltage_mppt` and the audit API delegate to the same complete
+vectorized numerical candidate core; the selected-point schema is unchanged.
+Only explicit audit requests materialize full candidate tables, avoiding overhead
+in deeply replayed downstream parents. The exact guarantee is **all local candidates and the global maximum
+over the admitted piecewise-linear I-V representation**, not an analytical
+maximum of continuous Bishop physics. Curve resolution remains a modelling
+choice; it is not hidden evidence uncertainty.
+
+For each interval, `I(V) = aV + b`, so `P(V) = aV² + bV`. Its maximum must be at
+an interval boundary or a strictly interior stationary point `V* = -b/(2a)`
+when `a < 0`. The solver enumerates both, without a dense-grid heuristic or
+optimiser. Machine-unrepresentable nonconstant interval slopes (overflow or
+subnormal/underflow) fail closed rather than being treated as flat; this is a
+numerical-range check, not a site evidence threshold. Parallel strings use the
+sorted union of breakpoints inside the
+unchanged `0 <= V <= min(sampled Voc)` overlap, sum interpolated currents using
+`math.fsum`, and apply this same quadratic logic. There is no extrapolation,
+blocking-diode model or real-device tracking behavior.
+
+```text
+contract: common_voltage_piecewise_linear_peak_candidates_v1
+model: exact_piecewise_linear_current_quadratic_power_stationary_points_v1
+scope: s8_common_voltage_candidate_enumeration_before_selected_mppt_operating_point
+coverage: validated_nonnegative_piecewise_linear_string_iv_common_voltage_overlap
+```
+
+The audit retains timestamp, ordered candidate index, voltage/current/power,
+per-input-string currents, candidate origin, supporting interval indices, local
+maximum and selected-global flags, string count and interpolation/search basis.
+One breakpoint voltage has one canonical row with adjacent-interval provenance;
+no distinct physical input string is dropped. Every exact tied global maximum
+selects its lowest voltage. Local flags are weak maxima among the complete
+candidate sequence; flat zero-power endpoints are explicit degenerate candidates,
+not an invented positive peak. Mixed active/night parallel inputs still require
+an explicit blocking/reverse-current model and remain rejected; all-zero selected
+output stays zero.
+
+`calculate_physical_mismatch` now uses this same complete candidate owner for
+each independent string in its own voltage domain, then sums their maxima.
+The common/independent closure tolerance is unchanged. The independent
+counterfactual is never a weaker endpoint-only optimiser. Existing
+[DC collection](../../src/heliotelligence/physics/dc_collection.py) MPPT callers
+inherit this through their existing call chain, without another MPPT engine.
+
+### Advanced source validation and search completeness
+
+The [advanced handoff](../../src/heliotelligence/physics/string_multi_peak_candidates.py)
+requires explicit Stage4a-1 topology, Stage4a-2 reverse authority, Stage4a-3 diode
+and operating-state inputs, the Stage4a-3 result and an exact aware snapshot
+label. It replays Stage4a-3 and exact-compares every frozen field type/value,
+ordered mapping, diagnostic and owned frame. It never reconstructs or infers
+section physics or topology. The timestamp labels this numerical snapshot; it
+creates no weather/meter temporal authority or site validity evidence.
+
+An active string must have exact `0 A`, positive zero-current Voc, finite values,
+voltage non-increasing with current (numerical check: 1e-8 V + 1e-10 × maximum
+voltage magnitude), and a supplied point reaching/crossing `0 V`. Missing zero
+current, missing voltage bracket or missing advanced evidence remains explicitly
+unavailable with no candidates. Nonfinite, nonmonotonic or forged data fails
+closed. A repeated positive voltage would make I(V) ambiguous; it is rejected
+rather than silently removing physically distinct states.
+
+All section transition currents within each complete source bracket are added
+exactly to the current grid and replayed through the existing Stage4a-3 composer.
+These are required physical kinks, not peak-seeking refinement. Positive-domain
+transition points remain in the canonical curve. Extra negative-domain replay
+points stay upstream and are excluded from the downstream nonnegative domain.
+No nearest-sample approximation is used.
+
+The represented `V = 0` boundary is interpolated inside the first positive/negative
+bracket in the enriched piecewise-linear V(I). Exact zero samples are retained.
+No zero crossing is extrapolated. The final curve reverses that monotonic domain
+into strictly increasing voltage from zero to Voc, with explicit timestamp,
+curve_point, voltage, current and power. Original Stage4a-3 negative samples remain
+unchanged; detached source and transition-enriched replays remain available.
+Explicit dark strings publish a resolved-zero curve and zero endpoint, not local
+positive peaks. Their mixed-active behavior remains the canonical S8 rule.
+
+```text
+contract: advanced_string_terminal_multi_peak_candidates_v1
+model: piecewise_linear_string_iv_complete_candidate_enumeration_v1
+scope: advanced_s8_string_terminal_multi_peak_analysis_before_dc_branch_transform
+coverage: complete_stage4a3_string_iv_with_search_complete_nonnegative_voltage_domain
+reference plane: string_terminal
+```
+
+Each complete advanced string delegates candidate enumeration to the canonical
+S8 owner. At every candidate, ordered bypass-active section identities/counts
+follow exactly `candidate_current > clamp_transition_current`, never voltage sign.
+The independent-string global flag refers to the represented full curve, which
+remains available; it does not replace the curve with one MPP. Diagnostics close
+active/zero/unavailable string counts and count inserted transitions, candidates
+and local maxima, without a maturity score.
+
+### Downstream ownership and intentional changes
+
+The existing DC-branch owner exposes `transform_string_terminal_iv_to_mppt_input`
+as a numerical curve handoff to its **existing** series-resistance transform.
+It validates one aware snapshot, core I/V/P columns, the declared terminal plane
+where supplied, power closure and explicit finite nonnegative resistance. It
+preserves supplied metadata without manufacturing homogeneous-module tier or
+irradiance tags. This primitive does not admit path evidence or create topology;
+the existing typed branch/path interfaces retain their authority checks. There
+is no automatic adapter or production dispatch. Tests explicitly feed an advanced
+curve into this existing owner and then the existing common-voltage solver.
+The advanced module itself invokes no branch, inverter or optical physics.
+
+Endpoint-only results intentionally change when the represented power maximum
+is interior. The existing analytic mismatch fixture changes from independent /
+common / mismatch `18 / 14 / 4 W` to `18.125 / 15.125 / 3 W`: common voltage
+1.375 V, current 11 A; the low-voltage string independently peaks at 1.125 V.
+An old apparent endpoint tie at 1 V and 2 V is correctly superseded by its higher
+1.5 V interior maximum. A genuinely tied multi-peak fixture still selects the
+lowest voltage. Fixtures whose maximum is already a sampled boundary stay
+unchanged. Strict typing additions in the touched legacy module helpers change
+no De Soto/module numerical equations.
+
+Stage4a-5, optical/geometry binding, string-class optimisation and Method B remain
+pending. No tracking, control, blocking-diode or degradation model is added.
+All 53 Bracon baseline blockers and P3 BLOCKED/INACTIVE status remain unchanged.
 
 ## Method A before Method B
 

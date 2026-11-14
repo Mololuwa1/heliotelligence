@@ -100,13 +100,15 @@ consumes SpectralResponseResult and does not call this helper.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, cast
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
+from numpy.typing import NDArray
 
 from heliotelligence.config.site import ElectricalTopologyConfig, SiteConfig
 from heliotelligence.geometry import PVReceiver, ReceiverKind
@@ -141,9 +143,7 @@ SPECTRAL_ELECTRICAL_HANDOFF_SCOPE = "receiver_resolved_module_electrical_before_
 RECEIVER_STRING_MODULE_IV_CONTRACT_ID = "receiver_module_electrical_to_topology_module_iv_v1"
 RECEIVER_STRING_MODULE_IV_MODEL_ID = "explicit_receiver_to_homogeneous_string_module_iv_v1"
 RECEIVER_STRING_MODULE_IV_SCOPE = "receiver_resolved_module_iv_before_string_series_scaling"
-RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE = (
-    "explicit_fixed_table_receiver_to_string_assignment"
-)
+RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE = "explicit_fixed_table_receiver_to_string_assignment"
 
 TOPOLOGY_STRING_IV_CONTRACT_ID = "receiver_string_module_iv_to_physical_string_iv_v1"
 TOPOLOGY_STRING_IV_MODEL_ID = "homogeneous_series_module_iv_scaling_v1"
@@ -609,9 +609,7 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
         datasheet_reference_is_precomputed=tier in (3, 4),
     )
 
-    timestamps = pd.DatetimeIndex(
-        electrical.index.get_level_values("timestamp").unique()
-    )
+    timestamps = pd.DatetimeIndex(electrical.index.get_level_values("timestamp").unique())
     curves_by_receiver: dict[str, pd.DataFrame] = {}
     states_by_receiver: dict[str, dict[pd.Timestamp, tuple[bool, str]]] = {}
     for receiver_id in referenced_ids:
@@ -690,9 +688,7 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
                     "inverter_id": inverter_id,
                     "mppt_id": mppt_id,
                     "receiver_id": receiver_id,
-                    "receiver_module_electrical_resolved": bool(
-                        row["module_electrical_resolved"]
-                    ),
+                    "receiver_module_electrical_resolved": bool(row["module_electrical_resolved"]),
                     "receiver_module_electrical_state": row["module_electrical_state"],
                     "spectral_electrical_equivalent_irradiance_wm2": row[
                         "spectral_electrical_equivalent_irradiance_wm2"
@@ -702,9 +698,7 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
                     "module_iv_state": state,
                     "tier_used": tier,
                     "fit_quality": fit_quality,
-                    "receiver_string_module_iv_contract": (
-                        RECEIVER_STRING_MODULE_IV_CONTRACT_ID
-                    ),
+                    "receiver_string_module_iv_contract": (RECEIVER_STRING_MODULE_IV_CONTRACT_ID),
                     "receiver_string_module_iv_model": RECEIVER_STRING_MODULE_IV_MODEL_ID,
                     "receiver_string_module_iv_scope": RECEIVER_STRING_MODULE_IV_SCOPE,
                     "receiver_string_module_iv_coverage_scope": (
@@ -728,10 +722,7 @@ def calculate_topology_module_iv_curves_from_receiver_electrical(
     zero_count = int((states["module_iv_state"] == "resolved_zero_module_iv").sum())
     solved_count = int((states["module_iv_state"] == "resolved_module_iv").sum())
     power_only_count = int(
-        (
-            states["module_iv_state"]
-            == "unresolved_tier5_voltage_dependent_iv_unavailable"
-        ).sum()
+        (states["module_iv_state"] == "unresolved_tier5_voltage_dependent_iv_unavailable").sum()
     )
     references_per_receiver = {
         receiver_id: sum(value == receiver_id for value in assignments.values())
@@ -804,9 +795,7 @@ def calculate_topology_string_iv_curves_from_receiver_module_iv(
         {
             "resolved_module_iv": "resolved_string_iv",
             "resolved_zero_module_iv": "resolved_zero_string_iv",
-            "unresolved_receiver_module_electrical": (
-                "unresolved_receiver_module_electrical"
-            ),
+            "unresolved_receiver_module_electrical": ("unresolved_receiver_module_electrical"),
             "unresolved_tier5_voltage_dependent_iv_unavailable": (
                 "unresolved_tier5_voltage_dependent_iv_unavailable"
             ),
@@ -818,21 +807,13 @@ def calculate_topology_string_iv_curves_from_receiver_module_iv(
     output_states["topology_string_iv_contract"] = TOPOLOGY_STRING_IV_CONTRACT_ID
     output_states["topology_string_iv_model"] = TOPOLOGY_STRING_IV_MODEL_ID
     output_states["topology_string_iv_scope"] = TOPOLOGY_STRING_IV_SCOPE
-    output_states["topology_string_iv_coverage_scope"] = (
-        TOPOLOGY_STRING_IV_COVERAGE_SCOPE
-    )
+    output_states["topology_string_iv_coverage_scope"] = TOPOLOGY_STRING_IV_COVERAGE_SCOPE
     output_states = output_states.loc[:, _TOPOLOGY_STRING_IV_STATE_COLUMNS]
 
-    zero_count = int(
-        (output_states["string_iv_state"] == "resolved_zero_string_iv").sum()
-    )
-    scaled_count = int(
-        (output_states["string_iv_state"] == "resolved_string_iv").sum()
-    )
+    zero_count = int((output_states["string_iv_state"] == "resolved_zero_string_iv").sum())
+    scaled_count = int((output_states["string_iv_state"] == "resolved_string_iv").sum())
     resolved_count = zero_count + scaled_count
-    timestamps = pd.DatetimeIndex(
-        output_states.index.get_level_values("timestamp").unique()
-    )
+    timestamps = pd.DatetimeIndex(output_states.index.get_level_values("timestamp").unique())
     diagnostics = TopologyStringIVDiagnostics(
         inverter_count=topology.inverter_count,
         mppt_count=topology.mppt_count,
@@ -881,8 +862,7 @@ def calculate_topology_mppt_mismatch_from_string_iv(
     records: list[dict[str, object]] = []
     index: list[tuple[pd.Timestamp, str, str]] = []
     active_timestamps_by_mppt: dict[tuple[str, str], list[pd.Timestamp]] = {
-        (inverter_id, mppt_id): []
-        for inverter_id, mppt_id, _ in populated_mppts
+        (inverter_id, mppt_id): [] for inverter_id, mppt_id, _ in populated_mppts
     }
     for timestamp in timestamps:
         for inverter_id, mppt_id, string_ids in populated_mppts:
@@ -894,9 +874,11 @@ def calculate_topology_mppt_mismatch_from_string_iv(
                 if not bool(row["string_iv_resolved"])
             ]
             unresolved_states = sorted(
-                {state for state in string_states if state not in {
-                    "resolved_string_iv", "resolved_zero_string_iv"
-                }}
+                {
+                    state
+                    for state in string_states
+                    if state not in {"resolved_string_iv", "resolved_zero_string_iv"}
+                }
             )
             active_count = string_states.count("resolved_string_iv")
             zero_count = string_states.count("resolved_zero_string_iv")
@@ -938,12 +920,8 @@ def calculate_topology_mppt_mismatch_from_string_iv(
                     "topology_string_iv_contract": TOPOLOGY_STRING_IV_CONTRACT_ID,
                     "topology_string_iv_model": TOPOLOGY_STRING_IV_MODEL_ID,
                     "topology_string_iv_scope": TOPOLOGY_STRING_IV_SCOPE,
-                    "topology_string_iv_coverage_scope": (
-                        TOPOLOGY_STRING_IV_COVERAGE_SCOPE
-                    ),
-                    "topology_mppt_mismatch_contract": (
-                        TOPOLOGY_MPPT_MISMATCH_CONTRACT_ID
-                    ),
+                    "topology_string_iv_coverage_scope": (TOPOLOGY_STRING_IV_COVERAGE_SCOPE),
+                    "topology_mppt_mismatch_contract": (TOPOLOGY_MPPT_MISMATCH_CONTRACT_ID),
                     "topology_mppt_mismatch_model": TOPOLOGY_MPPT_MISMATCH_MODEL_ID,
                     "topology_mppt_mismatch_scope": TOPOLOGY_MPPT_MISMATCH_SCOPE,
                     "topology_mppt_mismatch_coverage_scope": (
@@ -953,9 +931,7 @@ def calculate_topology_mppt_mismatch_from_string_iv(
             )
     output = pd.DataFrame(
         records,
-        index=pd.MultiIndex.from_tuples(
-            index, names=["timestamp", "inverter_id", "mppt_id"]
-        ),
+        index=pd.MultiIndex.from_tuples(index, names=["timestamp", "inverter_id", "mppt_id"]),
         columns=_TOPOLOGY_MPPT_MISMATCH_COLUMNS,
     )
 
@@ -966,9 +942,9 @@ def calculate_topology_mppt_mismatch_from_string_iv(
         if not active_timestamps:
             continue
         submitted = [
-            curves[string_id].loc[
-                curves[string_id]["timestamp"].isin(active_timestamps)
-            ].copy(deep=True)
+            curves[string_id]
+            .loc[curves[string_id]["timestamp"].isin(active_timestamps)]
+            .copy(deep=True)
             for string_id in string_ids
         ]
         physics = calculate_physical_mismatch(submitted)
@@ -1005,17 +981,10 @@ def calculate_topology_mppt_mismatch_from_string_iv(
 
     resolved_count = int(output["mppt_resolved"].sum()) if len(output) else 0
     active_count = int((output["mppt_state"] == "resolved_common_voltage_mppt").sum())
-    zero_count = int(
-        (output["mppt_state"] == "resolved_zero_common_voltage_mppt").sum()
-    )
-    upstream_unresolved = int(
-        (output["mppt_state"] == "unresolved_member_string_iv").sum()
-    )
+    zero_count = int((output["mppt_state"] == "resolved_zero_common_voltage_mppt").sum())
+    upstream_unresolved = int((output["mppt_state"] == "unresolved_member_string_iv").sum())
     mixed_unavailable = int(
-        (
-            output["mppt_state"]
-            == "unresolved_mixed_active_zero_requires_blocking_model"
-        ).sum()
+        (output["mppt_state"] == "unresolved_mixed_active_zero_requires_blocking_model").sum()
     )
     diagnostics = TopologyMPPTMismatchDiagnostics(
         inverter_count=topology.inverter_count,
@@ -1388,7 +1357,7 @@ def _evaluate_module_iv_curves(
     site: SiteConfig,
     poa_total: pd.Series,
     t_cell: pd.Series,
-    resolution: dict,
+    resolution: dict[str, Any],
     effective_irradiance: pd.Series,
     voltage_points: int,
     *,
@@ -1531,22 +1500,129 @@ def calculate_topology_string_iv_curves(
     return results
 
 
-def calculate_common_voltage_mppt(
-    string_iv_curves: Sequence[pd.DataFrame],
-) -> pd.DataFrame:
-    """Calculate a shared-voltage MPPT point for supplied parallel strings.
+COMMON_VOLTAGE_CANDIDATE_CONTRACT_ID = "common_voltage_piecewise_linear_peak_candidates_v1"
+COMMON_VOLTAGE_CANDIDATE_MODEL_ID = (
+    "exact_piecewise_linear_current_quadratic_power_stationary_points_v1"
+)
+COMMON_VOLTAGE_CANDIDATE_SCOPE = (
+    "s8_common_voltage_candidate_enumeration_before_selected_mppt_operating_point"
+)
+COMMON_VOLTAGE_CANDIDATE_COVERAGE_SCOPE = (
+    "validated_nonnegative_piecewise_linear_string_iv_common_voltage_overlap"
+)
+COMMON_VOLTAGE_CANDIDATE_COLUMNS = (
+    "timestamp",
+    "candidate_index",
+    "voltage_v",
+    "current_a",
+    "power_w",
+    "candidate_type",
+    "interval_indices",
+    "is_local_maximum",
+    "is_selected_global",
+    "string_count",
+    "string_currents_a",
+    "interpolation_basis",
+    "search_basis",
+    "contract",
+    "model",
+    "scope",
+    "coverage_scope",
+)
 
-    Each input frame represents one string. For every timestamp, candidate
-    voltages are the sorted union of supplied voltage samples within the common
-    overlap ``0 <= V <= min(sampled Voc)``. String currents are linearly
-    interpolated inside that domain, summed, and multiplied by the common
-    voltage. The first (lowest-voltage) maximum is selected.
 
-    Mixed active and all-zero curves are rejected because the all-zero night
-    representation does not define dark-string current under an externally
-    imposed voltage. This function does not extrapolate or model topology,
-    reverse current, blocking devices, mismatch, cables, or inverter limits.
+@dataclass(frozen=True)
+class _CommonVoltageCandidates:
+    timestamp: object
+    breakpoints: NDArray[np.float64]
+    voltage: NDArray[np.float64]
+    current: NDArray[np.float64]
+    power: NDArray[np.float64]
+    member_current: NDArray[np.float64]
+    local_maximum: NDArray[np.bool_]
+    selected_index: int
+
+
+def _piecewise_common_candidates(
+    curves: Sequence[_ValidatedCommonMpptCurve],
+    timestamp: object,
+) -> _CommonVoltageCandidates:
+    """One numerical owner for audit, selected MPPT and independent counterfactual.
+
+    I(V) is piecewise linear and P(V) quadratic: boundaries plus interior
+    concave stationary points exhaust the represented maxima. This is NOT an
+    analytical global maximum of continuous Bishop equations. Vector evaluation
+    avoids building expensive audit tables during deep canonical parent replays.
     """
+    zero = [curve["all_zero"] for curve in curves]
+    if any(zero) and not all(zero):
+        raise ValueError(
+            f"timestamp {timestamp!r} mixes active and all-zero string curves; "
+            "a reverse-current or blocking-device model is required"
+        )
+    if all(zero):
+        boundaries = np.array([0.0])
+    else:
+        vmax = min(float(c["voltage"][-1]) for c in curves)
+        boundaries = np.unique(
+            np.concatenate(
+                [c["voltage"][c["voltage"] <= vmax] for c in curves] + [np.array([0.0, vmax])]
+            )
+        )
+
+    def aggregate(voltage: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        members = np.vstack([np.interp(voltage, c["voltage"], c["current"]) for c in curves])
+        # fsum keeps aggregate physics independent of string input insertion order.
+        total = np.fromiter(
+            (math.fsum(values) for values in members.T), dtype=float, count=len(voltage)
+        )
+        return members, total
+
+    _, boundary_current = aggregate(boundaries)
+    if len(boundaries) > 1:
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            delta_current = np.diff(boundary_current)
+            slopes = delta_current / np.diff(boundaries)
+        # Do not silently turn an unrepresentable nonconstant interval into a
+        # flat one and omit its possible maximum. This is a machine-range
+        # admission check, not a physical/evidence threshold.
+        unsupported = (~np.isfinite(slopes)) | (
+            (delta_current != 0) & (np.abs(slopes) < np.finfo(float).tiny)
+        )
+        if unsupported.any():
+            raise ValueError(f"timestamp {timestamp!r} has unrepresentable interval slope")
+        falling = slopes < 0
+        left = boundaries[:-1][falling]
+        right = boundaries[1:][falling]
+        with np.errstate(over="ignore", invalid="ignore"):
+            stationary = 0.5 * (left - boundary_current[:-1][falling] / slopes[falling])
+        if not np.isfinite(stationary).all():
+            raise ValueError(f"timestamp {timestamp!r} has unrepresentable stationary arithmetic")
+        stationary = stationary[(left < stationary) & (stationary < right)]
+        voltage = np.unique(np.concatenate((boundaries, stationary)))
+    else:
+        voltage = boundaries.copy()
+    members, current = aggregate(voltage)
+    with np.errstate(over="ignore", invalid="ignore"):
+        power = voltage * current
+    if (
+        not np.isfinite(boundary_current).all()
+        or not np.isfinite(current).all()
+        or not np.isfinite(power).all()
+    ):
+        raise ValueError(f"timestamp {timestamp!r} has nonfinite piecewise candidate arithmetic")
+    local = np.ones(len(power), dtype=bool)
+    local[1:] &= power[1:] >= power[:-1]
+    local[:-1] &= power[:-1] >= power[1:]
+    return _CommonVoltageCandidates(
+        timestamp, boundaries, voltage, current, power, members, local, int(np.argmax(power))
+    )
+
+
+def _common_voltage_candidate_analysis(
+    string_iv_curves: Sequence[pd.DataFrame],
+) -> list[_CommonVoltageCandidates]:
+    """Validate once, then use the same complete numerical core at each timestamp."""
     if not string_iv_curves:
         raise ValueError("string_iv_curves must contain at least one string curve")
 
@@ -1567,58 +1643,97 @@ def calculate_common_voltage_mppt(
                 "string_iv_curves[0] in first-occurrence order"
             )
 
-    results: list[dict[str, object]] = []
-    for timestamp in reference_timestamps:
-        timestamp_curves = [
-            _validated_common_mppt_curve(curve, timestamp, string_position)
-            for string_position, curve in enumerate(string_iv_curves)
-        ]
-        all_zero = [bool(curve["all_zero"]) for curve in timestamp_curves]
-        if all(all_zero):
-            results.append(
-                {
-                    "timestamp": timestamp,
-                    "v_common_mppt_v": 0.0,
-                    "i_common_mppt_a": 0.0,
-                    "p_common_mppt_w": 0.0,
-                    "string_count": len(string_iv_curves),
-                }
-            )
-            continue
-        if any(all_zero):
-            raise ValueError(
-                f"timestamp {timestamp!r} mixes active and all-zero string curves; "
-                "a reverse-current or blocking-device model is required"
-            )
+    return [
+        _piecewise_common_candidates(
+            [
+                _validated_common_mppt_curve(curve, timestamp, position)
+                for position, curve in enumerate(string_iv_curves)
+            ],
+            timestamp,
+        )
+        for timestamp in reference_timestamps
+    ]
 
-        common_vmax = min(float(curve["voltage"][-1]) for curve in timestamp_curves)
-        candidates = np.unique(
-            np.concatenate(
-                [curve["voltage"][curve["voltage"] <= common_vmax] for curve in timestamp_curves]
-                + [np.array([0.0, common_vmax])]
+
+def calculate_common_voltage_mppt_candidates(
+    string_iv_curves: Sequence[pd.DataFrame],
+) -> pd.DataFrame:
+    """Audit every exact PL candidate from the same core used for selected MPPT.
+
+    Boundaries and strictly interior stationary points exhaust represented maxima;
+    there is no dense-grid or continuous-Bishop global claim. Exact power ties
+    select lowest voltage. Weak local maxima include flat zero-power boundaries.
+    Coincident boundaries retain adjacent-interval provenance in one canonical row.
+    """
+    parts = []
+    for result in _common_voltage_candidate_analysis(string_iv_curves):
+        locations = {float(v): j for j, v in enumerate(result.breakpoints)}
+        kinds = []
+        intervals = []
+        for v in result.voltage:
+            if v in locations:
+                j = locations[v]
+                kinds.append("zero_domain_endpoint" if v == 0 else "breakpoint")
+                intervals.append(
+                    tuple(i for i in (j - 1, j) if 0 <= i < len(result.breakpoints) - 1)
+                )
+            else:
+                kinds.append("interior_stationary_point")
+                intervals.append((int(np.searchsorted(result.breakpoints, v)) - 1,))
+        n = len(result.voltage)
+        parts.append(
+            pd.DataFrame(
+                dict(
+                    timestamp=[result.timestamp] * n,
+                    candidate_index=np.arange(n),
+                    voltage_v=result.voltage,
+                    current_a=result.current,
+                    power_w=result.power,
+                    candidate_type=kinds,
+                    interval_indices=intervals,
+                    is_local_maximum=result.local_maximum,
+                    is_selected_global=np.arange(n) == result.selected_index,
+                    string_count=len(string_iv_curves),
+                    string_currents_a=[
+                        tuple(float(i) for i in row) for row in result.member_current.T
+                    ],
+                    interpolation_basis="linear_current_between_supplied_voltage_breakpoints",
+                    search_basis="all_breakpoints_and_concave_interval_stationary_points",
+                    contract=COMMON_VOLTAGE_CANDIDATE_CONTRACT_ID,
+                    model=COMMON_VOLTAGE_CANDIDATE_MODEL_ID,
+                    scope=COMMON_VOLTAGE_CANDIDATE_SCOPE,
+                    coverage_scope=COMMON_VOLTAGE_CANDIDATE_COVERAGE_SCOPE,
+                ),
+                columns=COMMON_VOLTAGE_CANDIDATE_COLUMNS,
             )
         )
-        total_current = np.zeros_like(candidates)
-        for curve in timestamp_curves:
-            total_current += np.interp(
-                candidates,
-                curve["voltage"],
-                curve["current"],
-            )
-        total_power = candidates * total_current
-        maximum_position = int(np.argmax(total_power))
-        results.append(
-            {
-                "timestamp": timestamp,
-                "v_common_mppt_v": float(candidates[maximum_position]),
-                "i_common_mppt_a": float(total_current[maximum_position]),
-                "p_common_mppt_w": float(total_power[maximum_position]),
-                "string_count": len(string_iv_curves),
-            }
-        )
+    return (
+        pd.concat(parts, ignore_index=True)
+        if parts
+        else pd.DataFrame(columns=COMMON_VOLTAGE_CANDIDATE_COLUMNS)
+    )
 
+
+def calculate_common_voltage_mppt(string_iv_curves: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Selected view of the complete shared PL candidate analysis, schema unchanged.
+
+    Both public APIs delegate to one numerical owner; selected calls need not
+    materialize full audit tables during nested downstream parent replays.
+    """
+    records = []
+    for result in _common_voltage_candidate_analysis(string_iv_curves):
+        j = result.selected_index
+        records.append(
+            dict(
+                timestamp=result.timestamp,
+                v_common_mppt_v=float(result.voltage[j]),
+                i_common_mppt_a=float(result.current[j]),
+                p_common_mppt_w=float(result.power[j]),
+                string_count=len(string_iv_curves),
+            )
+        )
     return pd.DataFrame(
-        results,
+        records,
         columns=[
             "timestamp",
             "v_common_mppt_v",
@@ -1636,10 +1751,9 @@ def calculate_physical_mismatch(
 
     The actual operating point comes from
     :func:`calculate_common_voltage_mppt`. The independent counterfactual uses
-    the sorted union of all supplied string voltage samples at each timestamp;
-    every string independently maximizes ``V * I(V)`` over candidates inside
-    its own ``0 <= V <= sampled Voc`` domain, using the same linear current
-    interpolation basis as the common-voltage calculation.
+    the same complete breakpoint/stationary-point candidate owner independently
+    for each string in its own ``0 <= V <= sampled Voc`` domain. Both sides
+    therefore use exactly the same piecewise-linear global-maximum definition.
 
     Tiny negative mismatch caused by floating-point roundoff is normalized to
     zero. A common result materially above the independent counterfactual is an
@@ -1660,18 +1774,12 @@ def calculate_physical_mismatch(
             mismatch_power.append(0.0)
             continue
 
-        master_candidates = np.unique(
-            np.concatenate([curve["voltage"] for curve in timestamp_curves])
+        independent = [
+            _piecewise_common_candidates([curve], timestamp) for curve in timestamp_curves
+        ]
+        timestamp_independent_power = math.fsum(
+            float(result.power[result.selected_index]) for result in independent
         )
-        timestamp_independent_power = 0.0
-        for curve in timestamp_curves:
-            voltage = curve["voltage"]
-            candidates = master_candidates[
-                (master_candidates >= 0.0) & (master_candidates <= voltage[-1])
-            ]
-            candidates = np.unique(np.concatenate([candidates, np.array([0.0, voltage[-1]])]))
-            current = np.interp(candidates, voltage, curve["current"])
-            timestamp_independent_power += float(np.max(candidates * current))
 
         common_power = float(common.iloc[timestamp_position]["p_common_mppt_w"])
         powers_close = bool(
@@ -1776,11 +1884,17 @@ def calculate_topology_mppt_mismatch(
     return pd.concat(results, ignore_index=True)[output_columns]
 
 
+class _ValidatedCommonMpptCurve(TypedDict):
+    voltage: NDArray[np.float64]
+    current: NDArray[np.float64]
+    all_zero: bool
+
+
 def _validated_common_mppt_curve(
     curve: pd.DataFrame,
     timestamp: object,
     string_position: int,
-) -> dict[str, object]:
+) -> _ValidatedCommonMpptCurve:
     """Return validated numeric arrays for one string and timestamp."""
     rows = curve.loc[curve["timestamp"] == timestamp]
     context = f"string_iv_curves[{string_position}] at timestamp {timestamp!r}"
@@ -1789,7 +1903,7 @@ def _validated_common_mppt_curve(
     if rows["curve_point"].duplicated().any():
         raise ValueError(f"{context} must contain unique curve_point values")
 
-    values: dict[str, np.ndarray] = {}
+    values: dict[str, NDArray[np.float64]] = {}
     for column in ("voltage_v", "current_a", "power_w"):
         numeric = rows[column].to_numpy(dtype=float, copy=True)
         if not np.isfinite(numeric).all():
@@ -2154,17 +2268,14 @@ def _admit_receiver_string_module_iv(
         "receiver_string_module_iv_contract": RECEIVER_STRING_MODULE_IV_CONTRACT_ID,
         "receiver_string_module_iv_model": RECEIVER_STRING_MODULE_IV_MODEL_ID,
         "receiver_string_module_iv_scope": RECEIVER_STRING_MODULE_IV_SCOPE,
-        "receiver_string_module_iv_coverage_scope": (
-            RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE
-        ),
+        "receiver_string_module_iv_coverage_scope": (RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE),
     }
     for column, expected_value in expected_provenance.items():
         if len(canonical) and not canonical[column].eq(expected_value).all():
             raise ValueError(f"receiver-string module-I-V {column} provenance is invalid")
 
     topology_identity = {
-        string_id: (inverter_id, mppt_id)
-        for inverter_id, mppt_id, string_id in ordered_strings
+        string_id: (inverter_id, mppt_id) for inverter_id, mppt_id, string_id in ordered_strings
     }
     receiver_by_string: dict[str, str] = {}
     for (timestamp, string_id), row in canonical.iterrows():
@@ -2213,9 +2324,7 @@ def _replay_receiver_string_module_iv_state(row: pd.Series) -> None:
     )
     temperature = row["cell_temperature_c"]
     temperature_value = (
-        None
-        if pd.isna(temperature)
-        else _handoff_finite(temperature, "cell temperature")
+        None if pd.isna(temperature) else _handoff_finite(temperature, "cell temperature")
     )
     unresolved_upstream_states = {
         "unresolved_spectral_electrical_equivalent_irradiance",
@@ -2334,8 +2443,7 @@ def _replay_receiver_string_module_iv_diagnostics(
         "voltage_points",
     )
     counts = {
-        name: _s8_nonnegative_integer(getattr(diagnostics, name), name)
-        for name in count_names
+        name: _s8_nonnegative_integer(getattr(diagnostics, name), name) for name in count_names
     }
     tier = _s8_nonnegative_integer(diagnostics.tier_used, "diagnostic tier_used")
     _validate_s8_module_identity(tier, diagnostics.fit_quality)
@@ -2412,10 +2520,10 @@ def _replay_receiver_string_module_iv_diagnostics(
         reference_counts: dict[str, int] = {}
         for receiver_id in receiver_by_string.values():
             reference_counts[receiver_id] = reference_counts.get(receiver_id, 0) + 1
-        if (
-            diagnostics.referenced_receiver_count != len(reference_counts)
-            or diagnostics.shared_receiver_count
-            != sum(count > 1 for count in reference_counts.values())
+        if diagnostics.referenced_receiver_count != len(
+            reference_counts
+        ) or diagnostics.shared_receiver_count != sum(
+            count > 1 for count in reference_counts.values()
         ):
             raise ValueError("receiver reference diagnostics are stale")
     elif not (
@@ -2478,9 +2586,9 @@ def _admit_receiver_string_module_iv_curves(
                 raise ValueError("module curve timestamp timezone is inconsistent")
             if not set(curve_timestamps).issubset(set(timestamps)):
                 raise ValueError("module curve contains an unexpected timestamp")
-        curve = curve.sort_values(
-            ["timestamp", "curve_point"], kind="stable"
-        ).reset_index(drop=True)
+        curve = curve.sort_values(["timestamp", "curve_point"], kind="stable").reset_index(
+            drop=True
+        )
         if curve.duplicated(["timestamp", "curve_point"]).any():
             raise ValueError("module curve contains duplicate curve points")
         for timestamp in timestamps:
@@ -2601,8 +2709,7 @@ def _validate_topology_string_iv_result(
     diagnostics: TopologyStringIVDiagnostics,
 ) -> None:
     if diagnostics.state_row_count != (
-        diagnostics.resolved_string_iv_state_count
-        + diagnostics.unresolved_string_iv_state_count
+        diagnostics.resolved_string_iv_state_count + diagnostics.unresolved_string_iv_state_count
     ):
         raise RuntimeError("physical string-I-V resolution counts do not close")
     if diagnostics.resolved_string_iv_state_count != (
@@ -2656,9 +2763,7 @@ def _admit_topology_string_iv(
         "receiver_string_module_iv_contract": RECEIVER_STRING_MODULE_IV_CONTRACT_ID,
         "receiver_string_module_iv_model": RECEIVER_STRING_MODULE_IV_MODEL_ID,
         "receiver_string_module_iv_scope": RECEIVER_STRING_MODULE_IV_SCOPE,
-        "receiver_string_module_iv_coverage_scope": (
-            RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE
-        ),
+        "receiver_string_module_iv_coverage_scope": (RECEIVER_STRING_MODULE_IV_COVERAGE_SCOPE),
         "topology_string_iv_contract": TOPOLOGY_STRING_IV_CONTRACT_ID,
         "topology_string_iv_model": TOPOLOGY_STRING_IV_MODEL_ID,
         "topology_string_iv_scope": TOPOLOGY_STRING_IV_SCOPE,
@@ -2682,9 +2787,10 @@ def _admit_topology_string_iv(
         inverter_id, mppt_id, modules_per_string = topology_identity[string_id]
         if (row["inverter_id"], row["mppt_id"]) != (inverter_id, mppt_id):
             raise ValueError("topology string-I-V routing identity is stale")
-        if _s8_nonnegative_integer(
-            row["modules_per_string"], "modules_per_string"
-        ) != modules_per_string:
+        if (
+            _s8_nonnegative_integer(row["modules_per_string"], "modules_per_string")
+            != modules_per_string
+        ):
             raise ValueError("topology string-I-V series length is stale")
         receiver_id = row["receiver_id"]
         if type(receiver_id) is not str or not receiver_id.strip():
@@ -2752,18 +2858,12 @@ def _replay_topology_string_iv_diagnostics(
         "iv_curve_row_count",
         "voltage_points",
     )
-    counts = {
-        name: _s8_nonnegative_integer(getattr(diagnostics, name), name)
-        for name in names
-    }
+    counts = {name: _s8_nonnegative_integer(getattr(diagnostics, name), name) for name in names}
     resolved = int(states["string_iv_resolved"].sum()) if len(states) else 0
     zero = int((states["string_iv_state"] == "resolved_zero_string_iv").sum())
     scaled = int((states["string_iv_state"] == "resolved_string_iv").sum())
     power_only = int(
-        (
-            states["string_iv_state"]
-            == "unresolved_tier5_voltage_dependent_iv_unavailable"
-        ).sum()
+        (states["string_iv_state"] == "unresolved_tier5_voltage_dependent_iv_unavailable").sum()
     )
     timestamps = pd.DatetimeIndex(states.index.get_level_values("timestamp").unique())
     expected = (
@@ -2825,9 +2925,9 @@ def _admit_topology_string_iv_curves(
                 raise ValueError("physical string curve timezone is inconsistent")
             if not set(curve_timestamps).issubset(set(timestamps)):
                 raise ValueError("physical string curve contains an unexpected timestamp")
-        curve = curve.sort_values(
-            ["timestamp", "curve_point"], kind="stable"
-        ).reset_index(drop=True)
+        curve = curve.sort_values(["timestamp", "curve_point"], kind="stable").reset_index(
+            drop=True
+        )
         if curve.duplicated(["timestamp", "curve_point"]).any():
             raise ValueError("physical string curve contains duplicate points")
         for timestamp in timestamps:
@@ -2850,9 +2950,7 @@ def _admit_topology_string_iv_curves(
                 }
                 if any(item < -_NUMERICAL_NEGATIVE_TOLERANCE for item in values.values()):
                     raise ValueError("physical string curve values must be non-negative")
-                if not _handoff_close(
-                    values["power_w"], values["voltage_v"] * values["current_a"]
-                ):
+                if not _handoff_close(values["power_w"], values["voltage_v"] * values["current_a"]):
                     raise ValueError("physical string power does not equal voltage times current")
                 if not _handoff_close(
                     values["effective_irradiance_wm2"],
@@ -2865,16 +2963,16 @@ def _admit_topology_string_iv_curves(
                 ):
                     raise ValueError("physical string curve module identity is stale")
             if state["string_iv_state"] == "resolved_zero_string_iv" and len(rows):
-                if not rows[
-                    ["voltage_v", "current_a", "power_w", "effective_irradiance_wm2"]
-                ].eq(0.0).all().all():
+                if (
+                    not rows[["voltage_v", "current_a", "power_w", "effective_irradiance_wm2"]]
+                    .eq(0.0)
+                    .all()
+                    .all()
+                ):
                     raise ValueError("resolved zero physical string curve must be exact zero")
             elif state["string_iv_state"] == "resolved_string_iv":
                 _validated_common_mppt_curve(curve, timestamp, 0)
-                if (
-                    float(rows["current_a"].max()) <= 0.0
-                    or float(rows["power_w"].max()) <= 0.0
-                ):
+                if float(rows["current_a"].max()) <= 0.0 or float(rows["power_w"].max()) <= 0.0:
                     raise ValueError(
                         "resolved active physical string curve must contain "
                         "positive current and positive power"
@@ -2976,10 +3074,7 @@ def _validate_s8_mppt_physics(
             values["p_independent_mp_w"] - values["p_common_mppt_w"],
         ):
             raise RuntimeError("physical mismatch power closure failed")
-        if (
-            values["p_common_mppt_w"]
-            > values["p_independent_mp_w"] + _NUMERICAL_NEGATIVE_TOLERANCE
-        ):
+        if values["p_common_mppt_w"] > values["p_independent_mp_w"] + _NUMERICAL_NEGATIVE_TOLERANCE:
             raise RuntimeError("common MPPT power exceeds independent power")
         expected_pct = (
             100.0 * values["p_mismatch_w"] / values["p_independent_mp_w"]
@@ -3025,9 +3120,7 @@ def _validate_topology_mppt_mismatch_result(
         raise RuntimeError("MPPT mismatch model provenance is invalid")
     for _, row in output.iterrows():
         if row["configured_string_count"] != (
-            row["active_string_count"]
-            + row["zero_string_count"]
-            + row["unresolved_string_count"]
+            row["active_string_count"] + row["zero_string_count"] + row["unresolved_string_count"]
         ):
             raise RuntimeError("MPPT string classification counts do not close")
 
@@ -3164,8 +3257,7 @@ def _replay_receiver_module_electrical_row(row: pd.Series) -> None:
             or temperature is None
             or not resolved
             or tier != 5
-            or _handoff_finite(row["p_mp_w"], "PVWatts power")
-            < -_NUMERICAL_NEGATIVE_TOLERANCE
+            or _handoff_finite(row["p_mp_w"], "PVWatts power") < -_NUMERICAL_NEGATIVE_TOLERANCE
             or not pd.isna(row["v_mp_v"])
             or not pd.isna(row["i_mp_a"])
         ):
@@ -3229,8 +3321,7 @@ def _crosscheck_receiver_module_resolution(
     if actual != expected:
         raise ValueError("receiver module electrical diagnostics or module authority are stale")
     if len(frame) and (
-        not frame["tier_used"].eq(tier).all()
-        or not frame["fit_quality"].eq(fit_quality).all()
+        not frame["tier_used"].eq(tier).all() or not frame["fit_quality"].eq(fit_quality).all()
     ):
         raise ValueError("receiver module electrical module configuration is stale")
 
@@ -3244,9 +3335,7 @@ def _replay_receiver_module_operating_points(
     datasheet_reference_is_precomputed: bool,
 ) -> None:
     """Bind positive S7E-1 MPP states to the current resolved module authority."""
-    solver_mask = frame["module_electrical_state"].isin(
-        ["resolved", "resolved_pvwatts_power_only"]
-    )
+    solver_mask = frame["module_electrical_state"].isin(["resolved", "resolved_pvwatts_power_only"])
     if not solver_mask.any():
         return
     positive = frame.loc[solver_mask]
@@ -3265,10 +3354,7 @@ def _replay_receiver_module_operating_points(
             if supplied["module_electrical_state"] == "resolved_pvwatts_power_only"
             else ("p_mp_w", "v_mp_v", "i_mp_a")
         )
-        if any(
-            not _handoff_close(supplied[column], float(replay[column]))
-            for column in columns
-        ):
+        if any(not _handoff_close(supplied[column], float(replay[column])) for column in columns):
             raise ValueError(
                 "receiver module electrical operating point is stale or "
                 "inconsistent with current module authority"
@@ -3375,12 +3461,9 @@ def _replay_spectral_constants(frame: pd.DataFrame) -> None:
         "firstsolar_model": FIRST_SOLAR_MODEL_ID,
     }
     for column, required in expected.items():
-        if (
-            len(frame)
-            and not (
-                frame[column].map(lambda item: type(item) is str).all()
-                and frame[column].eq(required).all()
-            )
+        if len(frame) and not (
+            frame[column].map(lambda item: type(item) is str).all()
+            and frame[column].eq(required).all()
         ):
             raise ValueError(f"spectral response {column} provenance is invalid")
     if (
@@ -3918,7 +4001,7 @@ def _validate_iv_curve_inputs(
 
 
 def _calculate_sdm_operating_parameters(
-    params: dict,
+    params: dict[str, Any],
     technology: str,
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
@@ -3952,8 +4035,8 @@ def _compute_spectral_factor(
     site: SiteConfig,
 ) -> float | pd.Series:
     """Compute spectral mismatch factor via First Solar coefficients."""
-    import pvlib.atmosphere
-    import pvlib.spectrum
+    import pvlib.atmosphere  # type: ignore[import-untyped]
+    import pvlib.spectrum  # type: ignore[import-untyped]
 
     if solar_zenith is None or precipitable_water is None:
         logger.warning(
@@ -3993,12 +4076,12 @@ def _compute_spectral_factor(
 
 
 def _sdm_cec_parameters(
-    params: dict,
+    params: dict[str, Any],
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
 ) -> _SdmOperatingParameters:
     """Calculate timestamp-level De Soto parameters from CEC coefficients."""
-    import pvlib.pvsystem
+    import pvlib.pvsystem  # type: ignore[import-untyped]
 
     alpha_sc = params["alpha_sc"]
     adjust = params.get("Adjust", 0.0)
@@ -4018,7 +4101,7 @@ def _sdm_cec_parameters(
 
 
 def _sdm_datasheet_parameters(
-    params: dict,
+    params: dict[str, Any],
     technology: str,
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
@@ -4031,11 +4114,11 @@ def _sdm_datasheet_parameters(
 
 
 def _fit_datasheet_sdm_reference(
-    params: dict,
+    params: dict[str, Any],
     technology: str,
 ) -> _DatasheetSdmReference | None:
     """Fit environment-independent De Soto reference parameters once."""
-    import pvlib.ivtools.sdm
+    import pvlib.ivtools.sdm  # type: ignore[import-untyped]
 
     i_sc = float(params["i_sc"])
     alpha_sc_pct_per_c = float(params["alpha_sc"])
@@ -4100,27 +4183,30 @@ def _sdm_datasheet_operating_parameters(
 
 
 def _as_sdm_parameters(
-    values: tuple,
+    values: tuple[Any, ...],
     index: pd.Index,
 ) -> _SdmOperatingParameters:
     """Normalize pvlib De Soto outputs to indexed Series."""
     return _SdmOperatingParameters(*(pd.Series(value, index=index) for value in values))
 
 
-def _solve_sdm(parameters: _SdmOperatingParameters) -> dict:
+def _solve_sdm(parameters: _SdmOperatingParameters) -> dict[str, Any]:
     """Solve canonical single-diode points from operating parameters."""
     import pvlib.pvsystem
 
-    return pvlib.pvsystem.singlediode(
-        photocurrent=parameters.photocurrent,
-        saturation_current=parameters.saturation_current,
-        resistance_series=parameters.resistance_series,
-        resistance_shunt=parameters.resistance_shunt,
-        nNsVth=parameters.n_ns_vth,
+    return cast(
+        dict[str, Any],
+        pvlib.pvsystem.singlediode(
+            photocurrent=parameters.photocurrent,
+            saturation_current=parameters.saturation_current,
+            resistance_series=parameters.resistance_series,
+            resistance_shunt=parameters.resistance_shunt,
+            nNsVth=parameters.n_ns_vth,
+        ),
     )
 
 
-def _pvwatts_fallback_params(params: dict) -> dict:
+def _pvwatts_fallback_params(params: dict[str, Any]) -> dict[str, Any]:
     """Extract the existing datasheet-to-PVWatts fallback parameters."""
     gamma_pmp = params.get("gamma_pmp")
     pnom = params.get("pnom_wp")
@@ -4134,7 +4220,7 @@ def _pvwatts_fallback_params(params: dict) -> dict:
     return {"pnom_wp": pnom, "gamma_pmp": gamma_pmp}
 
 
-def _voltage_grid(open_circuit_voltage: float, voltage_points: int) -> np.ndarray:
+def _voltage_grid(open_circuit_voltage: float, voltage_points: int) -> NDArray[np.float64]:
     """Build an inclusive physical voltage grid for one daylight curve."""
     if not np.isfinite(open_circuit_voltage) or open_circuit_voltage <= 0.0:
         raise ValueError("single-diode solver produced an invalid open-circuit voltage")
@@ -4159,10 +4245,10 @@ def _open_circuit_voltage(
 
 
 def _current_from_voltage(
-    voltage: np.ndarray,
+    voltage: NDArray[np.float64],
     parameters: _SdmOperatingParameters,
     position: int,
-) -> np.ndarray:
+) -> NDArray[np.float64]:
     """Evaluate non-negative module current across one voltage grid."""
     import pvlib.pvsystem
 
@@ -4177,7 +4263,7 @@ def _current_from_voltage(
     return _validated_nonnegative(np.asarray(current, dtype=float), "current")
 
 
-def _validated_nonnegative(values: np.ndarray, quantity: str) -> np.ndarray:
+def _validated_nonnegative(values: NDArray[np.float64], quantity: str) -> NDArray[np.float64]:
     """Clamp solver noise only, rejecting material negative/non-finite values."""
     if not np.isfinite(values).all():
         raise ValueError(f"single-diode solver produced non-finite {quantity}")
@@ -4187,7 +4273,7 @@ def _validated_nonnegative(values: np.ndarray, quantity: str) -> np.ndarray:
 
 
 def _pvwatts(
-    params: dict,
+    params: dict[str, Any],
     effective_irradiance: pd.Series,
     t_cell: pd.Series,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:

@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `8b17c2f703929bbc0b821769f54f0d67705a08fa` (PR #142 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `8148299f632f8cb5f97ce2b9940bfb5d6aababc0` (PR #143 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -256,7 +256,7 @@ is separate. A clear gate is not production activation or physical-model validat
 No shadow execution is activated. Exact-main manual full regression remains
 required before eventual activation/release, not for this blocked governance closure.
 
-## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3
+## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3/4
 
 The [advanced string/bypass architecture](docs/architecture/advanced-string-bypass-architecture.md) defines the bounded
 Stage4a-1–5 sequence under canonical S8 ownership. Stage4a-1 now implements
@@ -274,7 +274,11 @@ ordered common-current composition to string_terminal at caller-supplied current
 Missing section evidence withholds the whole advanced string. Raw voltage is
 explicitly unevaluated above clamp transition, with finite actual PV/bypass branch
 states. No inferred diode voltage or hidden baseline substitution is used.
-Geometry/shading binding and multi-peak/global selection remain pending. Method A must precede validated
+Stage4a-4 now adds complete candidates/global selection over the admitted
+piecewise-linear I-V, with transition replay and explicit domain-completeness gates.
+It reuses the canonical common-voltage owner and the same independent mismatch
+counterfactual basis. This is not a continuous-Bishop global guarantee.
+Stage4a-5 geometry/optical binding, optimisation and Method B remain pending. Method A must precede validated
 Method B. Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
 and S9/downstream physics remain unchanged. No configuration schema changes or
 Bracon admissions occur: P2 review is complete, all 53 unique baseline blockers

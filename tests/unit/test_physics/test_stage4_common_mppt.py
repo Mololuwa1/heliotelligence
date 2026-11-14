@@ -99,9 +99,7 @@ def test_missing_required_column_identifies_string_position() -> None:
 
 
 def test_multiple_missing_columns_are_reported_in_sorted_order() -> None:
-    invalid = _curve([0.0, 1.0], [1.0, 0.0]).drop(
-        columns=["voltage_v", "curve_point"]
-    )
+    invalid = _curve([0.0, 1.0], [1.0, 0.0]).drop(columns=["voltage_v", "curve_point"])
 
     with pytest.raises(
         ValueError,
@@ -203,12 +201,8 @@ def test_single_string_selects_its_sampled_maximum_power_point() -> None:
 
     assert result.columns.tolist() == OUTPUT_COLUMNS
     assert result.index.equals(pd.RangeIndex(1))
-    assert result.iloc[0]["v_common_mppt_v"] == pytest.approx(
-        sampled_mpp["voltage_v"]
-    )
-    assert result.iloc[0]["i_common_mppt_a"] == pytest.approx(
-        sampled_mpp["current_a"]
-    )
+    assert result.iloc[0]["v_common_mppt_v"] == pytest.approx(sampled_mpp["voltage_v"])
+    assert result.iloc[0]["i_common_mppt_a"] == pytest.approx(sampled_mpp["current_a"])
     assert result.iloc[0]["p_common_mppt_w"] == pytest.approx(sampled_mpp["power_w"])
     assert result.iloc[0]["string_count"] == 1
 
@@ -223,12 +217,8 @@ def test_identical_parallel_strings_scale_current_and_power(
     result = calculate_common_voltage_mppt([curve] * string_count).iloc[0]
 
     assert result["v_common_mppt_v"] == pytest.approx(sampled_mpp["voltage_v"])
-    assert result["i_common_mppt_a"] == pytest.approx(
-        sampled_mpp["current_a"] * string_count
-    )
-    assert result["p_common_mppt_w"] == pytest.approx(
-        sampled_mpp["power_w"] * string_count
-    )
+    assert result["i_common_mppt_a"] == pytest.approx(sampled_mpp["current_a"] * string_count)
+    assert result["p_common_mppt_w"] == pytest.approx(sampled_mpp["power_w"] * string_count)
     assert result["string_count"] == string_count
 
 
@@ -257,9 +247,7 @@ def test_different_physical_strings_share_voltage_and_sum_current(
 
     assert result["v_common_mppt_v"] > 0.0
     assert result["i_common_mppt_a"] == pytest.approx(expected_current)
-    assert result["p_common_mppt_w"] == pytest.approx(
-        result["v_common_mppt_v"] * expected_current
-    )
+    assert result["p_common_mppt_w"] == pytest.approx(result["v_common_mppt_v"] * expected_current)
     assert result["p_common_mppt_w"] <= independent_sampled_power * (1.0 + 1e-12)
 
 
@@ -285,12 +273,12 @@ def test_common_domain_stops_at_lowest_sampled_voc() -> None:
 
 
 def test_exact_power_tie_selects_lowest_voltage() -> None:
-    curve = _curve([0.0, 1.0, 2.0], [2.0, 2.0, 1.0])
+    curve = _curve([0.0, 1.0, 1.5, 4.0, 5.0], [8.0, 8.0, 2.0, 2.0, 0.0])
 
     result = calculate_common_voltage_mppt([curve]).iloc[0]
 
     assert result["v_common_mppt_v"] == pytest.approx(1.0)
-    assert result["p_common_mppt_w"] == pytest.approx(2.0)
+    assert result["p_common_mppt_w"] == pytest.approx(8.0)
 
 
 def test_all_night_strings_return_zero_operating_point() -> None:
@@ -319,9 +307,7 @@ def test_multiple_all_night_timestamps_preserve_order_and_zero_output() -> None:
     assert result.index.equals(pd.RangeIndex(2))
     assert result["timestamp"].tolist() == timestamps.tolist()
     assert str(result["timestamp"].dt.tz) == "Europe/London"
-    assert result[
-        ["v_common_mppt_v", "i_common_mppt_a", "p_common_mppt_w"]
-    ].eq(0.0).all().all()
+    assert result[["v_common_mppt_v", "i_common_mppt_a", "p_common_mppt_w"]].eq(0.0).all().all()
     assert result["string_count"].eq(2).all()
 
 

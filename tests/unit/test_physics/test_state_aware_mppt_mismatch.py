@@ -91,9 +91,7 @@ def _real_s81(
         policy="allow_unassigned_receivers",
         voltage_points=11,
     )
-    return active, calculate_topology_string_iv_curves_from_receiver_module_iv(
-        active, routed
-    )
+    return active, calculate_topology_string_iv_curves_from_receiver_module_iv(active, routed)
 
 
 def _replace_curve(
@@ -102,8 +100,7 @@ def _replace_curve(
     curve: pd.DataFrame,
 ) -> TopologyStringIVResult:
     curves = {
-        key: value.copy(deep=True)
-        for key, value in result.string_iv_curves_by_string_id.items()
+        key: value.copy(deep=True) for key, value in result.string_iv_curves_by_string_id.items()
     }
     curves[string_id] = curve
     return replace(result, string_iv_curves_by_string_id=curves)
@@ -171,15 +168,11 @@ def test_single_active_string_zero_mismatch_and_contract() -> None:
     assert row["mppt_state"] == "resolved_common_voltage_mppt"
     assert row["p_mismatch_w"] == pytest.approx(0.0)
     assert row["mismatch_pct"] == pytest.approx(0.0)
-    assert row["p_common_mppt_w"] == pytest.approx(
-        row["v_common_mppt_v"] * row["i_common_mppt_a"]
-    )
+    assert row["p_common_mppt_w"] == pytest.approx(row["v_common_mppt_v"] * row["i_common_mppt_a"])
     assert row["topology_mppt_mismatch_contract"] == TOPOLOGY_MPPT_MISMATCH_CONTRACT_ID
     assert row["topology_mppt_mismatch_model"] == TOPOLOGY_MPPT_MISMATCH_MODEL_ID
     assert row["topology_mppt_mismatch_scope"] == TOPOLOGY_MPPT_MISMATCH_SCOPE
-    assert row["topology_mppt_mismatch_coverage_scope"] == (
-        TOPOLOGY_MPPT_MISMATCH_COVERAGE_SCOPE
-    )
+    assert row["topology_mppt_mismatch_coverage_scope"] == (TOPOLOGY_MPPT_MISMATCH_COVERAGE_SCOPE)
 
 
 def test_identical_parallel_strings_have_zero_mismatch() -> None:
@@ -192,7 +185,7 @@ def test_identical_parallel_strings_have_zero_mismatch() -> None:
     assert row["p_common_mppt_w"] == pytest.approx(2 * independent)
 
 
-def test_known_18_14_4_physical_mismatch() -> None:
+def test_known_piecewise_18_125_15_125_3_physical_mismatch() -> None:
     topology = _topology([("mppt-1", [("a", 1), ("b", 1)])])
     _, upstream = _real_s81(topology, receiver_count=2)
     timestamp = upstream.states.index.get_level_values("timestamp")[0]
@@ -221,12 +214,11 @@ def test_known_18_14_4_physical_mismatch() -> None:
         },
         diagnostics=replace(upstream.diagnostics, voltage_points=4, iv_curve_row_count=8),
     )
-    row = calculate_topology_mppt_mismatch_from_string_iv(
-        topology, forged
-    ).operating_points.iloc[0]
-    assert row["p_independent_mp_w"] == pytest.approx(18.0)
-    assert row["p_common_mppt_w"] == pytest.approx(14.0)
-    assert row["p_mismatch_w"] == pytest.approx(4.0)
+    row = calculate_topology_mppt_mismatch_from_string_iv(topology, forged).operating_points.iloc[0]
+    # PL stationary points: independent 18.125 W; common 15.125 W.
+    assert row["p_independent_mp_w"] == pytest.approx(18.125)
+    assert row["p_common_mppt_w"] == pytest.approx(15.125)
+    assert row["p_mismatch_w"] == pytest.approx(3.0)
 
 
 def test_all_zero_resolves_without_physics(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -305,8 +297,7 @@ def test_four_timestamp_active_zero_mixed_unresolved_matrix(
     timestamps = list(upstream.states.index.get_level_values("timestamp").unique())
     states = upstream.states.copy(deep=True)
     curves = {
-        key: value.copy(deep=True)
-        for key, value in upstream.string_iv_curves_by_string_id.items()
+        key: value.copy(deep=True) for key, value in upstream.string_iv_curves_by_string_id.items()
     }
 
     def zero_at(string_id: str, timestamp: pd.Timestamp) -> None:
@@ -331,20 +322,14 @@ def test_four_timestamp_active_zero_mixed_unresolved_matrix(
     states.loc[unresolved_index, "receiver_module_electrical_state"] = (
         "unresolved_spectral_electrical_equivalent_irradiance"
     )
-    states.loc[
-        unresolved_index, "spectral_electrical_equivalent_irradiance_wm2"
-    ] = np.nan
+    states.loc[unresolved_index, "spectral_electrical_equivalent_irradiance_wm2"] = np.nan
     states.loc[unresolved_index, "module_iv_resolved"] = False
-    states.loc[unresolved_index, "module_iv_state"] = (
-        "unresolved_receiver_module_electrical"
-    )
+    states.loc[unresolved_index, "module_iv_state"] = "unresolved_receiver_module_electrical"
     states.loc[unresolved_index, "string_iv_resolved"] = False
-    states.loc[unresolved_index, "string_iv_state"] = (
-        "unresolved_receiver_module_electrical"
+    states.loc[unresolved_index, "string_iv_state"] = "unresolved_receiver_module_electrical"
+    curves["b"] = (
+        curves["b"].loc[~curves["b"]["timestamp"].eq(timestamps[3])].reset_index(drop=True)
     )
-    curves["b"] = curves["b"].loc[
-        ~curves["b"]["timestamp"].eq(timestamps[3])
-    ].reset_index(drop=True)
     forged = replace(
         upstream,
         states=states,
@@ -457,9 +442,7 @@ def test_invalid_authority_rejected_before_physics(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(electrical, "calculate_physical_mismatch", forbidden)
     with pytest.raises(ValueError, match="provenance"):
-        calculate_topology_mppt_mismatch_from_string_iv(
-            topology, replace(upstream, states=states)
-        )
+        calculate_topology_mppt_mismatch_from_string_iv(topology, replace(upstream, states=states))
     assert calls == 0
 
 
@@ -563,9 +546,7 @@ def test_empty_time_topology_and_empty_mppt() -> None:
 
     empty_mppt_topology = _topology([("empty", []), ("live", [("string-1", 24)])])
     _, mixed_upstream = _real_s81(empty_mppt_topology)
-    mixed = calculate_topology_mppt_mismatch_from_string_iv(
-        empty_mppt_topology, mixed_upstream
-    )
+    mixed = calculate_topology_mppt_mismatch_from_string_iv(empty_mppt_topology, mixed_upstream)
     assert mixed.diagnostics.empty_mppt_count == 1
     assert mixed.diagnostics.populated_mppt_count == 1
     assert set(mixed.operating_points.index.get_level_values("mppt_id")) == {"live"}
@@ -576,8 +557,7 @@ def test_reordering_determinism_immutability_and_exact_type() -> None:
     _, upstream = _real_s81(topology, periods=2)
     states_before = upstream.states.copy(deep=True)
     curves_before = {
-        key: frame.copy(deep=True)
-        for key, frame in upstream.string_iv_curves_by_string_id.items()
+        key: frame.copy(deep=True) for key, frame in upstream.string_iv_curves_by_string_id.items()
     }
     reordered = replace(
         upstream,
