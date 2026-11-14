@@ -1,6 +1,6 @@
 # Advanced S8 string-member and bypass architecture
 
-Current reviewed checkpoint: PR #144 merge `db4988a5f7a35c8b2415d33c135bbb1cffe5232f`.
+Current reviewed checkpoint: PR #145 merge `cd5db52e0c22833ad83ab197ddc6bdadb60acf8c`.
 
 ## Ownership and current boundary
 
@@ -47,14 +47,15 @@ physical `string_terminal` boundary before any existing branch transformation.
 | Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE, dormant; PR #142 |
 | Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE, dormant; PR #143 |
 | Stage4a-4 | Complete piecewise-linear multi-peak candidates/global selection and canonical curve handoff | COMPLETE, dormant; PR #144 |
-| Stage4a-5a | Explicit geometry/receiver/sample → module/section binding and direct-beam optical state | COMPLETE BY THIS PR, dormant |
-| Stage4a-5b | Bound optical state → reviewed section electrical operating state and complete Method A execution | PENDING |
+| Stage4a-5a | Explicit geometry/receiver/sample → module/section binding and direct-beam optical state | COMPLETE, dormant; PR #145 |
+| Stage4a-5b | Explicit complete reviewed section electrical-state binding and existing-owner Method A execution | COMPLETE BY THIS PR, dormant |
 | Stage4a-5c | String-class optimisation and Method B validated against Method A | PENDING |
 
 Stage 4a is not complete. A-06 now has explicit reverse, diode clamp and
 common-current composition coverage; A-07 now has exact piecewise-linear candidate/global selection in the
 [implementation-delta ledger](physics-implementation-delta.md). Stage4a-5a adds explicit optical sample ownership within A-05. Section electrical-state
-binding (5b), optimisation/Method B (5c) and site evidence remain pending; A-05
+binding and existing-owner Method A (5b) are implemented by this PR;
+optimisation/Method B (5c) and site evidence remain pending; A-05
 stays ADVANCED_FIDELITY_PENDING. Overall Stage 4a remains incomplete.
 
 ## Exact authority representation
@@ -310,8 +311,9 @@ Output curves retain caller current order and may include negative terminal
 voltage/power. They describe the existing physical `string_terminal` plane;
 no downstream adapter, branch loss, MPPT solve or S9 execution is invoked.
 Stage4a-4 owns the explicit piecewise-linear candidate/global handoff. Stage4a-5a
-owns explicit optical sample binding; 5b electrical-state binding and 5c
-optimisation/validated Method B remain pending. No diode failure/degradation
+owns explicit optical sample binding; 5b now binds explicit complete section
+SDM states and orchestrates Method A. Stage4a-5c optimisation/validated Method B
+remains pending. No diode failure/degradation
 state, module-parameter splitting, cell-voltage scaling or site authority is added.
 
 ## Stage4a-4 — complete piecewise-linear candidates and global handoff
@@ -435,8 +437,8 @@ lowest voltage. Fixtures whose maximum is already a sampled boundary stay
 unchanged. Strict typing additions in the touched legacy module helpers change
 no De Soto/module numerical equations.
 
-Stage4a-5a adds explicit optical sample binding below; Stage4a-5b section electrical
-state/complete Method A and Stage4a-5c optimisation/Method B remain pending. No tracking, control, blocking-diode or degradation model is added.
+Stage4a-5a adds explicit optical sample binding and Stage4a-5b explicit complete
+section-state binding/Method A below. Stage4a-5c optimisation/Method B remains pending. No tracking, control, blocking-diode or degradation model is added.
 All 53 Bracon baseline blockers and P3 BLOCKED/INACTIVE status remain unchanged.
 
 ## Stage4a-5a — explicit optical sample ownership
@@ -489,7 +491,11 @@ proof of mesh/sample correspondence. Synthetic tests use the existing
 no ray tracer/intersection equations are duplicated.
 
 One snapshot per used `(samples_u, samples_v)` grid is required. Several grids
-can coexist. Each snapshot supplies an exact geometry revision and opaque
+can coexist only for one exactly matching revision, snapshot reference and
+optional solar-angle context (including agreement on None). Supplied zenith is
+restricted to `[0, 90)` and azimuth to `[0, 360)`, matching the reference kernel.
+The frozen 5a result retains this common context; an empty snapshot tuple
+retains geometry but invents no optical observation. Each snapshot supplies an exact geometry revision and opaque
 non-empty snapshot reference; optional supplied solar zenith/azimuth are retained
 and validated, never calculated or assumed. The reference labels the snapshot
 without inventing timestamp semantics. Stale revision, missing/duplicate grid or
@@ -529,9 +535,101 @@ multiplied by irradiance, converted to photocurrent or used to split module SDM
 parameters. No temperature, effective irradiance, IL, I0, Rs, Rsh or nNsVth is
 created or changed. IAM, diffuse, rear, bifacial, spectral, soiling and thermal
 ownership remains separate. No Bishop, clamp, composition, peak, branch, MPPT,
-inverter or runtime execution is invoked. Stage4a-5b owns reviewed optical-to-
-electrical state and complete Method A execution; Stage4a-5c owns optimisation
-and Method B validated against Method A. Both remain pending.
+inverter or runtime execution is invoked by 5a. Stage4a-5b below binds explicit
+reviewed electrical states and orchestrates Method A. Stage4a-5c optimisation
+and Method B validated against Method A remain pending.
+
+## Stage4a-5b — explicit electrical-state binding and reference Method A
+
+The [section authority](../../src/heliotelligence/physics/string_section_electrical_state_authority.py)
+admits a complete reviewed `SectionSingleDiodeOperatingState` per canonical
+`BypassSectionIdentity`. It is bound to a resolved 5a section, its exact geometry
+revision and opaque optical snapshot reference, and one explicit aware non-NaT
+`pd.Timestamp`. All bindings share that timestamp and timezone identity. Nothing
+parses time from the optical reference; the caller labels the observation.
+
+```text
+contract: explicit_section_sdm_operating_state_binding_authority_v1
+model: explicit_complete_section_single_diode_state_bound_to_optical_snapshot_v1
+scope: advanced_s8_section_electrical_state_before_bishop_clamp_and_series_composition
+coverage: explicit_stage4a5a_sections_with_complete_reviewed_section_sdm_operating_state
+```
+
+The narrow public `validate_section_direct_beam_state` replays existing 5a from
+topology, SiteGeometry, static optical binding and original visibility snapshots,
+then compares every frozen nested field type/value, ordered immutable mapping,
+identity, tuple, common context and contract exactly. It runs no ray tracing or
+new optics and establishes integrity, not external evidence authenticity. Forged
+optical state is rejected before electrical admission or execution.
+
+Each electrical binding retains the complete nested SDM state, source, categorical
+confidence, method, irradiance-basis description, temperature-basis description
+and applicability. Native numerical domains are validated only by the canonical
+Stage4a-2 `validate_section_single_diode_operating_state`; no second set of domain
+rules or parameter model is introduced. Free-text basis descriptions and
+confidence never change numerical values.
+
+**5a fractions are geometric audit state, not electrical equations.** A supplied
+section state is never recalculated from visible/shaded sample counts or a mean
+receiver fraction. Partial shading can be controlled by current-limiting cells
+or branches rather than mean shaded area. Reviewed electrical-equivalent
+irradiance and temperature must therefore be explicitly supplied with their bases.
+No IAM, diffuse, rear, bifacial, spectral, thermal or visibility factor is applied
+again to the complete state.
+
+This reconciles the source Stage4a design's useful MVP module Rs/Rsh/nNsVth split
+with the stronger canonical authority boundary: **the shortcut is not adopted**.
+A fitted module SDM can already embody internal topology and manufacturing
+characteristics. Section/cell/parallel-branch counts alone do not establish a
+valid section-equivalent parameter transformation. Module IL/I0 are not copied,
+module resistance/voltage parameters are not divided, and no section De Soto,
+cell model, lookup or hidden optical-to-electrical conversion is introduced.
+
+Complete, partial and empty electrical evidence remain explicit and detached.
+The result retains geometry, optical reference, one caller-supplied observation
+timestamp, ordered section bindings/partitions and closing counts: topology
+sections, optically resolved sections, electrically admitted sections and
+unavailable sections. Empty electrical evidence still has the explicit calculation
+label; it invents neither optical coverage nor SDM values. Independent validation
+inspects electrical fields and closure directly, reusing canonical 5a replay for
+parent integrity; it never calls the electrical admission resolver to rebuild.
+
+### Existing-owner Method A execution
+
+The [Method A coordinator](../../src/heliotelligence/physics/string_method_a.py)
+validates the electrical authority and exact observation timestamp. It requires
+an explicit current tuple validated by `validate_common_current_grid`; it neither
+chooses a resolution nor sorts/refines samples. It extracts only admitted section
+states, calls `compose_topology_common_current_iv`, then calls
+`analyze_advanced_string_multi_peak_candidates` on that exact composition.
+The existing Stage4a-2/3 owners retain Bishop/clamp/series physics; Stage4a-4
+retains transition insertion, search completeness and represented peak selection.
+There is no second solver or candidate policy.
+
+```text
+contract: advanced_string_method_a_full_iv_execution_v1
+model: explicit_section_state_existing_bishop_clamp_series_and_peak_replay_v1
+scope: advanced_s8_method_a_string_terminal_reference_execution_before_dc_branch
+coverage: complete_section_operating_reverse_breakdown_bypass_diode_and_topology_evidence
+```
+
+The frozen wrapper retains timestamp, geometry revision, optical reference,
+detached electrical authority, existing `AdvancedStringCandidateResult` and
+closing diagnostics. Large frames are retained through that existing owner,
+not duplicated by the wrapper. The electrically complete candidate count is the
+number of complete strings composed by Stage4a-3; the active/zero/unavailable
+counts additionally reflect Stage4a-4 domain completeness. Candidate/local-maximum
+counts remain the canonical Stage4a-4 diagnostics.
+
+A whole string remains unavailable when any section lacks operating, reverse or
+diode evidence. No neighbor, module, receiver or homogeneous state is substituted.
+Explicit zero photocurrent is passed through unchanged. Negative intermediate
+voltage remains valid; only Stage4a-4 constructs the nonnegative string-terminal
+handoff. Global selection remains exact over its admitted piecewise-linear
+representation, not analytical continuous Bishop physics or real MPPT tracking.
+This dormant reference execution stops before DC branch, parallel shared-MPPT,
+inverter and production/source dispatch. No site validation or annual accuracy
+claim follows from generic Method A capability.
 
 ## Method A before Method B
 

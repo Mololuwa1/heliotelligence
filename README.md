@@ -10,7 +10,7 @@ Evidence determines fidelity; fidelity determines available physics. Missing adv
 
 ## Current validated scope
 
-Current canonical code checkpoint: `db4988a5f7a35c8b2415d33c135bbb1cffe5232f` (PR #144 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `cd5db52e0c22833ad83ab197ddc6bdadb60acf8c` (PR #145 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 The **generic electrical chain from S8 through S14 is implemented and validated**:
 
@@ -256,7 +256,7 @@ is separate. A clear gate is not production activation or physical-model validat
 No shadow execution is activated. Exact-main manual full regression remains
 required before eventual activation/release, not for this blocked governance closure.
 
-## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3/4/5a
+## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3/4/5a/5b
 
 The [advanced string/bypass architecture](docs/architecture/advanced-string-bypass-architecture.md) defines the bounded
 Stage4a-1–5 sequence under canonical S8 ownership. Stage4a-1 now implements
@@ -280,9 +280,11 @@ It reuses the canonical common-voltage owner and the same independent mismatch
 counterfactual basis. This is not a continuous-Bishop global guarantee.
 Stage4a-5a adds explicit geometry-revision/receiver/sample to physical module/section
 binding and finite-sample direct-beam optical state. It derives no irradiance or
-electrical parameters. Stage4a-5b optical-to-electrical state and complete Method A
-execution remain pending; Stage4a-5c optimisation and validated Method B remain
-pending. Overall Stage 4a is incomplete. Method A must precede validated Method B.
+electrical parameters. Stage4a-5a is complete and dormant via PR #145. Stage4a-5b
+now binds explicit complete reviewed section SDM states to the coherent optical
+observation and one aware timestamp, then orchestrates existing Stage4a-2/3/4
+Method A owners. It neither derives states from visibility fractions nor splits
+module SDM parameters. Stage4a-5c optimisation and validated Method B remain pending. Overall Stage 4a is incomplete. Method A must precede validated Method B.
 Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
 and S9/downstream physics remain unchanged. No configuration schema changes or
 Bracon admissions occur: P2 review is complete, all 53 unique baseline blockers
