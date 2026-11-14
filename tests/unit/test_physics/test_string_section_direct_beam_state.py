@@ -221,7 +221,7 @@ def test_different_explicit_grids_and_unbound_cells() -> None:
     assert before.unavailable_section_ids == auth.unavailable_section_ids
 
 
-@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "30", -1.0])
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "30", -1.0, 90.0, 91.0, 180.0])
 def test_invalid_optional_angles(value: Any) -> None:
     with pytest.raises(ValueError):
         run(snaps=(snapshot(solar_zenith_deg=value),))
@@ -248,3 +248,67 @@ def test_output_is_optical_only_and_caller_mutation_cannot_change_it() -> None:
         "resistance_shunt_ohm",
         "n_ns_vth_v",
     }
+
+
+def multi_grid_inputs() -> tuple[Any, tuple[s.DirectBeamVisibilitySnapshot, ...]]:
+    b = bindings()
+    keys = list(b)
+    authority = resolve(
+        {
+            keys[0]: replace(b[keys[0]], samples_u=1, samples_v=2, sample_indices=(0,)),
+            keys[1]: b[keys[1]],
+        }
+    )
+    small = replace(snapshot(frame().iloc[:2].copy()), samples_u=1, samples_v=2)
+    return authority, (small, snapshot())
+
+
+@pytest.mark.parametrize(
+    "field,left,right",
+    [
+        ("snapshot_reference", "observation-A", "observation-B"),
+        ("solar_zenith_deg", 30.0, 31.0),
+        ("solar_azimuth_deg", 100.0, 101.0),
+        ("solar_zenith_deg", None, 30.0),
+        ("solar_zenith_deg", 30.0, None),
+        ("solar_azimuth_deg", None, 100.0),
+        ("solar_azimuth_deg", 100.0, None),
+    ],
+)
+def test_multi_grid_observation_disagreement_fails_closed(
+    field: str, left: Any, right: Any
+) -> None:
+    authority, snapshots = multi_grid_inputs()
+    snapshots = (
+        replace(snapshots[0], **{field: left}),
+        replace(snapshots[1], **{field: right}),
+    )
+    with pytest.raises(ValueError, match="coherent"):
+        run(authority=authority, snaps=snapshots)
+
+
+@pytest.mark.parametrize("angles", [(None, None), (30.0, 100.0)])
+def test_multi_grid_common_observation_retained_at_result_level(
+    angles: tuple[float | None, float | None],
+) -> None:
+    authority, snapshots = multi_grid_inputs()
+    snapshots = tuple(
+        replace(x, solar_zenith_deg=angles[0], solar_azimuth_deg=angles[1]) for x in snapshots
+    )
+    result = run(authority=authority, snaps=snapshots)
+    assert result.geometry_revision == "revision-1"
+    assert result.snapshot_reference == "snapshot:test"
+    assert (result.solar_zenith_deg, result.solar_azimuth_deg) == angles
+    assert result == run(authority=authority, snaps=tuple(reversed(snapshots)))
+    for section in result.states_by_section.values():
+        assert section.geometry_revision == result.geometry_revision
+        assert section.snapshot_reference == result.snapshot_reference
+        assert section.solar_zenith_deg == result.solar_zenith_deg
+        assert section.solar_azimuth_deg == result.solar_azimuth_deg
+
+
+def test_empty_result_has_geometry_but_no_invented_observation() -> None:
+    result = run(authority=resolve({}), snaps=())
+    assert result.geometry_revision == "revision-1"
+    assert result.snapshot_reference is None
+    assert result.solar_zenith_deg is None and result.solar_azimuth_deg is None

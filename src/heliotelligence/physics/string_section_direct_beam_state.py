@@ -93,6 +93,10 @@ class SectionDirectBeamOpticalState(SectionOpticalBinding):
 class SectionDirectBeamStateResult:
     states_by_section: Mapping[BypassSectionIdentity, SectionDirectBeamOpticalState]
     unavailable_section_ids: tuple[BypassSectionIdentity, ...]
+    geometry_revision: str
+    snapshot_reference: str | None
+    solar_zenith_deg: float | None
+    solar_azimuth_deg: float | None
     contract: str = SECTION_DIRECT_BEAM_STATE_CONTRACT_ID
     model: str = SECTION_DIRECT_BEAM_STATE_MODEL_ID
     scope: str = SECTION_DIRECT_BEAM_STATE_SCOPE
@@ -112,16 +116,17 @@ def _snapshot_rows(
     for count in (snapshot.samples_u, snapshot.samples_v):
         if type(count) is not int or count <= 0:
             raise ValueError("snapshot grid must use exact positive integers")
-    for value, upper, closed in (
-        (snapshot.solar_zenith_deg, 180.0, True),
-        (snapshot.solar_azimuth_deg, 360.0, False),
+    # Match the canonical visibility-map kernel: above-horizon geometry only.
+    for value, upper in (
+        (snapshot.solar_zenith_deg, 90.0),
+        (snapshot.solar_azimuth_deg, 360.0),
     ):
         if value is not None and (
             isinstance(value, (bool, np.bool_))
             or not isinstance(value, Real)
             or not math.isfinite(value)
             or value < 0
-            or (value > upper if closed else value >= upper)
+            or value >= upper
         ):
             raise ValueError("supplied solar angle is invalid")
     frame = snapshot.visibility_map
@@ -176,9 +181,11 @@ def resolve_section_direct_beam_state(
 ) -> SectionDirectBeamStateResult:
     """Aggregate only assigned sample sets, never continuous area or irradiance.
 
-    One explicit snapshot per used grid is required; several grids are supported.
+    One explicit snapshot per used grid is required; several grids are supported
+    only as representations of one exactly matching optical observation.
     Extra unrelated receivers remain unassigned. Bound samples must all exist.
     Snapshot references are caller evidence labels, not new temporal authority.
+    With no snapshots, the empty result retains geometry but no observation.
     """
     validate_section_optical_binding_authority(parent, geometry, authority)
     if type(snapshots) is not tuple:
@@ -186,6 +193,7 @@ def resolve_section_direct_beam_state(
     grids: dict[
         tuple[int, int], tuple[DirectBeamVisibilitySnapshot, dict[tuple[str, int], bool]]
     ] = {}
+    context: tuple[str, str, float | None, float | None] | None = None
     for snapshot in snapshots:
         if type(snapshot) is not DirectBeamVisibilitySnapshot:
             raise ValueError("expected exact visibility snapshot")
@@ -195,6 +203,15 @@ def resolve_section_direct_beam_state(
             if (b.samples_u, b.samples_v) == (snapshot.samples_u, snapshot.samples_v)
         }
         rows = _snapshot_rows(snapshot, geometry.geometry_revision, receivers)
+        observation = (
+            snapshot.geometry_revision,
+            snapshot.snapshot_reference,
+            snapshot.solar_zenith_deg,
+            snapshot.solar_azimuth_deg,
+        )
+        if context is not None and observation != context:
+            raise ValueError("grid snapshots must describe one coherent optical observation")
+        context = observation
         grid = (snapshot.samples_u, snapshot.samples_v)
         if grid in grids:
             raise ValueError("duplicate grid snapshot")
@@ -232,4 +249,11 @@ def resolve_section_direct_beam_state(
     unavailable = tuple(
         BypassSectionIdentity(k.module_id, k.section_id) for k in authority.unavailable_section_ids
     )
-    return SectionDirectBeamStateResult(MappingProxyType(states), unavailable)
+    return SectionDirectBeamStateResult(
+        MappingProxyType(states),
+        unavailable,
+        geometry_revision=geometry.geometry_revision,
+        snapshot_reference=context[1] if context is not None else None,
+        solar_zenith_deg=context[2] if context is not None else None,
+        solar_azimuth_deg=context[3] if context is not None else None,
+    )
