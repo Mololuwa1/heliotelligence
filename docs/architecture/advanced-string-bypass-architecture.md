@@ -1,6 +1,6 @@
 # Advanced S8 string-member and bypass architecture
 
-Current reviewed checkpoint: PR #143 merge `8148299f632f8cb5f97ce2b9940bfb5d6aababc0`.
+Current reviewed checkpoint: PR #144 merge `db4988a5f7a35c8b2415d33c135bbb1cffe5232f`.
 
 ## Ownership and current boundary
 
@@ -46,13 +46,16 @@ physical `string_terminal` boundary before any existing branch transformation.
 | Stage4a-1 | Member / bypass-protected-section topology authority | COMPLETE, dormant |
 | Stage4a-2 | Explicit reverse-breakdown authority + isolated Bishop reverse/forward section I-V | COMPLETE, dormant; PR #142 |
 | Stage4a-3 | Explicit bypass-diode authority/clamp + common-current section/module/string composition | COMPLETE, dormant; PR #143 |
-| Stage4a-4 | Complete piecewise-linear multi-peak candidates/global selection and canonical curve handoff | COMPLETE BY THIS PR, dormant |
-| Stage4a-5 | Optical/shading-state → section binding, string-class optimisation and Method-B validation | Pending |
+| Stage4a-4 | Complete piecewise-linear multi-peak candidates/global selection and canonical curve handoff | COMPLETE, dormant; PR #144 |
+| Stage4a-5a | Explicit geometry/receiver/sample → module/section binding and direct-beam optical state | COMPLETE BY THIS PR, dormant |
+| Stage4a-5b | Bound optical state → reviewed section electrical operating state and complete Method A execution | PENDING |
+| Stage4a-5c | String-class optimisation and Method B validated against Method A | PENDING |
 
 Stage 4a is not complete. A-06 now has explicit reverse, diode clamp and
 common-current composition coverage; A-07 now has exact piecewise-linear candidate/global selection in the
-[implementation-delta ledger](physics-implementation-delta.md). Geometry/shading
-binding remains pending within A-05; connectivity authority is its first slice.
+[implementation-delta ledger](physics-implementation-delta.md). Stage4a-5a adds explicit optical sample ownership within A-05. Section electrical-state
+binding (5b), optimisation/Method B (5c) and site evidence remain pending; A-05
+stays ADVANCED_FIDELITY_PENDING. Overall Stage 4a remains incomplete.
 
 ## Exact authority representation
 
@@ -306,8 +309,9 @@ reference plane: string_terminal
 Output curves retain caller current order and may include negative terminal
 voltage/power. They describe the existing physical `string_terminal` plane;
 no downstream adapter, branch loss, MPPT solve or S9 execution is invoked.
-Stage4a-4 owns the explicit piecewise-linear candidate/global handoff. Stage4a-5 will own
-optical mapping/optimisation and validated Method B. No diode failure/degradation
+Stage4a-4 owns the explicit piecewise-linear candidate/global handoff. Stage4a-5a
+owns explicit optical sample binding; 5b electrical-state binding and 5c
+optimisation/validated Method B remain pending. No diode failure/degradation
 state, module-parameter splitting, cell-voltage scaling or site authority is added.
 
 ## Stage4a-4 — complete piecewise-linear candidates and global handoff
@@ -431,9 +435,103 @@ lowest voltage. Fixtures whose maximum is already a sampled boundary stay
 unchanged. Strict typing additions in the touched legacy module helpers change
 no De Soto/module numerical equations.
 
-Stage4a-5, optical/geometry binding, string-class optimisation and Method B remain
-pending. No tracking, control, blocking-diode or degradation model is added.
+Stage4a-5a adds explicit optical sample binding below; Stage4a-5b section electrical
+state/complete Method A and Stage4a-5c optimisation/Method B remain pending. No tracking, control, blocking-diode or degradation model is added.
 All 53 Bracon baseline blockers and P3 BLOCKED/INACTIVE status remain unchanged.
+
+## Stage4a-5a — explicit optical sample ownership
+
+The [binding authority](../../src/heliotelligence/physics/string_section_optical_binding_authority.py)
+connects canonical `SiteGeometry.geometry_revision` and `PVReceiver.id` to the
+existing `BypassSectionIdentity(module_id, section_id)`. Geometry receivers remain
+independent of electrical topology; no IDs are added to `PVReceiver`. The owning
+module's opaque `physical_position_reference` must match exactly. It is never
+parsed as coordinates. Module, receiver and position-reference namespaces remain
+independent.
+
+```text
+contract: explicit_string_section_optical_sample_binding_authority_v1
+model: explicit_receiver_visibility_sample_to_bypass_section_binding_v1
+scope: advanced_s8_optical_geometry_to_section_binding_before_section_electrical_state
+coverage: explicit_stage4a1_sections_with_geometry_revision_receiver_and_sample_cell_mapping
+```
+
+Each frozen binding explicitly supplies geometry revision, receiver, positive exact
+integer `samples_u`/`samples_v`, a non-empty strictly increasing tuple of exact
+integer sample indices, source, confidence, method and applicability. No default
+mapping/layout or equal split exists. The grid universe is `0 <= i < u*v`.
+Within one revision/receiver/grid, no sample cell can belong to two sections.
+Partial/empty coverage and unassigned cells remain explicit; non-contiguous,
+interleaved and unequal sample sets and several modules on one receiver are valid.
+Identical module-local section labels remain distinct canonical identities.
+
+The resolver detaches frozen records and identities into an immutable mapping,
+ordered by Stage4a-1 traversal. Independent validation checks reconstructible
+Stage4a-1 integrity using its existing authority inspector, then every binding,
+position reference, revision, receiver, exact field type, ownership overlap,
+partition, fixed metadata and closing diagnostic count. It does not call the
+binding resolver or rebuild the authority. Counts are topology sections, bound
+sections, unavailable sections, unique assigned cells and used receivers; no
+maturity percentage is published. This is integrity validation, not cryptographic
+evidence authentication or geometry conversion.
+
+### Explicit visibility snapshots and optical state
+
+The [direct-beam state resolver](../../src/heliotelligence/physics/string_section_direct_beam_state.py)
+consumes the binding authority plus explicitly supplied
+`DirectBeamVisibilitySnapshot` records. No reviewed canonical `SiteGeometry` mesh
+→ `RectangularSurface3D` adapter currently exists. This increment does not invent
+one or claim to replay geometry through such an adapter. The caller must supply
+and review the relationship of the canonical visibility map to the stated
+geometry revision. Snapshot metadata is an explicit assertion of basis, not a
+proof of mesh/sample correspondence. Synthetic tests use the existing
+`calculate_direct_beam_visibility_map` kernel on explicitly supplied rectangles;
+no ray tracer/intersection equations are duplicated.
+
+One snapshot per used `(samples_u, samples_v)` grid is required. Several grids
+can coexist. Each snapshot supplies an exact geometry revision and opaque
+non-empty snapshot reference; optional supplied solar zenith/azimuth are retained
+and validated, never calculated or assumed. The reference labels the snapshot
+without inventing timestamp semantics. Stale revision, missing/duplicate grid or
+missing bound samples fail closed. A binding from an old revision is not migrated.
+
+```text
+contract: section_direct_beam_visibility_state_v1
+model: bound_receiver_sample_visibility_aggregation_v1
+scope: advanced_s8_section_optical_state_before_section_electrical_parameter_resolution
+coverage: explicit_bound_visibility_samples_on_reviewed_geometry_revision
+```
+
+The exact canonical nine-column map schema is checked. Receiver/sample identity
+must be unique. Referenced receiver rows require in-range integral non-Boolean
+u/v indices and `sample_index = u_index*samples_v + v_index`, finite non-Boolean
+ENU coordinates and complementary Boolean `beam_visible`/`beam_shaded` values.
+Rows are never renumbered or silently coerced. Extra unrelated receivers are
+unassigned and ignored after identity/duplicate checks; unbound sample cells
+contribute nothing. Row permutation cannot change section traversal or physics.
+
+Frozen section states retain identity, receiver, position reference, revision,
+grid, bound/shaded indices, source/confidence/method/applicability, snapshot
+reference and optional angles. Exact visible + shaded count equals assigned
+count. Fractions are those counts divided by assigned count and close to one
+within floating roundoff. These are **fractions of a finite assigned sample set**,
+not exact continuous-area shading or electrical derates. Immutable result mappings
+and detached records retain partial unavailable-section coverage without changing
+Stage4a-1 or the independent homogeneous baseline. No fallback/dispatch occurs.
+
+A 50%-shaded receiver does not imply two 50%-shaded sections: explicitly assigning
+its visible cells to section A and shaded cells to section B gives A 0% shaded,
+B 100% shaded. Receiver aggregates, IDs, cell/branch counts, technology and opaque
+position references never establish this assignment.
+
+**No electrical section-state derivation occurs.** Visibility fractions are not
+multiplied by irradiance, converted to photocurrent or used to split module SDM
+parameters. No temperature, effective irradiance, IL, I0, Rs, Rsh or nNsVth is
+created or changed. IAM, diffuse, rear, bifacial, spectral, soiling and thermal
+ownership remains separate. No Bishop, clamp, composition, peak, branch, MPPT,
+inverter or runtime execution is invoked. Stage4a-5b owns reviewed optical-to-
+electrical state and complete Method A execution; Stage4a-5c owns optimisation
+and Method B validated against Method A. Both remain pending.
 
 ## Method A before Method B
 
@@ -449,10 +547,10 @@ hard-coded by Stage4a-1.
 No reverse-bias equations, Bishop evaluation, diode forward voltage, reverse
 breakdown parameters, diode failure state, clamp, multi-peak solver or electrical
 state is part of connectivity authority. Those electrical/equipment decisions
-begin in Stage4a-2 and composition in Stage4a-3. No shadow strips, cell-row map,
-orientation inference, portrait/landscape assumption, cell pitch, shaded fraction
-or PVsyst electrical-table interpretation is introduced. Later optical binding
-must supply its own reviewed evidence.
+begin in Stage4a-2 and composition in Stage4a-3. Connectivity authority infers no shadow strips, cell-row map,
+orientation, portrait/landscape arrangement, cell pitch, shaded fraction or PVsyst
+electrical-table interpretation. Stage4a-5a aggregates only explicitly assigned
+visibility samples; 5b electrical-state binding still requires reviewed evidence.
 
 Bracon has no admitted member/string routing evidence. This generic capability
 changes no Bracon manifest or authority artifact, reconciles no module population,

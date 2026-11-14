@@ -10,7 +10,7 @@ Heliotelligence is a physics-first PV digital twin and meter-benchmarking platfo
 
 ```text
 Current checkpoint:
-PR #143 merge 8148299f632f8cb5f97ce2b9940bfb5d6aababc0
+PR #144 merge db4988a5f7a35c8b2415d33c135bbb1cffe5232f
 Validated generic electrical chain:
 S8 → S9 → S10 → S11 → S12 → S13 → S14
 Upstream readiness:
@@ -35,7 +35,7 @@ Bracon baseline physical admission: INCOMPLETE; P3 entry BLOCKED; execution INAC
 Next: acquire/admit evidence within P2E–P2H; no additional P2 letter or shadow activation
 ```
 
-Current canonical code checkpoint: `8148299f632f8cb5f97ce2b9940bfb5d6aababc0` (PR #143 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
+Current canonical code checkpoint: `db4988a5f7a35c8b2415d33c135bbb1cffe5232f` (PR #144 merge on `main`). Live GitHub CI must be rechecked for release/merge decisions. Git history and GitHub Actions are the authoritative historical record.
 
 “Implemented generically” means the reusable physics contract exists and is tested. It does not mean every configured site has enough evidence to resolve that stage. **Code capability ≠ site evidence ≠ resolved timestamp ≠ production activation.**
 
@@ -879,7 +879,7 @@ The [platform authorization policy](architecture/platform-authorization.md) docu
 
 The generic revenue-meter uncertainty stack is complete at PR #128. Authorization implementation is now complete and tested; site evidence acquisition/admission within P2E–P2H is next. Physics, S14, uncertainty, `physics_sdm`, source selection and Bracon physical admission remain unchanged. P1 output contract is complete generically; Bracon physical admission remains incomplete and no P3 shadow execution or deployment occurs.
 
-## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3/4
+## Advanced S8 topology, reverse I-V and bypass composition — Stage4a-1/2/3/4/5a
 
 The [advanced string/bypass architecture](architecture/advanced-string-bypass-architecture.md) defines the bounded
 Stage4a-1–5 sequence under canonical S8 ownership. Stage4a-1 now implements
@@ -901,8 +901,12 @@ Stage4a-4 now adds complete candidates/global selection over the admitted
 piecewise-linear I-V, with transition replay and explicit domain-completeness gates.
 It reuses the canonical common-voltage owner and the same independent mismatch
 counterfactual basis. This is not a continuous-Bishop global guarantee.
-Stage4a-5 geometry/optical binding, optimisation and Method B remain pending. Method A must precede validated
-Method B. Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
+Stage4a-5a adds explicit geometry-revision/receiver/sample to physical module/section
+binding and finite-sample direct-beam optical state. It derives no irradiance or
+electrical parameters. Stage4a-5b optical-to-electrical state and complete Method A
+execution remain pending; Stage4a-5c optimisation and validated Method B remain
+pending. Overall Stage 4a is incomplete. Method A must precede validated Method B.
+Existing homogeneous string I-V, direct branch, shared-MPPT mismatch
 and S9/downstream physics remain unchanged. No configuration schema changes or
 Bracon admissions occur: P2 review is complete, all 53 unique baseline blockers
 remain, and P3 is BLOCKED and INACTIVE. No runtime/source activation occurs.
